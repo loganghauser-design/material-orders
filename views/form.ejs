@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= order ? 'Edit Order' : 'New Order' %> — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<nav class="nav">
+  <span class="nav-brand">📦 Material Orders</span>
+  <div class="nav-actions">
+    <a href="/" class="btn btn-ghost">← Back</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="page-header">
+    <h1><%= order && order.id ? 'Edit Order' : 'New Order' %></h1>
+  </div>
+
+  <% if (error) { %><div class="error-msg"><%= error %></div><% } %>
+
+  <div class="card">
+    <form method="POST" action="<%= order && order.id ? '/orders/' + order.id : '/orders' %>">
+      <div class="form-grid">
+
+        <div class="form-group full">
+          <label for="material">Material <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="material" name="material" value="<%= order ? order.material || '' : '' %>" placeholder="e.g. Rebar #5, Concrete 4000psi" required>
+        </div>
+
+        <div class="form-group">
+          <label for="supplier">Supplier</label>
+          <input type="text" id="supplier" name="supplier" value="<%= order ? order.supplier || '' : '' %>" placeholder="Supplier name">
+        </div>
+
+        <div class="form-group">
+          <label for="status">Status</label>
+          <select id="status" name="status">
+            <% ['pending','in_transit','delivered','cancelled'].forEach(s => { %>
+              <option value="<%= s %>" <%- (order && order.status === s) ? 'selected' : (!order && s==='pending'?'selected':'') %>><%= s.replace('_',' ') %></option>
+            <% }) %>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label for="quantity">Quantity <span style="color:var(--danger)">*</span></label>
+          <input type="text" id="quantity" name="quantity" value="<%= order ? order.quantity || '' : '' %>" placeholder="e.g. 50" required>
+        </div>
+
+        <div class="form-group">
+          <label for="unit">Unit</label>
+          <input type="text" id="unit" name="unit" value="<%= order ? order.unit || '' : '' %>" placeholder="e.g. tons, bags, yards">
+        </div>
+
+        <div class="form-group">
+          <label for="order_date">Order Date</label>
+          <input type="date" id="order_date" name="order_date" value="<%= order && order.order_date ? new Date(order.order_date).toISOString().slice(0,10) : '' %>">
+        </div>
+
+        <div class="form-group">
+          <label for="delivery_date">Delivery Date</label>
+          <input type="date" id="delivery_date" name="delivery_date" value="<%= order && order.delivery_date ? new Date(order.delivery_date).toISOString().slice(0,10) : '' %>">
+        </div>
+
+        <div class="form-group full">
+          <label for="notes">Notes</label>
+          <textarea id="notes" name="notes" placeholder="Any extra details…"><%= order ? order.notes || '' : '' %></textarea>
+        </div>
+
+      </div>
+
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary"><%= order && order.id ? 'Save changes' : 'Create order' %></button>
+        <a href="/" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+
+<nav class="nav">
+  <span class="nav-brand">📦 Material Orders</span>
+  <div class="nav-actions">
+    <a href="/orders/new" class="btn btn-primary">+ New Order</a>
+    <form method="POST" action="/logout" style="margin:0">
+      <button type="submit" class="btn btn-ghost">Sign out</button>
+    </form>
+  </div>
+</nav>
+
+<div class="container">
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat-card pending">
+      <div class="stat-label">Pending</div>
+      <div class="stat-value"><%= stats.pending %></div>
+    </div>
+    <div class="stat-card transit">
+      <div class="stat-label">In Transit</div>
+      <div class="stat-value"><%= stats.in_transit %></div>
+    </div>
+    <div class="stat-card delivered">
+      <div class="stat-label">Delivered</div>
+      <div class="stat-value"><%= stats.delivered %></div>
+    </div>
+    <div class="stat-card total">
+      <div class="stat-label">Total Orders</div>
+      <div class="stat-value"><%= stats.total %></div>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <form method="GET" action="/" class="toolbar">
+    <input type="text" name="search" placeholder="Search material, supplier…" value="<%= query.search || '' %>">
+    <select name="status" onchange="this.form.submit()">
+      <option value="">All statuses</option>
+      <option value="pending" <%- query.status==='pending'?'selected':'' %>>Pending</option>
+      <option value="in_transit" <%- query.status==='in_transit'?'selected':'' %>>In Transit</option>
+      <option value="delivered" <%- query.status==='delivered'?'selected':'' %>>Delivered</option>
+      <option value="cancelled" <%- query.status==='cancelled'?'selected':'' %>>Cancelled</option>
+    </select>
+    <select name="sort" onchange="this.form.submit()">
+      <option value="created" <%- query.sort==='created'?'selected':'' %>>Newest first</option>
+      <option value="date_asc" <%- query.sort==='date_asc'?'selected':'' %>>Delivery ↑</option>
+      <option value="date_desc" <%- query.sort==='date_desc'?'selected':'' %>>Delivery ↓</option>
+    </select>
+    <button type="submit" class="btn btn-ghost">Search</button>
+    <% if (query.search || query.status) { %>
+      <a href="/" class="btn btn-ghost">Clear</a>
+    <% } %>
+  </form>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Material</th>
+          <th>Supplier</th>
+          <th>Qty</th>
+          <th>Status</th>
+          <th>Order Date</th>
+          <th>Delivery Date</th>
+          <th>Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (orders.length === 0) { %>
+          <tr class="empty-row"><td colspan="8">No orders yet. <a href="/orders/new">Add one.</a></td></tr>
+        <% } %>
+        <% orders.forEach(o => { %>
+          <tr>
+            <td><strong><%= o.material %></strong></td>
+            <td><%= o.supplier || '—' %></td>
+            <td><%= o.quantity %><% if(o.unit){ %> <%= o.unit %><% } %></td>
+            <td><span class="badge badge-<%= o.status %>"><%= o.status.replace('_',' ') %></span></td>
+            <td><%= o.order_date ? new Date(o.order_date).toLocaleDateString() : '—' %></td>
+            <td><%= o.delivery_date ? new Date(o.delivery_date).toLocaleDateString() : '—' %></td>
+            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)"><%= o.notes || '' %></td>
+            <td>
+              <div class="row-actions">
+                <a href="/orders/<%= o.id %>/edit" class="btn btn-ghost btn-sm">Edit</a>
+                <form method="POST" action="/orders/<%= o.id %>/delete" onsubmit="return confirm('Delete this order?')">
+                  <button type="submit" class="btn btn-danger btn-sm">Del</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+</body>
+</html>
