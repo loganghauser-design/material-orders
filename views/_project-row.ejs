@@ -1,0 +1,35 @@
+<%
+  const im = itemMaps[p.id] || {};
+  const codes = ['1a','1b','1c','1d','1e','2a','2b','2c','3b','2e','3a','2d','3c','3d','3e'];
+%>
+<tr data-id="<%= p.id %>">
+  <td class="col-addr"><span class="drag-handle" title="Drag to reorder">⠿</span><a href="/projects/<%= p.id %>"><strong><%= p.address %></strong><% if (typeof unread !== 'undefined' && unread && unread[p.id]) { %> <span class="reply-dot" title="New vendor reply">●</span><% } %><% if(p.version){%><br><small style="color:var(--muted)"><%= p.version %></small><%}%></a></td>
+  <td class="col-status">
+    <select class="status-select badge-<%= p.overall_status.toLowerCase().replace(/[\s-]+/g,'_') %>" data-project="<%= p.id %>" data-completed="<%= p.overall_status === 'Fully Delivered' %>" onchange="saveStatus(this)">
+      <% PROJECT_STATUSES.forEach(s => { %>
+        <option value="<%= s %>" <%- p.overall_status===s?'selected':'' %>><%= s %></option>
+      <% }) %>
+    </select>
+  </td>
+  <% codes.forEach((code, i) => {
+    const st = (im[code] && im[code].status) || 'Not yet placed';
+    const cls = 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
+    const groupClass = (i === 4 || i === 9) ? 'border-right' : '';
+  %>
+  <td class="item-cell <%= groupClass %>">
+    <select class="grid-select <%= cls %>" data-project="<%= p.id %>" data-code="<%= code %>" onchange="saveGridItem(this)">
+      <% ITEM_STATUSES.forEach(s => { %>
+        <option value="<%= s %>" <%- st===s?'selected':'' %>><%= s %></option>
+      <% }) %>
+    </select>
+  </td>
+  <% }) %>
+  <td>
+    <div class="row-actions">
+      <a href="/projects/<%= p.id %>" class="btn btn-ghost btn-sm">Open</a>
+      <form method="POST" action="/projects/<%= p.id %>/delete" onsubmit="return confirm('Delete?')">
+        <button type="submit" class="btn btn-danger btn-sm">Del</button>
+      </form>
+    </div>
+  </td>
+</tr>

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#4f8ef7"/>
+  <g fill="#ffffff">
+    <rect x="120" y="170" width="272" height="200" rx="16" fill="none" stroke="#ffffff" stroke-width="22"/>
+    <path d="M120 220 H392" stroke="#ffffff" stroke-width="22"/>
+    <rect x="232" y="120" width="48" height="70" rx="10"/>
+  </g>
+  <text x="256" y="445" font-family="Arial, sans-serif" font-size="70" font-weight="700" fill="#ffffff" text-anchor="middle">ORDERS</text>
+</svg>

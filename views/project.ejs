@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= project.address %></title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4f8ef7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab">Payments</a>
+    <a href="/driving" class="nav-tab">Driving Log</a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions">
+    <a href="/projects/<%= project.id %>/status-pdf" target="_blank" class="btn btn-ghost">⬇ Status PDF</a>
+    <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost">Edit Project</a>
+    <a href="/" class="btn btn-ghost">← Back</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="page-header" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <div>
+      <h1><%= project.address %></h1>
+      <div style="color:var(--muted);margin-top:.25rem"><%= project.version || '' %></div>
+    </div>
+    <span class="badge badge-<%= project.overall_status.toLowerCase().replace(/[\s-]+/g,'_') %>" style="font-size:.95rem;padding:.4rem 1rem"><%= project.overall_status %></span>
+    <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
+  </div>
+
+  <!-- Milestone payment emails -->
+  <div class="email-card">
+    <div class="email-header">
+      <div>
+        <strong>Send Client Milestone Email</strong>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">
+          <% if (project.client_email) { %>
+            To: <%= project.client_name ? project.client_name + ' — ' : '' %><%= project.client_email %>
+          <% } else { %>
+            <span style="color:var(--danger)">No client email set — add one via Edit Project.</span>
+          <% } %>
+        </div>
+      </div>
+      <% if (!emailConfigured) { %>
+        <span class="badge badge-not_yet" style="font-size:.75rem">Email not configured</span>
+      <% } %>
+    </div>
+    <div class="email-buttons">
+      <% EMAIL_PHASES.forEach(ph => { %>
+        <button class="btn btn-ghost btn-phase" onclick="openEmailDialog('<%= ph.key %>', '<%= ph.label %>')"
+          <%= (!emailConfigured || !project.client_email) ? 'disabled' : '' %>>
+          <%= ph.label %>
+        </button>
+      <% }) %>
+    </div>
+  </div>
+
+  <!-- Documents + milestone payments -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem" class="two-col">
+    <div class="email-card" style="margin-bottom:0">
+      <div class="email-header"><div><strong>Documents</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">BOLs, contracts, permits, invoices.</div></div></div>
+      <% if (documents && documents.length) { %>
+        <div style="margin:.5rem 0">
+          <% documents.forEach(d => { %>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--border)">
+              <a href="/documents/<%= d.id %>" target="_blank">📄 <%= d.filename %></a>
+              <form method="POST" action="/documents/<%= d.id %>/delete" onsubmit="return confirm('Delete this document?')"><button class="btn btn-danger btn-sm">✕</button></form>
+            </div>
+          <% }) %>
+        </div>
+      <% } else { %><div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No documents yet.</div><% } %>
+      <form method="POST" action="/projects/<%= project.id %>/documents" enctype="multipart/form-data" style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem">
+        <input type="file" name="document" required style="font-size:.8rem">
+        <button class="btn btn-primary btn-sm">Upload</button>
+      </form>
+    </div>
+
+    <div class="email-card" style="margin-bottom:0">
+      <div class="email-header"><div><strong>Milestone Payments</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Recorded when you send a milestone email. <a href="/payments">Full ledger →</a></div></div></div>
+      <% if (payments && payments.length) { %>
+        <table style="width:100%;font-size:.85rem;margin-top:.5rem">
+          <% payments.forEach(p => { %>
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:.35rem 0"><%= p.phase_name %></td>
+              <td style="padding:.35rem 0"><strong>$<%= Number(p.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %></strong></td>
+              <td style="padding:.35rem 0;text-align:right"><span class="badge <%= p.paid ? 'badge-all_delivered' : 'badge-not_yet' %>"><%= p.paid ? '✓ Paid' : 'Unpaid' %></span></td>
+            </tr>
+          <% }) %>
+        </table>
+      <% } else { %><div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No milestone payments recorded yet.</div><% } %>
+    </div>
+  </div>
+
+  <!-- Vendor email threads -->
+  <div class="email-card">
+    <div class="email-header">
+      <div><strong>Vendor Email Threads</strong>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Order, delivery & quote emails you've sent for this project — with replies.</div>
+      </div>
+      <button class="btn btn-ghost btn-sm" onclick="loadThreads()">↻ Refresh</button>
+    </div>
+    <div id="threadList" style="margin-top:.5rem"><div style="color:var(--muted);font-size:.85rem">Loading…</div></div>
+  </div>
+
+  <% STAGES.forEach(stage => { %>
+  <div class="stage-card">
+    <div class="stage-header"><%= stage.name %></div>
+    <table class="stage-table">
+      <thead>
+        <tr>
+          <th style="width:40px"></th>
+          <th>Item</th>
+          <th>Status</th>
+          <th>Delivery Date</th>
+          <th>Notes</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% stage.items.forEach(item => {
+          const row = itemMap[item.code] || {};
+          const st = row.status || 'Not yet placed';
+          const sup = suppliers[item.code] || {};
+        %>
+        <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
+          <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
+          <td><strong><%= item.name %></strong></td>
+          <td>
+            <select class="item-select status-select" onchange="saveItem(this)">
+              <% ITEM_STATUSES.forEach(s => { %>
+                <option value="<%= s %>" <%- st===s?'selected':'' %>><%= s %></option>
+              <% }) %>
+            </select>
+          </td>
+          <td>
+            <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)">
+          </td>
+          <td>
+            <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)">
+          </td>
+          <td>
+            <button type="button" class="btn btn-ghost btn-sm"
+              onclick="openRfqDialog('<%= item.code %>', '<%= item.name.replace(/'/g, "\\'") %>', '<%= (sup.name||'').replace(/'/g, "\\'") %>', '<%= sup.email||'' %>')">Email Vendor</button>
+          </td>
+        </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <% }) %>
+</div>
+
+<!-- Email send dialog -->
+<div id="emailModal" class="modal-overlay">
+  <div class="modal">
+    <h2 id="emailModalTitle">Send Milestone Email</h2>
+    <p class="modal-sub">Fill in the amount and Melio link, then send to the client.</p>
+    <input type="hidden" id="emailPhaseKey">
+    <div class="form-group">
+      <label>Payment Amount ($)</label>
+      <input type="text" id="emailAmount" placeholder="e.g. 25,000">
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Melio Payment Link</label>
+      <input type="text" id="emailMelio" placeholder="https://melio.me/...">
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Below the Melio link (optional — paste from Google Sheets)</label>
+      <div id="emailExtra" class="paste-box" contenteditable="true" data-placeholder="Paste cells or type anything to appear below the Melio link…"></div>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Additional attachment (optional)</label>
+      <input type="file" id="emailFile">
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Your default attachment (set in Settings) is included automatically.</small>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="emailSendBtn" onclick="sendEmail()">Send Email</button>
+      <button class="btn btn-ghost" onclick="closeEmailDialog()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- RFQ dialog -->
+<div id="rfqModal" class="modal-overlay">
+  <div class="modal">
+    <h2 id="rfqModalTitle">Email Vendor</h2>
+    <p class="modal-sub">Drafts an email to the supplier. Paste your item list straight from Google Sheets.</p>
+    <input type="hidden" id="rfqItemCode">
+    <div class="form-group">
+      <label>Email Type</label>
+      <select id="rfqType" onchange="onRfqTypeChange()">
+        <option value="order">Place Order (initial full order)</option>
+        <option value="delivery">Request Delivery (deliver these now)</option>
+        <option value="quote">Request Quote (pricing/availability)</option>
+        <option value="warehouse">Warehouse Outbound (ship from our warehouse)</option>
+      </select>
+    </div>
+    <div class="form-group rfq-supplier-name" style="margin-top:.85rem">
+      <label>Supplier Name</label>
+      <input type="text" id="rfqSupplierName" placeholder="Supplier name">
+    </div>
+    <div class="form-group rfq-outbound-date" style="margin-top:.85rem;display:none">
+      <label>Outbound Date</label>
+      <input type="date" id="rfqOutboundDate">
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Shows in the email as e.g. "Friday (3/20)".</small>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label id="rfqEmailLabel">Supplier Email(s)</label>
+      <input type="text" id="rfqSupplierEmail" placeholder="email@vendor.com, second@vendor.com">
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Separate multiple addresses with commas — all get the same one email.</small>
+    </div>
+    <div class="form-group rfq-cc" style="margin-top:.85rem;display:none">
+      <label>CC</label>
+      <input type="text" id="rfqCc" placeholder="cc@example.com">
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label id="rfqItemsLabel">Items (paste from Google Sheets)</label>
+      <div id="rfqItems" class="paste-box" contenteditable="true" data-placeholder="Select cells in your sheet, copy, and paste here — the table appears exactly as it looks."></div>
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">The pasted table shows here before you send. Use the ✕ to clear.</small>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Extra note (optional)</label>
+      <input type="text" id="rfqNote" placeholder="e.g. Needed by end of month">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="rfqSendBtn" onclick="sendRfq()">Send RFQ</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('rfqModal').classList.remove('show')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reply → material update confirmation -->
+<div id="confirmUpdateModal" class="modal-overlay">
+  <div class="modal">
+    <h2>Update materials from your reply?</h2>
+    <p class="modal-sub">Your reply mentioned these materials. Set a delivery date and/or status, then apply — or skip.</p>
+    <div id="confirmItems" style="margin:.5rem 0 1rem"></div>
+    <div class="form-group">
+      <label>Delivery Date (optional)</label>
+      <input type="date" id="confirmDate">
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Status (optional)</label>
+      <select id="confirmStatus">
+        <option value="">(no change)</option>
+        <% ITEM_STATUSES.forEach(s => { %><option value="<%= s %>"><%= s %></option><% }) %>
+      </select>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="applyConfirmUpdates()">Apply Updates</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('confirmUpdateModal').classList.remove('show')">Skip</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const PROJECT_ID = '<%= project.id %>';
+
+function openEmailDialog(phaseKey, label) {
+  document.getElementById('emailPhaseKey').value = phaseKey;
+  document.getElementById('emailModalTitle').textContent = 'Send "' + label + '" Email';
+  document.getElementById('emailModal').classList.add('show');
+}
+function closeEmailDialog() {
+  document.getElementById('emailModal').classList.remove('show');
+}
+async function sendEmail() {
+  const btn = document.getElementById('emailSendBtn');
+  const amount = document.getElementById('emailAmount').value.trim();
+  if (!amount) { showToast('Enter an amount', true); return; }
+  const fd = new FormData();
+  fd.append('phaseKey', document.getElementById('emailPhaseKey').value);
+  fd.append('amount', amount);
+  fd.append('melioLink', document.getElementById('emailMelio').value.trim());
+  const extraEl = document.getElementById('emailExtra');
+  fd.append('extraHtml', extraEl.innerHTML);
+  fd.append('extraText', extraEl.innerText);
+  const fileInput = document.getElementById('emailFile');
+  if (fileInput.files[0]) fd.append('attachment', fileInput.files[0]);
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/send-email`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Email sent to ' + data.sentTo);
+      closeEmailDialog();
+      document.getElementById('emailAmount').value = '';
+      document.getElementById('emailMelio').value = '';
+      document.getElementById('emailExtra').innerHTML = '';
+      fileInput.value = '';
+    } else {
+      showToast(data.error || 'Send failed', true);
+    }
+  } catch(e) {
+    showToast('Send failed', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send Email';
+  }
+}
+
+// ── Vendor email threads ──────────────────────────────────────────────
+async function loadThreads() {
+  const el = document.getElementById('threadList');
+  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading…</div>';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/threads`);
+    const data = await r.json();
+    if (!data.ok || !data.threads.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No vendor emails sent yet.</div>';
+      return;
+    }
+    el.innerHTML = data.threads.map(t => `
+      <div class="thread-item">
+        <div class="thread-head" onclick="toggleThread('${t.gmail_thread_id}', this)">
+          <div>
+            <strong>${escapeHtmlJs(t.subject)}</strong>
+            <span class="thread-type">${escapeHtmlJs(t.email_type || '')}</span>
+          </div>
+          <div style="font-size:.78rem;color:var(--muted)">${escapeHtmlJs(t.supplier_name||'')} · ${new Date(t.sent_at).toLocaleDateString()}</div>
+        </div>
+        <div class="thread-body" id="tb_${t.gmail_thread_id}"></div>
+      </div>
+    `).join('');
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--danger);font-size:.85rem">Error loading threads.</div>';
+  }
+}
+
+async function toggleThread(threadId, headEl) {
+  const box = document.getElementById('tb_' + threadId);
+  if (box.classList.contains('open')) { box.classList.remove('open'); box.innerHTML=''; return; }
+  box.classList.add('open');
+  box.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:.5rem">Loading conversation…</div>';
+  try {
+    const r = await fetch(`/threads/${threadId}`);
+    const data = await r.json();
+    if (!data.ok) { box.innerHTML = '<div style="color:var(--danger);padding:.5rem">'+(data.error||'Error')+'</div>'; return; }
+    const msgs = data.messages.map(m => `
+      <div class="msg ${m.fromMe ? 'msg-me':'msg-them'}">
+        <div class="msg-meta"><strong>${escapeHtmlJs(m.from)}</strong> · ${escapeHtmlJs(m.date)}</div>
+        <div class="msg-body">${m.isHtml ? m.body : escapeHtmlJs(m.body).replace(/\\n/g,'<br>')}</div>
+      </div>
+    `).join('');
+    box.innerHTML = msgs + `
+      <div class="reply-box">
+        <textarea id="reply_${threadId}" rows="3" placeholder="Write a reply…"></textarea>
+        <button class="btn btn-primary btn-sm" onclick="sendReply('${threadId}')">Send Reply</button>
+      </div>`;
+  } catch(e) {
+    box.innerHTML = '<div style="color:var(--danger);padding:.5rem">Error loading conversation.</div>';
+  }
+}
+
+async function sendReply(threadId) {
+  const ta = document.getElementById('reply_' + threadId);
+  const body = ta.value.trim();
+  if (!body) { showToast('Write a reply first', true); return; }
+  ta.disabled = true;
+  try {
+    const r = await fetch(`/threads/${threadId}/reply`, {
+      method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ body })
+    });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Reply sent');
+      ta.value='';
+      toggleThread(threadId); toggleThread(threadId);
+      if (data.detected && data.detected.length && data.projectId) {
+        openConfirmUpdates(data.detected, data.projectId);
+      }
+    }
+    else showToast(data.error || 'Send failed', true);
+  } catch(e) { showToast('Send failed', true); }
+  finally { ta.disabled = false; }
+}
+
+let confirmCtx = { items: [], projectId: null };
+function openConfirmUpdates(detected, projectId) {
+  confirmCtx = { items: detected, projectId };
+  document.getElementById('confirmItems').innerHTML = detected.map(d => `
+    <label style="display:flex;align-items:center;gap:.5rem;margin-bottom:.4rem;font-size:.9rem">
+      <input type="checkbox" class="confirm-cb" value="${d.code}" checked>
+      <span><strong>${escapeHtmlJs(d.name)}</strong> <span style="color:var(--muted)">(${d.code})</span></span>
+    </label>`).join('');
+  document.getElementById('confirmDate').value = '';
+  document.getElementById('confirmStatus').value = '';
+  document.getElementById('confirmUpdateModal').classList.add('show');
+}
+
+async function applyConfirmUpdates() {
+  const date = document.getElementById('confirmDate').value;
+  const status = document.getElementById('confirmStatus').value;
+  if (!date && !status) { showToast('Set a date or status first', true); return; }
+  const codes = Array.from(document.querySelectorAll('.confirm-cb:checked')).map(c => c.value);
+  if (!codes.length) { document.getElementById('confirmUpdateModal').classList.remove('show'); return; }
+  let done = 0;
+  for (const code of codes) {
+    const payload = {};
+    if (status) payload.status = status; else payload.statusOnly = false;
+    // Send current values: include status (or keep) and date
+    const row = document.querySelector(`tr[data-code="${code}"]`);
+    const curStatus = row ? row.querySelector('.item-select').value : '';
+    await fetch(`/projects/${confirmCtx.projectId}/items/${code}`, {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ status: status || curStatus, delivery_date: date || (row ? row.querySelector('.item-date').value : '') }),
+    });
+    // reflect in UI
+    if (row) {
+      if (status) row.querySelector('.item-select').value = status;
+      if (date) row.querySelector('.item-date').value = date;
+    }
+    done++;
+  }
+  document.getElementById('confirmUpdateModal').classList.remove('show');
+  showToast(done + ' material(s) updated');
+}
+
+function escapeHtmlJs(s) {
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+document.addEventListener('DOMContentLoaded', loadThreads);
+
+const WAREHOUSE_MATERIALS = ['2a','2b','2c']; // Millwork, Flooring, Decking
+const WAREHOUSE_TO = 'ivana@apexoryglobal.com, apg@apexoryglobal.com, op1@gracealbumcorp.com';
+const WAREHOUSE_CC = 'Bobby@buildoly.com';
+let rfqSavedSupplierEmail = '';
+
+function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
+  document.getElementById('rfqItemCode').value = itemCode;
+  document.getElementById('rfqModalTitle').textContent = 'Email Vendor — ' + (supplierName || itemName);
+  rfqSavedSupplierEmail = supplierEmail || '';
+  document.getElementById('rfqSupplierName').value = supplierName || '';
+  document.getElementById('rfqSupplierEmail').value = supplierEmail || '';
+  document.getElementById('rfqItems').innerHTML = '';
+  document.getElementById('rfqNote').value = '';
+  document.getElementById('rfqCc').value = WAREHOUSE_CC;
+  document.getElementById('rfqOutboundDate').value = '';
+  // Default to the warehouse-outbound template for warehouse-shipped materials
+  document.getElementById('rfqType').value = WAREHOUSE_MATERIALS.includes(itemCode) ? 'warehouse' : 'order';
+  onRfqTypeChange();
+  document.getElementById('rfqModal').classList.add('show');
+}
+
+function onRfqTypeChange() {
+  const type = document.getElementById('rfqType').value;
+  const isWh = type === 'warehouse';
+  document.querySelector('.rfq-supplier-name').style.display = isWh ? 'none' : '';
+  document.querySelector('.rfq-outbound-date').style.display = isWh ? '' : 'none';
+  document.querySelector('.rfq-cc').style.display = isWh ? '' : 'none';
+  document.getElementById('rfqEmailLabel').textContent = isWh ? 'To (warehouse + truck team)' : 'Supplier Email(s)';
+  document.getElementById('rfqItemsLabel').textContent = isWh ? 'Outbound slip (paste from Google Sheets)' : 'Items (paste from Google Sheets)';
+  document.getElementById('rfqSendBtn').textContent = isWh ? 'Send Outbound Request' : 'Send RFQ';
+  // Swap recipients to the fixed warehouse list (or restore the supplier's)
+  document.getElementById('rfqSupplierEmail').value = isWh ? WAREHOUSE_TO : rfqSavedSupplierEmail;
+}
+
+async function sendRfq() {
+  const btn = document.getElementById('rfqSendBtn');
+  const supplierEmail = document.getElementById('rfqSupplierEmail').value.trim();
+  if (!supplierEmail) { showToast('Enter a supplier email', true); return; }
+  const fd = new FormData();
+  fd.append('itemCode', document.getElementById('rfqItemCode').value);
+  fd.append('emailType', document.getElementById('rfqType').value);
+  fd.append('supplierName', document.getElementById('rfqSupplierName').value.trim());
+  fd.append('supplierEmail', supplierEmail);
+  fd.append('cc', document.getElementById('rfqCc').value.trim());
+  fd.append('outboundDate', document.getElementById('rfqOutboundDate').value);
+  const itemsEl = document.getElementById('rfqItems');
+  fd.append('itemsHtml', itemsEl.innerHTML);
+  fd.append('items', itemsEl.innerText);
+  fd.append('note', document.getElementById('rfqNote').value.trim());
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/rfq`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      // Reflect auto-advanced statuses in the item rows
+      let bumped = 0;
+      (data.updatedItems || []).forEach(u => {
+        const row = document.querySelector(`tr[data-code="${u.code}"]`);
+        if (row) {
+          const sel = row.querySelector('.item-select');
+          if (sel) { sel.value = u.status; bumped++; }
+        }
+      });
+      showToast('Sent to ' + data.sentTo + (bumped ? ` · ${bumped} item(s) updated` : ''));
+      document.getElementById('rfqModal').classList.remove('show');
+      loadThreads();
+    } else {
+      showToast(data.error || 'Send failed', true);
+    }
+  } catch(e) {
+    showToast('Send failed', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send RFQ';
+  }
+}
+
+async function saveItem(el) {
+  const row = el.closest('tr');
+  const projectId = row.dataset.project;
+  const code = row.dataset.code;
+  const status = row.querySelector('.item-select').value;
+  const delivery_date = row.querySelector('.item-date').value;
+  const notes = row.querySelector('.item-notes').value;
+  try {
+    await fetch(`/projects/${projectId}/items/${code}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, delivery_date, notes }),
+    });
+    showToast('Saved');
+  } catch(e) {
+    showToast('Error saving', true);
+  }
+}
+
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 2000);
+}
+</script>
+</body>
+</html>

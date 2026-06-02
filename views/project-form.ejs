@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= project ? 'Edit Project' : 'New Project' %></title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="nav-brand">Material Orders</span>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+<div class="container">
+  <div class="page-header"><h1><%= project && project.id ? 'Edit Project' : 'New Project' %></h1></div>
+  <% if (error) { %><div class="error-msg"><%= error %></div><% } %>
+  <div class="card">
+    <form method="POST" action="<%= project && project.id ? '/projects/'+project.id : '/projects' %>">
+      <div class="form-grid">
+        <div class="form-group full">
+          <label>Display Name / Short Address <span style="color:var(--danger)">*</span></label>
+          <input type="text" name="address" value="<%= project ? project.address||'' : '' %>" placeholder="e.g. 2577 N Raymond Ave" required>
+          <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Shown in the grid and lists.</small>
+        </div>
+        <div class="form-group full">
+          <label>Full Delivery Address</label>
+          <input type="text" name="full_address" value="<%= project ? project.full_address||'' : '' %>" placeholder="e.g. 2577 N Raymond Ave, Altadena, CA 91001">
+          <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Used in vendor emails (subject + "delivery to…"). Falls back to the short address if blank.</small>
+        </div>
+        <div class="form-group">
+          <label>Version</label>
+          <input type="text" name="version" value="<%= project ? project.version||'' : '' %>" placeholder="e.g. V3">
+        </div>
+        <div class="form-group">
+          <label>Overall Status</label>
+          <select name="overall_status">
+            <% PROJECT_STATUSES.forEach(s => { %>
+              <option value="<%= s %>" <%- (project && project.overall_status===s)||(!project&&s==='Not Yet')?'selected':'' %>><%= s %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Client Name</label>
+          <input type="text" name="client_name" value="<%= project ? project.client_name||'' : '' %>" placeholder="e.g. John Smith">
+        </div>
+        <div class="form-group">
+          <label>Client Email</label>
+          <input type="text" name="client_email" value="<%= project ? project.client_email||'' : '' %>" placeholder="client@example.com">
+        </div>
+        <div class="form-group full">
+          <label>Notes</label>
+          <textarea name="notes"><%= project ? project.notes||'' : '' %></textarea>
+        </div>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary"><%= project && project.id ? 'Save changes' : 'Create project' %></button>
+        <a href="/" class="btn btn-ghost">Cancel</a>
+      </div>
+    </form>
+  </div>
+</div>
+</body>
+</html>

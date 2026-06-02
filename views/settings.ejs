@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.25rem">
+    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/settings" class="nav-tab active">Settings</a>
+  </div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+
+<div class="container">
+  <div class="page-header"><h1>Settings</h1></div>
+
+  <div class="card">
+    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">Default Email Attachment</h2>
+    <p style="color:var(--muted);font-size:.875rem;margin-bottom:1.5rem">
+      This file (e.g. your wire-transfer details PDF) automatically attaches to <strong>every</strong> milestone payment email you send.
+    </p>
+
+    <% if (attachmentName) { %>
+      <div class="current-attachment">
+        <div>
+          <div style="font-weight:600">📎 <%= attachmentName %></div>
+          <div style="font-size:.8rem;color:var(--muted)">Currently attached to all milestone emails<% if (updatedAt) { %> · uploaded <%= new Date(updatedAt).toLocaleDateString() %><% } %></div>
+        </div>
+        <form method="POST" action="/settings/attachment/delete" onsubmit="return confirm('Remove the default attachment?')">
+          <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+        </form>
+      </div>
+    <% } else { %>
+      <div class="error-msg" style="background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3);color:#b45309">
+        No default attachment set. Milestone emails will send without one unless you add a file per-send.
+      </div>
+    <% } %>
+
+    <form method="POST" action="/settings/attachment" enctype="multipart/form-data" style="margin-top:1.5rem">
+      <div class="form-group">
+        <label><%= attachmentName ? 'Replace with a new file' : 'Upload a file' %></label>
+        <input type="file" name="attachment" required>
+      </div>
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary"><%= attachmentName ? 'Replace file' : 'Upload file' %></button>
+      </div>
+    </form>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem">
+    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">Suppliers</h2>
+    <p style="color:var(--muted);font-size:.875rem">
+      Supplier contacts have their own page now → <a href="/suppliers">Manage Suppliers</a>.
+    </p>
+  </div>
+</div>
+</body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payments — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab active">Payments</a>
+    <a href="/driving" class="nav-tab">Driving Log</a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+
+<div class="container">
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+    <h1>Milestone Payments</h1>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap">
+      <div class="stat-card" style="padding:.75rem 1.5rem"><div class="stat-label">Outstanding</div><div class="stat-value" style="font-size:1.5rem;color:var(--warning)">$<%= Number(totals.outstanding).toLocaleString(undefined,{minimumFractionDigits:2}) %></div></div>
+      <div class="stat-card" style="padding:.75rem 1.5rem"><div class="stat-label">Collected</div><div class="stat-value" style="font-size:1.5rem;color:#16a34a">$<%= Number(totals.collected).toLocaleString(undefined,{minimumFractionDigits:2}) %></div></div>
+      <div class="stat-card" style="padding:.75rem 1.5rem"><div class="stat-label">Total Billed</div><div class="stat-value" style="font-size:1.5rem">$<%= Number(totals.total).toLocaleString(undefined,{minimumFractionDigits:2}) %></div></div>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Project</th><th>Phase</th><th>Amount</th><th>Requested</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+        <% if (!payments.length) { %><tr class="empty-row"><td colspan="6">No milestone payments yet. They're recorded automatically when you send a milestone email.</td></tr><% } %>
+        <% payments.forEach(p => { %>
+          <tr>
+            <td><a href="/projects/<%= p.project_id %>"><strong><%= p.address %></strong></a></td>
+            <td><%= p.phase_name %></td>
+            <td><strong>$<%= Number(p.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %></strong></td>
+            <td style="color:var(--muted);font-size:.85rem"><%= new Date(p.requested_at).toLocaleDateString() %></td>
+            <td>
+              <button class="badge <%= p.paid ? 'badge-all_delivered' : 'badge-not_yet' %>" style="border:none;cursor:pointer" onclick="togglePaid('<%= p.id %>', this)">
+                <%= p.paid ? '✓ Paid' : 'Unpaid' %>
+              </button>
+            </td>
+            <td>
+              <form method="POST" action="/payments/<%= p.id %>/delete" onsubmit="return confirm('Delete this payment record?')">
+                <button class="btn btn-danger btn-sm">Del</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script>
+async function togglePaid(id, btn) {
+  await fetch('/payments/' + id + '/toggle', { method: 'POST' });
+  const paid = btn.textContent.trim().startsWith('✓');
+  btn.textContent = paid ? 'Unpaid' : '✓ Paid';
+  btn.className = 'badge ' + (paid ? 'badge-not_yet' : 'badge-all_delivered');
+  setTimeout(() => location.reload(), 400);
+}
+</script>
+</body>
+</html>

@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm install *)"
+      "Bash(npm install *)",
+      "PowerShell(railway --version)",
+      "Bash(node -e ' *)"
     ]
   }
 }

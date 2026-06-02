@@ -5,104 +5,149 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Material Orders</title>
   <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#4f8ef7">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Orders">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
 </head>
 <body>
-
 <nav class="nav">
-  <span class="nav-brand">📦 Material Orders</span>
+  <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand active" style="text-decoration:none">Material Orders</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab">Payments</a>
+    <a href="/driving" class="nav-tab">Driving Log</a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
   <div class="nav-actions">
-    <a href="/orders/new" class="btn btn-primary">+ New Order</a>
+    <a href="/projects/new" class="btn btn-primary">+ New Project</a>
     <form method="POST" action="/logout" style="margin:0">
       <button type="submit" class="btn btn-ghost">Sign out</button>
     </form>
   </div>
 </nav>
 
-<div class="container">
-
-  <!-- Stats -->
+<div class="container wide">
   <div class="stats">
-    <div class="stat-card pending">
-      <div class="stat-label">Pending</div>
-      <div class="stat-value"><%= stats.pending %></div>
-    </div>
-    <div class="stat-card transit">
-      <div class="stat-label">In Transit</div>
-      <div class="stat-value"><%= stats.in_transit %></div>
-    </div>
-    <div class="stat-card delivered">
-      <div class="stat-label">Delivered</div>
-      <div class="stat-value"><%= stats.delivered %></div>
-    </div>
-    <div class="stat-card total">
-      <div class="stat-label">Total Orders</div>
-      <div class="stat-value"><%= stats.total %></div>
-    </div>
+    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value"><%= stats.total %></div></div>
+    <div class="stat-card in-progress"><div class="stat-label">In Progress</div><div class="stat-value"><%= stats.in_progress %></div></div>
+    <div class="stat-card delivered"><div class="stat-label">Delivered</div><div class="stat-value"><%= stats.delivered %></div></div>
+    <div class="stat-card not-yet"><div class="stat-label">Not Yet</div><div class="stat-value"><%= stats.not_yet %></div></div>
   </div>
 
-  <!-- Toolbar -->
   <form method="GET" action="/" class="toolbar">
-    <input type="text" name="search" placeholder="Search material, supplier…" value="<%= query.search || '' %>">
+    <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
     <select name="status" onchange="this.form.submit()">
       <option value="">All statuses</option>
-      <option value="pending" <%- query.status==='pending'?'selected':'' %>>Pending</option>
-      <option value="in_transit" <%- query.status==='in_transit'?'selected':'' %>>In Transit</option>
-      <option value="delivered" <%- query.status==='delivered'?'selected':'' %>>Delivered</option>
-      <option value="cancelled" <%- query.status==='cancelled'?'selected':'' %>>Cancelled</option>
-    </select>
-    <select name="sort" onchange="this.form.submit()">
-      <option value="created" <%- query.sort==='created'?'selected':'' %>>Newest first</option>
-      <option value="date_asc" <%- query.sort==='date_asc'?'selected':'' %>>Delivery ↑</option>
-      <option value="date_desc" <%- query.sort==='date_desc'?'selected':'' %>>Delivery ↓</option>
+      <% PROJECT_STATUSES.forEach(s => { %>
+        <option value="<%= s %>" <%- query.status===s?'selected':'' %>><%= s %></option>
+      <% }) %>
     </select>
     <button type="submit" class="btn btn-ghost">Search</button>
-    <% if (query.search || query.status) { %>
-      <a href="/" class="btn btn-ghost">Clear</a>
-    <% } %>
+    <% if (query.search || query.status) { %><a href="/" class="btn btn-ghost">Clear</a><% } %>
   </form>
 
-  <!-- Table -->
-  <div class="table-wrap">
-    <table>
-      <thead>
-        <tr>
-          <th>Material</th>
-          <th>Supplier</th>
-          <th>Qty</th>
-          <th>Status</th>
-          <th>Order Date</th>
-          <th>Delivery Date</th>
-          <th>Notes</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody>
-        <% if (orders.length === 0) { %>
-          <tr class="empty-row"><td colspan="8">No orders yet. <a href="/orders/new">Add one.</a></td></tr>
-        <% } %>
-        <% orders.forEach(o => { %>
-          <tr>
-            <td><strong><%= o.material %></strong></td>
-            <td><%= o.supplier || '—' %></td>
-            <td><%= o.quantity %><% if(o.unit){ %> <%= o.unit %><% } %></td>
-            <td><span class="badge badge-<%= o.status %>"><%= o.status.replace('_',' ') %></span></td>
-            <td><%= o.order_date ? new Date(o.order_date).toLocaleDateString() : '—' %></td>
-            <td><%= o.delivery_date ? new Date(o.delivery_date).toLocaleDateString() : '—' %></td>
-            <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)"><%= o.notes || '' %></td>
-            <td>
-              <div class="row-actions">
-                <a href="/orders/<%= o.id %>/edit" class="btn btn-ghost btn-sm">Edit</a>
-                <form method="POST" action="/orders/<%= o.id %>/delete" onsubmit="return confirm('Delete this order?')">
-                  <button type="submit" class="btn btn-danger btn-sm">Del</button>
-                </form>
-              </div>
-            </td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-  </div>
+  <%
+    const activeProjects = projects.filter(p => p.overall_status !== 'Fully Delivered');
+    const completedProjects = projects.filter(p => p.overall_status === 'Fully Delivered');
+  %>
 
+  <%- include('_project-grid', { rows: activeProjects, emptyMsg: 'No active projects. ', sortable: true }) %>
+
+  <% if (completedProjects.length) { %>
+    <div class="completed-divider">
+      <span>✓ Completed Projects (<%= completedProjects.length %>)</span>
+    </div>
+    <%- include('_project-grid', { rows: completedProjects, emptyMsg: '' }) %>
+  <% } %>
 </div>
+
+<div id="toast" class="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+// Drag-to-reorder the active project list
+(function initSortable() {
+  const sb = document.getElementById('sortable-body');
+  if (!sb || !window.Sortable) return;
+  Sortable.create(sb, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'row-dragging',
+    onEnd: async () => {
+      const ids = Array.from(sb.querySelectorAll('tr[data-id]')).map(tr => tr.dataset.id);
+      try {
+        await fetch('/reorder-projects', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order: ids }),
+        });
+        showToast('Order saved');
+      } catch (e) { showToast('Could not save order', true); }
+    },
+  });
+})();
+
+const STATUS_CLASSES = ['cell-not_yet_placed','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
+
+function statusToClass(st) {
+  return 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
+}
+
+async function saveGridItem(sel) {
+  const projectId = sel.dataset.project;
+  const code = sel.dataset.code;
+  const status = sel.value;
+  // recolor immediately
+  STATUS_CLASSES.forEach(c => sel.classList.remove(c));
+  sel.classList.add(statusToClass(status));
+  try {
+    await fetch(`/projects/${projectId}/items/${code}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, statusOnly: true }),
+    });
+    showToast('Saved');
+  } catch(e) {
+    showToast('Error saving', true);
+  }
+}
+
+const BADGE_CLASSES = ['badge-not_yet','badge-in_progress','badge-all_delivered','badge-draft___contract','badge-fully_delivered'];
+
+async function saveStatus(sel) {
+  const projectId = sel.dataset.project;
+  const overall_status = sel.value;
+  const wasCompleted = sel.dataset.completed === 'true';
+  const nowCompleted = overall_status === 'Fully Delivered';
+  BADGE_CLASSES.forEach(c => sel.classList.remove(c));
+  sel.classList.add('badge-' + overall_status.toLowerCase().replace(/[\s-]+/g,'_'));
+  try {
+    await fetch(`/projects/${projectId}/status`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ overall_status }),
+    });
+    // If it crossed into/out of the Completed section, reload to re-sort
+    if (wasCompleted !== nowCompleted) {
+      showToast(nowCompleted ? 'Moved to Completed' : 'Moved to Active');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast('Status updated');
+    }
+  } catch(e) {
+    showToast('Error saving', true);
+  }
+}
+
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 1500);
+}
+</script>
 </body>
 </html>
