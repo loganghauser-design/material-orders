@@ -585,14 +585,23 @@ async function saveItem(el) {
   const delivery_date = row.querySelector('.item-date').value;
   const notes = row.querySelector('.item-notes').value;
   try {
-    await fetch(`/projects/${projectId}/items/${code}`, {
+    const r = await fetch(`/projects/${projectId}/items/${code}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status, delivery_date, notes }),
     });
+    if (r.redirected && /\/login/.test(r.url)) throw new Error('LOGGED_OUT');
+    let data = null;
+    try { data = await r.json(); } catch(e) { throw new Error('LOGGED_OUT'); }
+    if (!r.ok || !data.ok) throw new Error('SAVE_FAILED');
     showToast('Saved');
   } catch(e) {
-    showToast('Error saving', true);
+    if (e.message === 'LOGGED_OUT') {
+      showToast('Not saved — you were signed out. Reloading…', true);
+      setTimeout(() => location.href = '/login', 1300);
+    } else {
+      showToast('Not saved — please try again', true);
+    }
   }
 }
 

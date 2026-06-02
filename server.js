@@ -23,7 +23,11 @@ app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+const pgSession = require('connect-pg-simple')(session);
 app.use(session({
+  // Store sessions in Postgres so logins survive deploys/restarts
+  // (the old in-memory store wiped every session on each deploy)
+  store: new pgSession({ pool, createTableIfMissing: true }),
   secret: process.env.SESSION_SECRET || 'change-me',
   resave: false,
   saveUninitialized: false,
@@ -685,7 +689,20 @@ app.get('/', requireAuth, async (req, res) => {
     const { rows: unreadRows } = await pool.query('SELECT DISTINCT project_id FROM vendor_emails WHERE has_unread=true');
     const unread = {};
     unreadRows.forEach(r => unread[r.project_id] = true);
-    res.render('index', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread });
+
+    // Count delivered materials per project (for the "sort by delivered" view)
+    const DELIVERED_STATUSES = new Set(['Delivered', 'Delivered from Inv.']);
+    const deliveredCounts = {};
+    projects.forEach(p => {
+      const im = itemMaps[p.id] || {};
+      deliveredCounts[p.id] = Object.values(im).filter(it => DELIVERED_STATUSES.has(it.status)).length;
+    });
+    const sort = req.query.sort === 'delivered' ? 'delivered' : null;
+    if (sort === 'delivered') {
+      projects.sort((a, b) => (deliveredCounts[b.id] || 0) - (deliveredCounts[a.id] || 0));
+    }
+
+    res.render('index', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

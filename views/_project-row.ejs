@@ -3,7 +3,7 @@
   const codes = ['1a','1b','1c','1d','1e','2a','2b','2c','3b','2e','3a','2d','3c','3d','3e'];
 %>
 <tr data-id="<%= p.id %>">
-  <td class="col-addr"><span class="drag-handle" title="Drag to reorder">⠿</span><a href="/projects/<%= p.id %>"><strong><%= p.address %></strong><% if (typeof unread !== 'undefined' && unread && unread[p.id]) { %> <span class="reply-dot" title="New vendor reply">●</span><% } %><% if(p.version){%><br><small style="color:var(--muted)"><%= p.version %></small><%}%></a></td>
+  <td class="col-addr"><span class="drag-handle" title="Drag to reorder">⠿</span><a href="/projects/<%= p.id %>"><strong><%= p.address %></strong><% if (typeof unread !== 'undefined' && unread && unread[p.id]) { %> <span class="reply-dot" title="New vendor reply">●</span><% } %><% if(p.version){%><br><small style="color:var(--muted)"><%= p.version %></small><%}%><% if (typeof deliveredCounts !== 'undefined' && deliveredCounts) { %><br><small style="color:var(--muted)">✓ <%= deliveredCounts[p.id] || 0 %>/15 delivered</small><% } %></a></td>
   <td class="col-status">
     <select class="status-select badge-<%= p.overall_status.toLowerCase().replace(/[\s-]+/g,'_') %>" data-project="<%= p.id %>" data-completed="<%= p.overall_status === 'Fully Delivered' %>" onchange="saveStatus(this)">
       <% PROJECT_STATUSES.forEach(s => { %>

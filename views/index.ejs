@@ -31,6 +31,7 @@
 </nav>
 
 <div class="container wide">
+  <% const sortedNow = (typeof sort !== 'undefined' && sort === 'delivered'); %>
   <div class="stats">
     <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value"><%= stats.total %></div></div>
     <div class="stat-card in-progress"><div class="stat-label">In Progress</div><div class="stat-value"><%= stats.in_progress %></div></div>
@@ -48,6 +49,18 @@
     </select>
     <button type="submit" class="btn btn-ghost">Search</button>
     <% if (query.search || query.status) { %><a href="/" class="btn btn-ghost">Clear</a><% } %>
+    <%
+      const _qp = new URLSearchParams();
+      if (query.search) _qp.set('search', query.search);
+      if (query.status) _qp.set('status', query.status);
+      const _base = _qp.toString();
+      const _sortQp = new URLSearchParams(_base); _sortQp.set('sort', 'delivered');
+    %>
+    <% if (sortedNow) { %>
+      <a href="<%= _base ? '/?' + _base : '/' %>" class="btn btn-primary" title="Back to your manual drag order">✓ Most delivered — clear</a>
+    <% } else { %>
+      <a href="/?<%= _sortQp.toString() %>" class="btn btn-ghost" title="Order projects from most delivered to least">📦 Sort by delivered</a>
+    <% } %>
   </form>
 
   <%
@@ -55,7 +68,7 @@
     const completedProjects = projects.filter(p => p.overall_status === 'Fully Delivered');
   %>
 
-  <%- include('_project-grid', { rows: activeProjects, emptyMsg: 'No active projects. ', sortable: true }) %>
+  <%- include('_project-grid', { rows: activeProjects, emptyMsg: 'No active projects. ', sortable: !sortedNow }) %>
 
   <% if (completedProjects.length) { %>
     <div class="completed-divider">
@@ -96,6 +109,26 @@ function statusToClass(st) {
   return 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
 }
 
+// POST JSON and verify the save actually succeeded (catches "logged out" too)
+async function postJson(url, body) {
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (r.redirected && /\/login/.test(r.url)) throw new Error('LOGGED_OUT');
+  let data = null;
+  try { data = await r.json(); } catch (e) { throw new Error('LOGGED_OUT'); }
+  if (!r.ok || !data.ok) throw new Error((data && data.error) || 'SAVE_FAILED');
+  return data;
+}
+function handleSaveError(e) {
+  if (e && e.message === 'LOGGED_OUT') {
+    showToast('Not saved — you were signed out. Reloading…', true);
+    setTimeout(() => location.href = '/login', 1300);
+  } else {
+    showToast('Not saved — please try again', true);
+  }
+}
+
 async function saveGridItem(sel) {
   const projectId = sel.dataset.project;
   const code = sel.dataset.code;
@@ -104,14 +137,10 @@ async function saveGridItem(sel) {
   STATUS_CLASSES.forEach(c => sel.classList.remove(c));
   sel.classList.add(statusToClass(status));
   try {
-    await fetch(`/projects/${projectId}/items/${code}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, statusOnly: true }),
-    });
+    await postJson(`/projects/${projectId}/items/${code}`, { status, statusOnly: true });
     showToast('Saved');
   } catch(e) {
-    showToast('Error saving', true);
+    handleSaveError(e);
   }
 }
 
@@ -125,11 +154,7 @@ async function saveStatus(sel) {
   BADGE_CLASSES.forEach(c => sel.classList.remove(c));
   sel.classList.add('badge-' + overall_status.toLowerCase().replace(/[\s-]+/g,'_'));
   try {
-    await fetch(`/projects/${projectId}/status`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ overall_status }),
-    });
+    await postJson(`/projects/${projectId}/status`, { overall_status });
     // If it crossed into/out of the Completed section, reload to re-sort
     if (wasCompleted !== nowCompleted) {
       showToast(nowCompleted ? 'Moved to Completed' : 'Moved to Active');
@@ -138,7 +163,7 @@ async function saveStatus(sel) {
       showToast('Status updated');
     }
   } catch(e) {
-    showToast('Error saving', true);
+    handleSaveError(e);
   }
 }
 

@@ -2,8 +2,9 @@
 // Seeds all projects from the Google Sheet screenshots
 const { Pool } = require('pg');
 
+if (!process.env.DATABASE_URL) { console.error('Set DATABASE_URL before running this script.'); process.exit(1); }
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_ETlaU0Q2gvYZ@ep-shy-frog-ak9efl5x.c-3.us-west-2.aws.neon.tech/neondb?sslmode=require',
+  connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
