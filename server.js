@@ -263,6 +263,27 @@ async function advanceVendorItems(projectId, clickedCode, emailType) {
   return updated;
 }
 
+// Move a specific list of materials forward to a target status (never backward)
+async function bumpItemsForward(projectId, codes, target) {
+  const targetRank = STATUS_RANK[target];
+  if (targetRank == null || !codes.length) return;
+  const { rows: current } = await pool.query(
+    'SELECT item_code, status FROM project_items WHERE project_id=$1 AND item_code = ANY($2)', [projectId, codes]
+  );
+  const cur = {};
+  current.forEach(r => cur[r.item_code] = r.status);
+  for (const code of codes) {
+    const c = cur[code] || 'Not yet placed';
+    if (c === 'N/A' || c === 'Issue') continue;
+    if ((STATUS_RANK[c] ?? 0) >= targetRank) continue;
+    await pool.query(
+      `INSERT INTO project_items (project_id, item_code, status) VALUES ($1,$2,$3)
+       ON CONFLICT (project_id, item_code) DO UPDATE SET status=$3`,
+      [projectId, code, target]
+    );
+  }
+}
+
 // ── Driving distance via OpenRouteService ─────────────────────────────────────
 const ORS_KEY = process.env.ORS_API_KEY;
 const drivingEnabled = !!ORS_KEY;
@@ -383,6 +404,20 @@ function headerVal(headers, name) {
   return h ? h.value : '';
 }
 
+// List file attachments (filename + Gmail attachmentId) in a message payload
+function extractAttachments(payload) {
+  const out = [];
+  function walk(part) {
+    if (!part) return;
+    if (part.filename && part.body && part.body.attachmentId) {
+      out.push({ filename: part.filename, mimeType: part.mimeType, attachmentId: part.body.attachmentId, size: part.body.size });
+    }
+    if (part.parts) part.parts.forEach(walk);
+  }
+  walk(payload);
+  return out;
+}
+
 // Fetch and parse a Gmail thread into a list of messages
 async function fetchThread(threadId) {
   const { data } = await gmailClient.users.threads.get({ userId: 'me', id: threadId, format: 'full' });
@@ -400,6 +435,7 @@ async function fetchThread(threadId) {
       snippet: m.snippet,
       body: body.text,
       isHtml: body.isHtml,
+      attachments: extractAttachments(m.payload),
       fromMe: headerVal(headers, 'From').includes(gmailUser),
     };
   });
@@ -556,6 +592,27 @@ async function initDb() {
       notes TEXT,
       UNIQUE(project_id, item_code)
     );
+
+    CREATE TABLE IF NOT EXISTS vendor_orders (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      supplier_name VARCHAR(255),
+      supplier_email TEXT,
+      amount NUMERIC(12,2),
+      gmail_thread_id VARCHAR(255),
+      gmail_message_id VARCHAR(255),
+      receipt_name VARCHAR(255),
+      receipt_mime VARCHAR(255),
+      receipt_data BYTEA,
+      confirmed_at TIMESTAMPTZ DEFAULT NOW(),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS vendor_order_items (
+      id SERIAL PRIMARY KEY,
+      order_id INTEGER REFERENCES vendor_orders(id) ON DELETE CASCADE,
+      item_code VARCHAR(10)
+    );
   `);
 }
 
@@ -666,7 +723,28 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     const suppliers = await getSuppliers();
     const { rows: documents } = await pool.query('SELECT id, filename, uploaded_at FROM project_documents WHERE project_id=$1 ORDER BY uploaded_at DESC', [project.id]);
     const { rows: payments } = await pool.query('SELECT * FROM milestone_payments WHERE project_id=$1 ORDER BY requested_at DESC', [project.id]);
-    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments });
+
+    // Confirmed vendor orders, grouped by vendor
+    const { rows: orderRows } = await pool.query(`
+      SELECT vo.id, vo.supplier_name, vo.supplier_email, vo.amount, vo.gmail_thread_id, vo.confirmed_at,
+             (vo.receipt_data IS NOT NULL) AS has_receipt,
+             COALESCE(array_agg(voi.item_code ORDER BY voi.item_code) FILTER (WHERE voi.item_code IS NOT NULL), '{}') AS item_codes
+      FROM vendor_orders vo
+      LEFT JOIN vendor_order_items voi ON voi.order_id = vo.id
+      WHERE vo.project_id=$1
+      GROUP BY vo.id
+      ORDER BY vo.supplier_name NULLS LAST, vo.confirmed_at DESC`, [project.id]);
+    const itemNames = {};
+    ALL_ITEMS.forEach(i => itemNames[i.code] = i.name);
+    const ordersByVendor = [];
+    const vmap = {};
+    for (const o of orderRows) {
+      const key = (o.supplier_name || '') + '|' + (o.supplier_email || '');
+      if (!vmap[key]) { vmap[key] = { name: o.supplier_name, email: o.supplier_email, orders: [] }; ordersByVendor.push(vmap[key]); }
+      vmap[key].orders.push(o);
+    }
+
+    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -926,9 +1004,11 @@ app.get('/threads/:threadId', requireAuth, async (req, res) => {
   try {
     if (!useGmail) return res.status(400).json({ ok: false, error: 'Gmail not configured.' });
     const messages = await fetchThread(req.params.threadId);
+    // For each vendor (inbound) message, pre-detect which materials it mentions
+    const withDetected = messages.map(m => ({ ...m, detected: m.fromMe ? [] : detectMaterials(m.body) }));
     // Mark this thread as read
     await pool.query('UPDATE vendor_emails SET has_unread=false, last_viewed_at=NOW() WHERE gmail_thread_id=$1', [req.params.threadId]);
-    res.json({ ok: true, messages });
+    res.json({ ok: true, messages: withDetected });
   } catch (err) {
     console.error('Thread fetch error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
@@ -972,6 +1052,67 @@ app.post('/threads/:threadId/reply', requireAuth, async (req, res) => {
     console.error('Reply error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// ── Vendor order confirmations ────────────────────────────────────────────────
+
+// Log a confirmed order from a vendor reply (materials + optional amount + receipt)
+app.post('/projects/:id/orders', requireAuth, upload.single('receipt'), async (req, res) => {
+  try {
+    const { supplierName, supplierEmail, amount, gmailThreadId, gmailMessageId, attachmentId, attachmentName, attachmentMime } = req.body;
+    const valid = new Set(ALL_ITEMS.map(i => i.code));
+    const codes = [].concat(req.body.codes || []).filter(c => valid.has(c));
+    if (!codes.length) return res.status(400).json({ ok: false, error: 'Pick at least one material.' });
+
+    const amountNum = amount ? parseFloat(String(amount).replace(/[^0-9.]/g, '')) : NaN;
+
+    // Receipt: an uploaded file wins; otherwise pull the chosen Gmail attachment
+    let rName = null, rMime = null, rData = null;
+    if (req.file) {
+      rName = req.file.originalname; rMime = req.file.mimetype; rData = req.file.buffer;
+    } else if (attachmentId && gmailMessageId && useGmail) {
+      try {
+        const { data } = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId: gmailMessageId, id: attachmentId });
+        if (data && data.data) {
+          rData = Buffer.from(data.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+          rName = attachmentName || 'receipt'; rMime = attachmentMime || 'application/octet-stream';
+        }
+      } catch (e) { /* attachment fetch failed — save the order without it */ }
+    }
+
+    const { rows: [ord] } = await pool.query(
+      `INSERT INTO vendor_orders (project_id, supplier_name, supplier_email, amount, gmail_thread_id, gmail_message_id, receipt_name, receipt_mime, receipt_data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [req.params.id, supplierName || null, supplierEmail || null, isNaN(amountNum) ? null : amountNum,
+       gmailThreadId || null, gmailMessageId || null, rName, rMime, rData]
+    );
+    for (const code of codes) {
+      await pool.query('INSERT INTO vendor_order_items (order_id, item_code) VALUES ($1,$2)', [ord.id, code]);
+    }
+    // A confirmed order means these materials are at least "Order Placed" (forward only)
+    await bumpItemsForward(req.params.id, codes, 'Order Placed');
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('Save order error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Download a stored order receipt
+app.get('/orders/:id/receipt', requireAuth, async (req, res) => {
+  const { rows: [o] } = await pool.query('SELECT receipt_name, receipt_mime, receipt_data FROM vendor_orders WHERE id=$1', [req.params.id]);
+  if (!o || !o.receipt_data) return res.status(404).send('No receipt on this order.');
+  res.setHeader('Content-Type', o.receipt_mime || 'application/octet-stream');
+  res.setHeader('Content-Disposition', `inline; filename="${o.receipt_name || 'receipt'}"`);
+  res.send(o.receipt_data);
+});
+
+// Delete an order record
+app.post('/orders/:id/delete', requireAuth, async (req, res) => {
+  const { rows: [o] } = await pool.query('SELECT project_id FROM vendor_orders WHERE id=$1', [req.params.id]);
+  await pool.query('DELETE FROM vendor_orders WHERE id=$1', [req.params.id]);
+  res.redirect(o ? `/projects/${o.project_id}` : '/');
 });
 
 // ── PDF exports ───────────────────────────────────────────────────────────────

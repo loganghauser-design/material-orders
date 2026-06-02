@@ -112,6 +112,39 @@
     <div id="threadList" style="margin-top:.5rem"><div style="color:var(--muted);font-size:.85rem">Loading…</div></div>
   </div>
 
+  <!-- Confirmed orders, grouped by vendor -->
+  <div class="email-card">
+    <div class="email-header">
+      <div><strong>Confirmed Orders</strong>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Materials a vendor has confirmed, by vendor. Log one from a vendor's reply above (📦 button).</div>
+      </div>
+    </div>
+    <% if (ordersByVendor && ordersByVendor.length) { %>
+      <% ordersByVendor.forEach(v => { %>
+        <div style="margin-top:.7rem">
+          <div style="font-weight:600;font-size:.9rem">
+            <%= v.name || v.email || 'Unknown vendor' %><% if (v.name && v.email) { %> <span style="color:var(--muted);font-weight:400;font-size:.8rem"><%= v.email %></span><% } %>
+          </div>
+          <table style="width:100%;font-size:.85rem;margin-top:.3rem">
+            <% v.orders.forEach(o => { %>
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:.4rem 0;vertical-align:top"><%= o.item_codes.map(c => itemNames[c] || c).join(', ') %></td>
+                <td style="padding:.4rem .5rem;white-space:nowrap;text-align:right;vertical-align:top"><% if (o.amount != null) { %><strong>$<%= Number(o.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %></strong><% } %></td>
+                <td style="padding:.4rem .5rem;white-space:nowrap;text-align:right;color:var(--muted);font-size:.78rem;vertical-align:top"><%= new Date(o.confirmed_at).toLocaleDateString() %></td>
+                <td style="padding:.4rem 0;text-align:right;white-space:nowrap;vertical-align:top">
+                  <% if (o.has_receipt) { %><a href="/orders/<%= o.id %>/receipt" target="_blank" class="btn btn-ghost btn-sm">📄 Receipt</a><% } %>
+                  <form method="POST" action="/orders/<%= o.id %>/delete" style="display:inline" onsubmit="return confirm('Delete this order record?')"><button class="btn btn-danger btn-sm">✕</button></form>
+                </td>
+              </tr>
+            <% }) %>
+          </table>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No confirmed orders yet. Open a vendor reply above and click “📦 Log Order Confirmation”.</div>
+    <% } %>
+  </div>
+
   <% STAGES.forEach(stage => { %>
   <div class="stage-card">
     <div class="stage-header"><%= stage.name %></div>
@@ -263,10 +296,42 @@
   </div>
 </div>
 
+<!-- Log order confirmation dialog -->
+<div id="orderModal" class="modal-overlay">
+  <div class="modal">
+    <h2>Log Order Confirmation</h2>
+    <p class="modal-sub">Record what this vendor confirmed. Detected materials are pre-checked — adjust as needed.</p>
+    <input type="hidden" id="orderThreadId">
+    <input type="hidden" id="orderMessageId">
+    <div style="font-size:.85rem;margin-bottom:.6rem">Vendor: <strong id="orderVendorLabel"></strong></div>
+    <div class="form-group">
+      <label>Materials ordered</label>
+      <div id="orderMaterials" style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;margin-top:.35rem"></div>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Total Amount ($) — optional</label>
+      <input type="text" id="orderAmount" placeholder="e.g. 12,500.00">
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Receipt — optional</label>
+      <div id="orderEmailAttachments" style="font-size:.85rem;margin:.25rem 0"></div>
+      <small style="color:var(--muted);font-size:.75rem">Or upload a file:</small>
+      <input type="file" id="orderReceiptFile">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="orderSaveBtn" onclick="saveOrder()">Save Order</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('orderModal').classList.remove('show')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
 const PROJECT_ID = '<%= project.id %>';
+const ALL_MATERIALS = <%- JSON.stringify(STAGES.flatMap(s => s.items)) %>;
+const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
+const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
 
 function openEmailDialog(phaseKey, label) {
   document.getElementById('emailPhaseKey').value = phaseKey;
@@ -321,6 +386,7 @@ async function loadThreads() {
       el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No vendor emails sent yet.</div>';
       return;
     }
+    data.threads.forEach(t => THREAD_INFO[t.gmail_thread_id] = t);
     el.innerHTML = data.threads.map(t => `
       <div class="thread-item">
         <div class="thread-head" onclick="toggleThread('${t.gmail_thread_id}', this)">
@@ -347,10 +413,12 @@ async function toggleThread(threadId, headEl) {
     const r = await fetch(`/threads/${threadId}`);
     const data = await r.json();
     if (!data.ok) { box.innerHTML = '<div style="color:var(--danger);padding:.5rem">'+(data.error||'Error')+'</div>'; return; }
-    const msgs = data.messages.map(m => `
+    THREAD_MSGS[threadId] = data.messages;
+    const msgs = data.messages.map((m, idx) => `
       <div class="msg ${m.fromMe ? 'msg-me':'msg-them'}">
         <div class="msg-meta"><strong>${escapeHtmlJs(m.from)}</strong> · ${escapeHtmlJs(m.date)}</div>
         <div class="msg-body">${m.isHtml ? m.body : escapeHtmlJs(m.body).replace(/\\n/g,'<br>')}</div>
+        ${m.fromMe ? '' : `<div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" onclick="openOrderDialog('${threadId}', ${idx})">📦 Log Order Confirmation</button></div>`}
       </div>
     `).join('');
     box.innerHTML = msgs + `
@@ -525,6 +593,92 @@ async function saveItem(el) {
     showToast('Saved');
   } catch(e) {
     showToast('Error saving', true);
+  }
+}
+
+// ── Log order confirmation ────────────────────────────────────────────────
+function openOrderDialog(threadId, msgIndex) {
+  const t = THREAD_INFO[threadId] || {};
+  const msg = (THREAD_MSGS[threadId] || [])[msgIndex] || {};
+  document.getElementById('orderThreadId').value = threadId;
+  document.getElementById('orderMessageId').value = msg.id || '';
+  const vName = t.supplier_name || '', vEmail = t.supplier_email || '';
+  document.getElementById('orderVendorLabel').textContent =
+    vName ? (vName + (vEmail ? ' — ' + vEmail : '')) : (vEmail || 'Unknown vendor');
+
+  // Pre-check materials this email mentioned, plus the one this thread is about
+  const detected = new Set((msg.detected || []).map(d => d.code));
+  if (t.item_code) detected.add(t.item_code);
+  document.getElementById('orderMaterials').innerHTML = ALL_MATERIALS.map(m => `
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem">
+      <input type="checkbox" class="order-cb" value="${m.code}" ${detected.has(m.code) ? 'checked' : ''}>
+      <span>${escapeHtmlJs(m.name)}</span>
+    </label>`).join('');
+
+  document.getElementById('orderAmount').value = '';
+  document.getElementById('orderReceiptFile').value = '';
+
+  // Offer this email's attachments as the receipt
+  const atts = msg.attachments || [];
+  const ae = document.getElementById('orderEmailAttachments');
+  if (atts.length) {
+    ae.innerHTML = '<div style="margin-bottom:.2rem">Save an attachment from this email:</div>' +
+      atts.map((a, i) => `
+        <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem">
+          <input type="radio" name="orderAtt" value="${i}" ${i === 0 ? 'checked' : ''}>
+          <span>📎 ${escapeHtmlJs(a.filename)}</span>
+        </label>`).join('') +
+      `<label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem"><input type="radio" name="orderAtt" value="-1"><span>None</span></label>`;
+  } else {
+    ae.innerHTML = '<div style="color:var(--muted);font-size:.8rem">No attachments on this email.</div>';
+  }
+
+  document.getElementById('orderModal').classList.add('show');
+}
+
+async function saveOrder() {
+  const btn = document.getElementById('orderSaveBtn');
+  const threadId = document.getElementById('orderThreadId').value;
+  const messageId = document.getElementById('orderMessageId').value;
+  const t = THREAD_INFO[threadId] || {};
+  const codes = Array.from(document.querySelectorAll('.order-cb:checked')).map(c => c.value);
+  if (!codes.length) { showToast('Pick at least one material', true); return; }
+
+  const fd = new FormData();
+  codes.forEach(c => fd.append('codes', c));
+  fd.append('supplierName', t.supplier_name || '');
+  fd.append('supplierEmail', t.supplier_email || '');
+  fd.append('amount', document.getElementById('orderAmount').value.trim());
+  fd.append('gmailThreadId', threadId);
+  fd.append('gmailMessageId', messageId);
+
+  const file = document.getElementById('orderReceiptFile').files[0];
+  if (file) {
+    fd.append('receipt', file);
+  } else {
+    const sel = document.querySelector('input[name="orderAtt"]:checked');
+    if (sel && sel.value !== '-1') {
+      const msg = (THREAD_MSGS[threadId] || []).find(m => m.id === messageId) || {};
+      const a = (msg.attachments || [])[Number(sel.value)];
+      if (a) { fd.append('attachmentId', a.attachmentId); fd.append('attachmentName', a.filename); fd.append('attachmentMime', a.mimeType || ''); }
+    }
+  }
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/orders`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Order logged');
+      document.getElementById('orderModal').classList.remove('show');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast(data.error || 'Save failed', true);
+    }
+  } catch (e) {
+    showToast('Save failed', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Order';
   }
 }
 
