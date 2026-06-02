@@ -753,15 +753,26 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       ORDER BY vo.supplier_name NULLS LAST, vo.confirmed_at DESC`, [project.id]);
     const itemNames = {};
     ALL_ITEMS.forEach(i => itemNames[i.code] = i.name);
+    const stageOf = {};
+    STAGES.forEach(s => s.items.forEach(it => stageOf[it.code] = s.name));
     const ordersByVendor = [];
     const vmap = {};
+    const catMap = {};
     for (const o of orderRows) {
       const key = (o.supplier_name || '') + '|' + (o.supplier_email || '');
       if (!vmap[key]) { vmap[key] = { name: o.supplier_name, email: o.supplier_email, orders: [] }; ordersByVendor.push(vmap[key]); }
       vmap[key].orders.push(o);
+      for (const code of (o.item_codes || [])) {
+        if (!catMap[code]) catMap[code] = [];
+        catMap[code].push(o);
+      }
     }
+    // Orders grouped by material category (only categories that have orders), in stage order
+    const ordersByCategory = ALL_ITEMS
+      .filter(it => catMap[it.code] && catMap[it.code].length)
+      .map(it => ({ code: it.code, name: it.name, stage: stageOf[it.code], orders: catMap[it.code] }));
 
-    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames });
+    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

@@ -145,6 +145,34 @@
     <% } %>
   </div>
 
+  <!-- Order tracking grouped by material category -->
+  <div class="email-card">
+    <div class="email-header">
+      <div><strong>Order Tracking by Category</strong>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Your logged orders, grouped by material category (Rough Plumb, Finish Plumb, Hardware…). Amount shown is each order's full total — an order can cover several categories.</div>
+      </div>
+    </div>
+    <% if (ordersByCategory && ordersByCategory.length) { %>
+      <% ordersByCategory.forEach(cat => { %>
+        <div style="margin-top:.7rem">
+          <div style="font-weight:600;font-size:.9rem"><%= cat.name %> <span style="color:var(--muted);font-weight:400;font-size:.78rem"><%= cat.code %> · <%= cat.stage %></span></div>
+          <table style="width:100%;font-size:.85rem;margin-top:.3rem">
+            <% cat.orders.forEach(o => { %>
+              <tr style="border-bottom:1px solid var(--border)">
+                <td style="padding:.35rem 0;vertical-align:top"><%= o.supplier_name || o.supplier_email || 'Unknown vendor' %></td>
+                <td style="padding:.35rem .5rem;white-space:nowrap;text-align:right;vertical-align:top"><% if (o.amount != null) { %>$<%= Number(o.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %><% } %></td>
+                <td style="padding:.35rem .5rem;white-space:nowrap;text-align:right;color:var(--muted);font-size:.78rem;vertical-align:top"><%= new Date(o.confirmed_at).toLocaleDateString() %></td>
+                <td style="padding:.35rem 0;text-align:right;white-space:nowrap;vertical-align:top"><% if (o.has_receipt) { %><a href="/orders/<%= o.id %>/receipt" target="_blank" class="btn btn-ghost btn-sm" title="View receipt">📄</a><% } %></td>
+              </tr>
+            <% }) %>
+          </table>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No orders logged yet. When you log an order (📦 above), the materials you check appear here grouped by category.</div>
+    <% } %>
+  </div>
+
   <% STAGES.forEach(stage => { %>
   <div class="stage-card">
     <div class="stage-header"><%= stage.name %></div>
