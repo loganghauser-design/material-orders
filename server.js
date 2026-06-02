@@ -804,7 +804,15 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         return { code: it.code, name: it.name, stage: stageOf[it.code], lines, subtotal, summaryOrders };
       });
 
-    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory });
+    // Pre-built data for the "email this category to the vendor" feature
+    const categoryRequestData = ordersByCategory.filter(c => c.lines.length).map(c => ({
+      code: c.code, name: c.name,
+      vendorName: (c.lines.find(l => l.supplier_name) || {}).supplier_name || '',
+      vendorEmail: (c.lines.find(l => l.supplier_email) || {}).supplier_email || '',
+      items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
+    }));
+
+    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -1173,6 +1181,55 @@ app.post('/orders/:id/delete', requireAuth, async (req, res) => {
   const { rows: [o] } = await pool.query('SELECT project_id FROM vendor_orders WHERE id=$1', [req.params.id]);
   await pool.query('DELETE FROM vendor_orders WHERE id=$1', [req.params.id]);
   res.redirect(o ? `/projects/${o.project_id}` : '/');
+});
+
+// Email a vendor a request for the items in one category
+app.post('/projects/:id/category-request', requireAuth, async (req, res) => {
+  try {
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
+    const { category, to, emailType, items, note } = req.body;
+    if (!to || !to.trim()) return res.status(400).json({ ok: false, error: 'No recipient email.' });
+    if (!items || !items.trim()) return res.status(400).json({ ok: false, error: 'No items to request.' });
+
+    const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
+    if (!project) return res.status(404).json({ ok: false, error: 'Project not found.' });
+    const fullAddress = project.full_address || project.address;
+    const addr = escapeHtml(fullAddress);
+    const catName = (ALL_ITEMS.find(i => i.code === category) || {}).name || 'items';
+
+    const TYPES = {
+      delivery: { verb: 'Delivery Request', intro: `We're ready for delivery of the following <strong>${escapeHtml(catName)}</strong> items to <strong>${addr}</strong>:`, closing: 'Please confirm the delivery date.' },
+      order: { verb: 'Order', intro: `We'd like to order the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: 'Please confirm pricing, availability, and lead time.' },
+      quote: { verb: 'RFQ', intro: `Please quote the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time.' },
+    };
+    const t = TYPES[emailType] || TYPES.delivery;
+    const subject = `${fullAddress} — ${catName} ${t.verb}`;
+
+    const itemList = String(items).trim().split(/\r?\n/).filter(l => l.trim());
+    const itemsHtml = '<ul style="margin:8px 0;padding-left:20px">' + itemList.map(l => `<li>${escapeHtml(l.trim())}</li>`).join('') + '</ul>';
+    const sig = await getSignature();
+    const signoff = sig ? `<br>${sig}` : '<p>Thank you,<br>Logan<br>Buildoly</p>';
+    const html =
+`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+<p>Hi,</p>
+<p>${t.intro}</p>
+${itemsHtml}
+${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
+<p>${t.closing}</p>
+${signoff}
+</div>`;
+
+    const sent = await sendMail({ to, subject, html });
+    await pool.query(
+      `INSERT INTO vendor_emails (project_id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [req.params.id, category || null, null, to, subject, emailType || 'delivery', sent.threadId || null, sent.messageId || null]
+    );
+    res.json({ ok: true, sentTo: to });
+  } catch (err) {
+    console.error('Category request error:', err.code || '', '-', err.message);
+    res.status(500).json({ ok: false, error: `${err.code || 'ERR'}: ${err.message}` });
+  }
 });
 
 // ── PDF exports ───────────────────────────────────────────────────────────────

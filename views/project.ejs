@@ -155,9 +155,12 @@
     <% if (ordersByCategory && ordersByCategory.length) { %>
       <% ordersByCategory.forEach(cat => { %>
         <div style="margin-top:.85rem">
-          <div style="font-weight:600;font-size:.9rem;display:flex;justify-content:space-between;align-items:baseline;gap:.5rem">
+          <div style="font-weight:600;font-size:.9rem;display:flex;justify-content:space-between;align-items:center;gap:.5rem">
             <span><%= cat.name %> <span style="color:var(--muted);font-weight:400;font-size:.78rem"><%= cat.code %> · <%= cat.stage %></span></span>
-            <% if (cat.lines.length) { %><span style="font-weight:600;font-size:.82rem">$<%= cat.subtotal.toLocaleString(undefined,{minimumFractionDigits:2}) %></span><% } %>
+            <span style="display:flex;align-items:center;gap:.6rem">
+              <% if (cat.lines.length) { %><span style="font-weight:600;font-size:.82rem">$<%= cat.subtotal.toLocaleString(undefined,{minimumFractionDigits:2}) %></span><% } %>
+              <% if (cat.lines.length) { %><button type="button" class="btn btn-ghost btn-sm" onclick="openCategoryRequest('<%= cat.code %>')" title="Email the vendor to request these items">✉ Request</button><% } %>
+            </span>
           </div>
           <% if (cat.lines.length) { %>
             <table style="width:100%;font-size:.83rem;margin-top:.25rem">
@@ -364,11 +367,45 @@
   </div>
 </div>
 
+<!-- Request a category's items from the vendor -->
+<div id="catReqModal" class="modal-overlay">
+  <div class="modal">
+    <h2 id="catReqTitle">Request Items</h2>
+    <p class="modal-sub">Email the vendor a request for these items. Edit anything before sending.</p>
+    <input type="hidden" id="catReqCode">
+    <div class="form-group">
+      <label>To</label>
+      <input type="text" id="catReqTo" placeholder="vendor@example.com">
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Request type</label>
+      <select id="catReqType">
+        <option value="delivery">Request Delivery (deliver these now)</option>
+        <option value="order">Reorder (place a new order)</option>
+        <option value="quote">Request Quote (pricing/availability)</option>
+      </select>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Items (one per line — edit as needed)</label>
+      <textarea id="catReqItems" rows="7" style="width:100%;font-size:.85rem"></textarea>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Note (optional)</label>
+      <input type="text" id="catReqNote" placeholder="e.g. Needed by Friday">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="catReqSendBtn" onclick="sendCategoryRequest()">Send Request</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('catReqModal').classList.remove('show')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
 const PROJECT_ID = '<%= project.id %>';
 const ALL_MATERIALS = <%- JSON.stringify(STAGES.flatMap(s => s.items)) %>;
+const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
 
@@ -727,6 +764,51 @@ async function saveOrder() {
     showToast('Save failed', true);
   } finally {
     btn.disabled = false; btn.textContent = 'Save Order';
+  }
+}
+
+// ── Request a category's items from the vendor ────────────────────────────
+function openCategoryRequest(code) {
+  const c = (CATEGORY_REQUEST_DATA || []).find(x => x.code === code);
+  if (!c) { showToast('No items to request', true); return; }
+  document.getElementById('catReqCode').value = code;
+  document.getElementById('catReqTitle').textContent = 'Request — ' + c.name;
+  document.getElementById('catReqTo').value = c.vendorEmail || '';
+  document.getElementById('catReqType').value = 'delivery';
+  document.getElementById('catReqItems').value = c.items
+    .map(it => (it.qty > 1 ? it.qty + 'x ' : '') + it.desc + (it.code ? ' (' + it.code + ')' : ''))
+    .join('\n');
+  document.getElementById('catReqNote').value = '';
+  document.getElementById('catReqModal').classList.add('show');
+}
+
+async function sendCategoryRequest() {
+  const btn = document.getElementById('catReqSendBtn');
+  const category = document.getElementById('catReqCode').value;
+  const to = document.getElementById('catReqTo').value.trim();
+  const emailType = document.getElementById('catReqType').value;
+  const items = document.getElementById('catReqItems').value.trim();
+  const note = document.getElementById('catReqNote').value.trim();
+  if (!to) { showToast('Enter a recipient email', true); return; }
+  if (!items) { showToast('No items to request', true); return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/category-request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ category, to, emailType, items, note }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Request sent to ' + data.sentTo);
+      document.getElementById('catReqModal').classList.remove('show');
+      loadThreads();
+    } else {
+      showToast(data.error || 'Send failed', true);
+    }
+  } catch (e) {
+    showToast('Send failed', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send Request';
   }
 }
 
