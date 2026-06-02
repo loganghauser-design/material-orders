@@ -617,6 +617,16 @@ async function initDb() {
       order_id INTEGER REFERENCES vendor_orders(id) ON DELETE CASCADE,
       item_code VARCHAR(10)
     );
+
+    CREATE TABLE IF NOT EXISTS vendor_order_lines (
+      id SERIAL PRIMARY KEY,
+      order_id INTEGER REFERENCES vendor_orders(id) ON DELETE CASCADE,
+      item_code VARCHAR(10),
+      product_code VARCHAR(100),
+      description TEXT,
+      qty NUMERIC(10,2),
+      price NUMERIC(12,2)
+    );
   `);
 }
 
@@ -767,10 +777,32 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         catMap[code].push(o);
       }
     }
-    // Orders grouped by material category (only categories that have orders), in stage order
+    // Itemized line items per order (product + price), grouped by category
+    const { rows: lineRows } = await pool.query(`
+      SELECT vol.item_code, vol.product_code, vol.description, vol.qty, vol.price,
+             vo.id AS order_id, vo.supplier_name, vo.supplier_email, (vo.receipt_data IS NOT NULL) AS has_receipt
+      FROM vendor_order_lines vol JOIN vendor_orders vo ON vo.id = vol.order_id
+      WHERE vo.project_id=$1
+      ORDER BY vol.item_code, vol.id`, [project.id]);
+    const linesByCat = {};
+    const ordersWithLines = new Set();
+    for (const l of lineRows) {
+      if (!linesByCat[l.item_code]) linesByCat[l.item_code] = [];
+      linesByCat[l.item_code].push(l);
+      ordersWithLines.add(l.order_id);
+    }
+
+    // Unified tracking: each category shows its itemized lines (with prices/subtotal),
+    // plus a summary row for any order that has no line items yet (legacy fallback).
+    const allCatCodes = new Set([...Object.keys(catMap), ...Object.keys(linesByCat)]);
     const ordersByCategory = ALL_ITEMS
-      .filter(it => catMap[it.code] && catMap[it.code].length)
-      .map(it => ({ code: it.code, name: it.name, stage: stageOf[it.code], orders: catMap[it.code] }));
+      .filter(it => allCatCodes.has(it.code))
+      .map(it => {
+        const lines = linesByCat[it.code] || [];
+        const subtotal = lines.reduce((s, l) => s + (l.price != null ? Number(l.price) : 0), 0);
+        const summaryOrders = (catMap[it.code] || []).filter(o => !ordersWithLines.has(o.id));
+        return { code: it.code, name: it.name, stage: stageOf[it.code], lines, subtotal, summaryOrders };
+      });
 
     res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory });
   } catch (err) {
