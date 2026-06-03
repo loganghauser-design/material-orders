@@ -547,12 +547,20 @@ async function loadMaterialsSchedule() {
     const data = await r.json();
     if (!data.ok || !data.byCode) { MAT_SCHED_LOADED = true; return; }
     const rhSrc = data.rangeHoodSource || 'default';
+    const heldStatuses = data.heldStatuses || ['In Office', 'Delivered'];
     function supplierCell(it) {
       if (it.hood) {
         const def = escapeHtmlJs(it.defaultSupplier || 'Vendor');
         return `<td style="padding:3px 6px"><select onchange="setRangeHoodSource(this.value)" title="Switch range hood supplier" style="font-size:.78rem;padding:1px 4px"><option value="default"${rhSrc !== 'buildoly' ? ' selected' : ''}>${def}</option><option value="buildoly"${rhSrc === 'buildoly' ? ' selected' : ''}>Buildoly Stock (office)</option></select></td>`;
       }
       return `<td style="padding:3px 6px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td>`;
+    }
+    function officeCell(it) {
+      if (!it.held) return '<td style="padding:3px 6px;color:var(--muted)">—</td>';
+      const cur = it.officeStatus || 'In Office';
+      const opts = heldStatuses.map(s => `<option value="${escapeHtmlJs(s)}"${s === cur ? ' selected' : ''}>${escapeHtmlJs(s)}</option>`).join('');
+      const cls = cur === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory';
+      return `<td style="padding:3px 6px"><select class="status-select ${cls}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="Office-stock status" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
     }
     Object.keys(data.byCode).forEach(code => {
       const items = data.byCode[code] || [];
@@ -561,7 +569,7 @@ async function loadMaterialsSchedule() {
       const sub = document.getElementById('sub_' + code);
       if (sub) {
         sub.querySelector('.sched-items').innerHTML = items.length
-          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}</tr>`).join('') + '</table>'
+          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Office status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
           : '<div style="color:var(--muted);font-size:.8rem">No schedule items in this category.</div>';
       }
     });
@@ -592,6 +600,18 @@ async function setRangeHoodSource(source) {
     if (data.ok) {
       showToast(source === 'buildoly' ? 'Range hood → Buildoly Stock' : 'Range hood → schedule vendor');
       MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 2d drill-down
+    } else showToast('Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
+}
+async function saveHeldStatus(itemKey, sel) {
+  const status = sel.value;
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: itemKey, status }) });
+    const data = await r.json();
+    if (data.ok) {
+      sel.classList.remove('cell-in_inventory', 'cell-delivered');
+      sel.classList.add(status === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory');
+      showToast('Office status → ' + status);
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }

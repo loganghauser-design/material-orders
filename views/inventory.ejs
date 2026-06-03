@@ -28,6 +28,7 @@
     .alloc th, .alloc td { padding:4px 14px 4px 0; text-align:left; }
     .alloc th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; }
     .status-pill { padding:2px 9px; border-radius:10px; font-size:.76rem; font-weight:600; display:inline-block; }
+    .cell-in_office { background:#d9c2f0; color:#4a235a; }
     .form-group { margin-bottom:.85rem; }
     .form-group label { display:block; margin-bottom:.25rem; }
     .form-group input { width:100%; }
@@ -107,7 +108,7 @@
           <tr id="det_<%= it.id %>" style="display:none">
             <td class="detail-cell" colspan="6">
               <table class="alloc">
-                <thead><tr><th>Project (allocated to)</th><th>Status on that project</th><th>Qty</th></tr></thead>
+                <thead><tr><th>Project (allocated to)</th><th>Office status</th><th>Qty</th></tr></thead>
                 <tbody>
                   <% it.byProject.forEach(p => { %>
                     <tr>

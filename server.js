@@ -215,6 +215,9 @@ const ITEM_STATUSES = [
 
 const PROJECT_STATUSES = ['Not Yet', 'In Progress', 'All Delivered', 'Draft - Contract', 'Fully Delivered'];
 
+// Office-stock lifecycle for held items (no RFQ/order — you already own them).
+const HELD_STATUSES = ['In Office', 'Delivered'];
+
 // ── Email (Resend) ──────────────────────────────────────────────────────────
 
 const { Resend } = require('resend');
@@ -566,10 +569,14 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
     if (!name) continue;
     const code = m[1].toLowerCase();
     const hood = isRangeHoodRow(row);
+    const prodCode = (row[2] || '').trim();
+    const model = (row[7] || '').trim();
+    const held = isHeldSupplier(supplier);
     (byCode[code] = byCode[code] || []).push({
       name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
-      model: (row[7] || '').trim(), qty: (row[9] || '').trim() || '1', supplier,
+      model, qty: (row[9] || '').trim() || '1', supplier,
       hood, defaultSupplier: hood ? (row[14] || '').trim() : undefined,
+      held, itemKey: held ? heldItemKey(prodCode, model, name) : undefined,
     });
   }
   return byCode;
@@ -581,6 +588,12 @@ const HELD_SUPPLIERS = ['Buildoly Stock', 'JEDCO'];
 function isHeldSupplier(supplier) {
   const s = String(supplier || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   return HELD_SUPPLIERS.some(h => s === h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+}
+// Stable per-line key for a held item within a project (for office-stock status).
+// Prefer Prod. Code, else Model #, else name.
+function heldItemKey(prodCode, model, name) {
+  const v = (prodCode && !/^custom$/i.test(prodCode) ? prodCode : (model || name)) || '';
+  return v.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
 // Scan every linked finish schedule (WITH per-project overrides applied, so a
@@ -610,6 +623,7 @@ async function computeHeldUsages() {
       usages.push({
         projectId: proj.id, project: proj.address, name, prodCode, model, supplier,
         code: code ? code.toLowerCase() : null,
+        itemKey: heldItemKey(prodCode, model, name),
         qty: parseFloat((row[9] || '').trim()) || 1,
         text: [name, product, model, prodCode].join(' ').toLowerCase(),
       });
@@ -902,6 +916,16 @@ async function initDb() {
     ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS product VARCHAR(200);
     ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS qty INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE inventory_items ALTER COLUMN match_keyword DROP NOT NULL;
+
+    -- Office-stock status per held item per project (In Office / Delivered).
+    -- item_key = Prod. Code / Model # / name of the schedule line.
+    CREATE TABLE IF NOT EXISTS held_item_status (
+      project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      item_key TEXT NOT NULL,
+      status VARCHAR(40) NOT NULL DEFAULT 'In Office',
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (project_id, item_key)
+    );
     -- Each purchase batch for an item (date, qty, price) — the dropdown history.
     CREATE TABLE IF NOT EXISTS inventory_purchases (
       id SERIAL PRIMARY KEY,
@@ -1773,9 +1797,34 @@ app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
     const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
     const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source });
-    res.json({ ok: true, byCode, rangeHoodSource: p.range_hood_source || 'default' });
+    // Attach saved office-stock status to held items
+    const { rows: hs } = await pool.query('SELECT item_key, status FROM held_item_status WHERE project_id=$1', [req.params.id]);
+    const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r.status]));
+    for (const code of Object.keys(byCode)) {
+      for (const it of byCode[code]) {
+        if (it.held) it.officeStatus = hsMap[it.itemKey] || 'In Office';
+      }
+    }
+    res.json({ ok: true, byCode, rangeHoodSource: p.range_hood_source || 'default', heldStatuses: HELD_STATUSES });
   } catch (err) {
     res.json({ ok: false, error: err.message });
+  }
+});
+
+// Save an office-stock status for a held item in this project
+app.post('/projects/:id/held-status', requireAuth, async (req, res) => {
+  try {
+    const itemKey = String(req.body.item_key || '').trim();
+    const status = HELD_STATUSES.includes(req.body.status) ? req.body.status : 'In Office';
+    if (!itemKey) return res.status(400).json({ ok: false, error: 'Missing item key.' });
+    await pool.query(
+      `INSERT INTO held_item_status (project_id, item_key, status, updated_at) VALUES ($1,$2,$3,NOW())
+       ON CONFLICT (project_id, item_key) DO UPDATE SET status=EXCLUDED.status, updated_at=NOW()`,
+      [req.params.id, itemKey, status]
+    );
+    res.json({ ok: true, status });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
@@ -2023,11 +2072,10 @@ app.get('/inventory', requireAuth, async (req, res) => {
     // Draw each item down by the held-stock schedule lines that match its Model #
     // (exact match on the schedule's Model # column), with a text fallback so a
     // plain keyword still works.
-    // Per-project status of each material code, so we can show "what status is
-    // this item on each project" (status is tracked at the category-code level).
-    const { rows: piRows } = await pool.query('SELECT project_id, item_code, status FROM project_items');
+    // Office-stock status per held item per project (In Office / Delivered).
+    const { rows: hsRows } = await pool.query('SELECT project_id, item_key, status FROM held_item_status');
     const statusMap = {};
-    for (const r of piRows) statusMap[r.project_id + '|' + r.item_code] = r.status;
+    for (const r of hsRows) statusMap[r.project_id + '|' + r.item_key] = r.status;
 
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const enriched = items.map(it => {
@@ -2041,7 +2089,7 @@ app.get('/inventory', requireAuth, async (req, res) => {
         if (!byProject[u.project]) {
           byProject[u.project] = {
             address: u.project, qty: 0, code: u.code,
-            status: (u.code && statusMap[u.projectId + '|' + u.code]) || 'Not yet placed',
+            status: statusMap[u.projectId + '|' + u.itemKey] || 'In Office',
           };
         }
         byProject[u.project].qty += u.qty;
