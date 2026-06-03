@@ -22,6 +22,7 @@
     <a href="/settings" class="nav-tab">Settings</a>
   </div>
   <div class="nav-actions">
+    <button type="button" class="btn btn-primary" onclick="openRfqDialog('','','','')">📧 Email Vendor</button>
     <a href="/projects/<%= project.id %>/status-pdf" target="_blank" class="btn btn-ghost">⬇ Status PDF</a>
     <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost">Edit Project</a>
     <a href="/" class="btn btn-ghost">← Back</a>
@@ -38,6 +39,20 @@
     <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
   </div>
 
+  <style>
+    .tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:.25rem 0 1.1rem;border-bottom:1px solid var(--border);padding-bottom:.55rem}
+    .tab-btn{background:none;border:1px solid var(--border);border-radius:7px;padding:.45rem 1rem;cursor:pointer;font-size:.92rem;color:var(--muted)}
+    .tab-btn.active{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
+    .tab-panel{display:none}
+  </style>
+  <div class="tabs">
+    <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">🧱 Materials</button>
+    <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">📦 Orders</button>
+    <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">✉️ Emails</button>
+    <button type="button" class="tab-btn" data-tab="docs" onclick="showTab('docs')">📄 Docs &amp; $</button>
+  </div>
+
+  <div class="tab-panel" data-tab="emails">
   <!-- Milestone payment emails -->
   <div class="email-card">
     <div class="email-header">
@@ -65,6 +80,8 @@
     </div>
   </div>
 
+  </div><!-- /emails (part 1) -->
+  <div class="tab-panel" data-tab="docs">
   <!-- Documents + milestone payments -->
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem" class="two-col">
     <div class="email-card" style="margin-bottom:0">
@@ -101,6 +118,8 @@
     </div>
   </div>
 
+  </div><!-- /docs -->
+  <div class="tab-panel" data-tab="emails">
   <!-- Vendor email threads -->
   <div class="email-card">
     <div class="email-header">
@@ -112,6 +131,8 @@
     <div id="threadList" style="margin-top:.5rem"><div style="color:var(--muted);font-size:.85rem">Loading…</div></div>
   </div>
 
+  </div><!-- /emails (part 2) -->
+  <div class="tab-panel" data-tab="orders">
   <!-- Confirmed orders, grouped by vendor -->
   <div class="email-card">
     <div class="email-header">
@@ -188,6 +209,8 @@
     <% } %>
   </div>
 
+  </div><!-- /orders -->
+  <div class="tab-panel" data-tab="materials">
   <% STAGES.forEach(stage => { %>
   <div class="stage-card">
     <div class="stage-header"><%= stage.name %></div>
@@ -199,7 +222,6 @@
           <th>Status</th>
           <th>Delivery Date</th>
           <th>Notes</th>
-          <th></th>
         </tr>
       </thead>
       <tbody>
@@ -224,16 +246,13 @@
           <td>
             <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)">
           </td>
-          <td>
-            <button type="button" class="btn btn-ghost btn-sm"
-              onclick="openRfqDialog('<%= item.code %>', '<%= item.name.replace(/'/g, "\\'") %>', '<%= (sup.name||'').replace(/'/g, "\\'") %>', '<%= sup.email||'' %>')">Email Vendor</button>
-          </td>
         </tr>
         <% }) %>
       </tbody>
     </table>
   </div>
   <% }) %>
+  </div><!-- /materials -->
 </div>
 
 <!-- Email send dialog -->
@@ -466,6 +485,13 @@ const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
 
+// ── Tabs ──────────────────────────────────────────────────────────────────
+function showTab(tab) {
+  document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = (p.dataset.tab === tab) ? 'block' : 'none'; });
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+}
+document.addEventListener('DOMContentLoaded', () => showTab('materials'));
+
 function openEmailDialog(phaseKey, label) {
   document.getElementById('emailPhaseKey').value = phaseKey;
   document.getElementById('emailModalTitle').textContent = 'Send "' + label + '" Email';
@@ -642,7 +668,8 @@ let rfqSavedSupplierEmail = '';
 
 function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
   document.getElementById('rfqItemCode').value = itemCode;
-  document.getElementById('rfqModalTitle').textContent = 'Email Vendor — ' + (supplierName || itemName);
+  const _lbl = supplierName || itemName;
+  document.getElementById('rfqModalTitle').textContent = _lbl ? ('Email Vendor — ' + _lbl) : 'Email Vendor';
   rfqSavedSupplierEmail = supplierEmail || '';
   document.getElementById('rfqSupplierName').value = supplierName || '';
   document.getElementById('rfqSupplierEmail').value = supplierEmail || '';

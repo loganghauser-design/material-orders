@@ -1058,8 +1058,7 @@ app.post('/projects/:id/rfq', requireAuth, upload.single('attachment'), async (r
   try {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
     const { itemCode, supplierEmail, supplierName, note, items, itemsHtml, emailType, cc, outboundDate } = req.body;
-    const item = ALL_ITEMS.find(i => i.code === itemCode);
-    if (!item) return res.status(400).json({ ok: false, error: 'Unknown material.' });
+    if (itemCode && !ALL_ITEMS.find(i => i.code === itemCode)) return res.status(400).json({ ok: false, error: 'Unknown material.' });
     if (!supplierEmail) return res.status(400).json({ ok: false, error: 'No recipient email. Add one in Settings or type it in.' });
 
     const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
@@ -1120,7 +1119,7 @@ ${signoff}
     );
 
     // Auto-advance the status of all this vendor's materials on the project
-    const updatedItems = await advanceVendorItems(req.params.id, itemCode, emailType);
+    const updatedItems = itemCode ? await advanceVendorItems(req.params.id, itemCode, emailType) : [];
 
     res.json({ ok: true, sentTo: supplierEmail, updatedItems });
   } catch (err) {
