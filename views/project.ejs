@@ -517,7 +517,7 @@ function lookupVendorEmail(name){
   if (!n) return null;
   for (const k in SUPPLIER_EMAILS){
     const kn = normVendor(k);
-    if (kn === n || (kn.length>=4 && n.length>=4 && (kn.includes(n)||n.includes(kn)))) return SUPPLIER_EMAILS[k];
+    if (kn === n || (kn.length>=5 && n.length>=5 && (kn.includes(n)||n.includes(kn)))) return SUPPLIER_EMAILS[k];
   }
   return null;
 }
@@ -784,7 +784,8 @@ function fillFromVendor() {
   if (!v) { RFQ_COVERED = []; return; }
   document.getElementById('rfqSupplierName').value = v.name;
   const email = lookupVendorEmail(v.name);
-  if (email) { document.getElementById('rfqSupplierEmail').value = email; rfqSavedSupplierEmail = email; }
+  document.getElementById('rfqSupplierEmail').value = email || '';   // clear if this vendor has no saved email
+  rfqSavedSupplierEmail = email || '';
   RFQ_COVERED = [...new Set(v.items.map(it => it.code))];
   const rowsHtml = v.items.map(it =>
     `<tr><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
