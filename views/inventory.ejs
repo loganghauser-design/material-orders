@@ -198,8 +198,9 @@ function onSearch() {
   ).slice(0, 40);
   if (!hits.length) { box.innerHTML = '<div style="padding:8px 10px;color:var(--muted);font-size:.82rem">No matches in your schedules.</div>'; box.style.display = 'block'; return; }
   box.innerHTML = hits.map((it, i) => {
-    const idText = it.model ? it.model : (it.prodCode ? it.prodCode + ' (code)' : 'no model/code');
-    const idCol = (it.model || it.prodCode) ? 'var(--muted)' : '#cc8800';
+    const code = bestCode(it);
+    const idText = code || 'no model/code';
+    const idCol = code ? 'var(--muted)' : '#cc8800';
     return `<div class="search-hit" data-i="${i}" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:.85rem">
        <strong>${escapeHtml(it.name)}</strong>
        <span style="font-family:ui-monospace,monospace;color:${idCol}"> · ${escapeHtml(idText)}</span>
@@ -215,11 +216,16 @@ function onSearch() {
 }
 function pickHit(it) {
   document.getElementById('add_name').value = it.name + (it.product && it.product.toLowerCase() !== it.name.toLowerCase() ? ' (' + it.product + ')' : '');
-  // Prefer Model #; fall back to Prod. Code so same-name specs stay distinct
-  document.getElementById('add_product').value = it.model || it.prodCode || '';
+  // Prefer Prod. Code (the real catalog code — Jedco's S-VG01 etc.); fall back to Model #
+  document.getElementById('add_product').value = bestCode(it);
   document.getElementById('searchResults').style.display = 'none';
   document.getElementById('add_search').value = it.name;
   document.getElementById('add_qty').focus();
+}
+// The product code that identifies an item: Prod. Code first (unless "custom"/blank), else Model #
+function bestCode(it) {
+  if (it.prodCode && !/^custom$/i.test(it.prodCode)) return it.prodCode;
+  return it.model || it.prodCode || '';
 }
 function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function openAdd() {
