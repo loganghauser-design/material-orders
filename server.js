@@ -491,7 +491,15 @@ function applyRowOverrides(row, opts = {}) {
   }
 
   const cat = code ? (code + '. ' + (CODE_NAME[code] || '')) : rawCat;
-  return { cat, supplier };
+  // Classify held stock: Office = Jedco items + range hoods; Warehouse = everything
+  // else we hold as Buildoly Stock (vanities, closets, decking, LVP, cabinets, etc.).
+  let location = null;
+  if (isHeldSupplier(supplier)) {
+    const isHood = /range hood|\bhood\b/.test(text);
+    const isJedco = /jedco/i.test((row[14] || '').trim());
+    location = (isHood || isJedco) ? 'office' : 'warehouse';
+  }
+  return { cat, supplier, location };
 }
 // True when a schedule row is the range hood (single, unmistakable by name).
 function isRangeHoodRow(row) {
@@ -624,6 +632,7 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
       model, qty: (row[9] || '').trim() || '1', supplier,
       hood, jedco, defaultSupplier: (hood || jedco) ? origSupplier : undefined,
       held, itemKey: held ? heldItemKey(prodCode, model, name) : undefined,
+      location: held ? ((hood || jedco) ? 'office' : 'warehouse') : undefined,
     });
   }
   return byCode;
@@ -664,7 +673,7 @@ async function computeHeldUsages() {
     const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source };
     for (let i = 5; i < rows.length; i++) {
       const row = rows[i];
-      const { cat, supplier } = applyRowOverrides(row, opts);
+      const { cat, supplier, location } = applyRowOverrides(row, opts);
       if (!isHeldSupplier(supplier)) continue;
       const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
       if (!name) continue;
@@ -674,6 +683,7 @@ async function computeHeldUsages() {
       const code = (String(cat).match(/^(1[a-e]|2[a-e]|3[a-e])\b/i) || [])[1];
       usages.push({
         projectId: proj.id, project: proj.address, name, product, prodCode, model, supplier,
+        location,                              // 'office' (Jedco/hood) or 'warehouse'
         code: code ? code.toLowerCase() : null,
         itemKey: heldItemKey(prodCode, model, name),
         qty: parseFloat((row[9] || '').trim()) || 1,
@@ -2258,14 +2268,46 @@ app.get('/inventory', requireAuth, async (req, res) => {
         ? ((matched.find(u => u.product) || {}).product || (matched.find(u => u.name) || {}).name || '')
         : '';
       const qty = it.qty || 0;
+      const location = (matched.find(u => u.location) || {}).location || 'office';
       return {
-        ...it, inUse, available: qty - inUse, productName,
+        ...it, inUse, available: qty - inUse, productName, location,
         delivered,                  // pulled out of the office & delivered to jobs
         inOffice: qty - delivered,  // physically still on the shelf
         byProject: projects,
       };
     });
-    res.render('inventory', { items: enriched, heldSuppliers: HELD_SUPPLIERS, error });
+
+    // Office stock = manually-stocked Jedco items + range hoods (bulk on-hand qty).
+    const officeItems = enriched.filter(it => it.location !== 'warehouse');
+
+    // Warehouse stock = everything else we hold as Buildoly Stock (vanities, closets,
+    // decking, LVP, cabinets, pantry, linen…). These are built/ordered per job, so we
+    // auto-derive them straight from the schedules — no manual adding, just per-project
+    // pull/delivered tracking.
+    const whMap = {};
+    for (const u of usages) {
+      if (u.location !== 'warehouse') continue;
+      const key = u.itemKey;
+      if (!whMap[key]) whMap[key] = { name: u.product || u.name || key, code: u.prodCode || '', held: 0, delivered: 0, byProject: {} };
+      const w = whMap[key];
+      w.held += u.qty;
+      const st = statusMap[u.projectId + '|' + u.itemKey] || 'In Office';
+      if (st === 'Delivered') w.delivered += u.qty;
+      if (!w.byProject[u.projectId]) w.byProject[u.projectId] = { address: u.project, projectId: u.projectId, qty: 0, itemKeys: [], deliveredAll: true };
+      const bp = w.byProject[u.projectId];
+      bp.qty += u.qty;
+      if (!bp.itemKeys.includes(u.itemKey)) bp.itemKeys.push(u.itemKey);
+      if (st !== 'Delivered') bp.deliveredAll = false;
+    }
+    const warehouseItems = Object.values(whMap).map(w => ({
+      name: w.name, code: w.code, held: w.held, delivered: w.delivered, inWarehouse: w.held - w.delivered,
+      byProject: Object.values(w.byProject).map(bp => ({
+        address: bp.address, projectId: bp.projectId, qty: bp.qty, itemKeys: bp.itemKeys,
+        status: bp.deliveredAll ? 'Delivered' : 'In Office',
+      })),
+    })).sort((a, b) => a.name.localeCompare(b.name));
+
+    res.render('inventory', { officeItems, warehouseItems, heldSuppliers: HELD_SUPPLIERS, error });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -2438,6 +2480,12 @@ function startCron() {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
+// Allow one-off maintenance scripts to reuse the DB + schedule logic
+// (require('./server.js')) without starting the HTTP server.
+module.exports = { pool, computeHeldUsages, initDb, HELD_STATUSES };
+
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
+}
 initDb().then(() => { console.log('DB ready'); startCron(); checkUnreadThreads(); }).catch(err => console.error('DB init failed:', err.message));

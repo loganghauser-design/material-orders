@@ -571,9 +571,14 @@ async function loadMaterialsSchedule() {
     function officeCell(it) {
       if (!it.held) return '<td style="padding:3px 6px;color:var(--muted)">â€”</td>';
       const cur = it.officeStatus || 'In Office';
-      const opts = heldStatuses.map(s => `<option value="${escapeHtmlJs(s)}"${s === cur ? ' selected' : ''}>${escapeHtmlJs(s)}</option>`).join('');
+      const heldLabel = it.location === 'warehouse' ? 'In Warehouse' : 'In Office';
+      const opts = heldStatuses.map(s => {
+        const label = s === 'In Office' ? heldLabel : s;
+        return `<option value="${escapeHtmlJs(s)}"${s === cur ? ' selected' : ''}>${escapeHtmlJs(label)}</option>`;
+      }).join('');
       const cls = cur === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory';
-      return `<td style="padding:3px 6px"><select class="status-select ${cls}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="Office-stock status" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
+      const tag = it.location === 'warehouse' ? 'Warehouse-stock status' : 'Office-stock status';
+      return `<td style="padding:3px 6px"><select class="status-select ${cls}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="${tag}" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
     }
     Object.keys(data.byCode).forEach(code => {
       const items = data.byCode[code] || [];
@@ -582,7 +587,7 @@ async function loadMaterialsSchedule() {
       const sub = document.getElementById('sub_' + code);
       if (sub) {
         sub.querySelector('.sched-items').innerHTML = items.length
-          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Office status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">Ã—${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
+          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Stock status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">Ã—${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
           : '<div style="color:var(--muted);font-size:.8rem">No schedule items in this category.</div>';
       }
     });
