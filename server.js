@@ -1931,6 +1931,17 @@ app.post('/projects/:id/range-hood-source', requireAuth, async (req, res) => {
   }
 });
 
+// Set/clear a project's finish-schedule sheet link (inline from the main grid)
+app.post('/projects/:id/finish-schedule-url', requireAuth, async (req, res) => {
+  try {
+    const url = (req.body.url || '').trim() || null;
+    await pool.query('UPDATE projects SET finish_schedule_url=$1 WHERE id=$2', [url, req.params.id]);
+    res.json({ ok: true, linked: !!url });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // Toggle who supplies Jedco items: 'default' (JEDCO) or 'buildoly' (Buildoly office stock)
 app.post('/projects/:id/jedco-source', requireAuth, async (req, res) => {
   try {
