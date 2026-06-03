@@ -97,8 +97,8 @@
     </div>
     <div class="sec-totals">
       <span>On hand <b><%= oQty %></b></span>
-      <span class="col-deliv">Delivered <b><%= oDeliv %></b></span>
-      <span class="col-office">In office <b><%= oOffice %></b></span>
+      <span class="col-deliv">Delivered <b id="tot-odeliv"><%= oDeliv %></b></span>
+      <span class="col-office">In office <b id="tot-ooffice"><%= oOffice %></b></span>
     </div>
   </div>
   <div class="card" style="padding:0;overflow:hidden;max-width:none">
@@ -161,6 +161,7 @@
                           data-pid="<%= p.projectId %>"
                           data-keys="<%= p.itemKeys.join('||') %>"
                           data-status="<%= p.status %>"
+                          data-loc="office" data-itemid="<%= it.id %>" data-qty="<%= p.qty %>"
                           onclick="toggleDelivered(this)">
                           <%= p.status === 'Delivered' ? '✓ Delivered' : 'In office — mark delivered' %>
                         </button>
@@ -190,8 +191,8 @@
     </div>
     <div class="sec-totals">
       <span>Held <b><%= wHeld %></b></span>
-      <span class="col-deliv">Delivered <b><%= wDeliv %></b></span>
-      <span class="col-ware">In warehouse <b><%= wWare %></b></span>
+      <span class="col-deliv">Delivered <b id="tot-wdeliv"><%= wDeliv %></b></span>
+      <span class="col-ware">In warehouse <b id="tot-wware"><%= wWare %></b></span>
     </div>
   </div>
   <div class="card" style="padding:0;overflow:hidden;max-width:none">
@@ -213,15 +214,15 @@
           warehouseItems.forEach((it, wi) => {
             const wid = 'wh' + wi;
             const hasAlloc = it.byProject && it.byProject.length; %>
-          <tr class="item-row">
+          <tr class="item-row" data-id="<%= wid %>">
             <td class="l">
               <span class="caret" id="car_<%= wid %>" onclick="toggleAlloc('<%= wid %>')"><%= hasAlloc ? '▸' : '' %></span>
               <strong class="<%= hasAlloc ? 'name-toggle' : '' %>" <% if (hasAlloc) { %>onclick="toggleAlloc('<%= wid %>')"<% } %>><%= it.name %></strong>
             </td>
             <td class="l"><% if (it.code) { %><span class="prod-tag"><%= it.code %></span><% } else { %><span style="color:var(--muted)">—</span><% } %></td>
             <td class="num"><%= it.held %></td>
-            <td class="num col-deliv grp-sep"><%= it.delivered %></td>
-            <td class="num col-ware" style="<%= it.inWarehouse < 0 ? 'color:#cc2222' : '' %>"><%= it.inWarehouse %><% if (it.inWarehouse < 0) { %> ⚠<% } %></td>
+            <td class="num col-deliv grp-sep deliv-cell"><%= it.delivered %></td>
+            <td class="num col-ware ware-cell" style="<%= it.inWarehouse < 0 ? 'color:#cc2222' : '' %>"><%= it.inWarehouse %><% if (it.inWarehouse < 0) { %> ⚠<% } %></td>
           </tr>
           <% if (hasAlloc) { %>
           <tr id="det_<%= wid %>" style="display:none">
@@ -239,6 +240,7 @@
                           data-pid="<%= p.projectId %>"
                           data-keys="<%= p.itemKeys.join('||') %>"
                           data-status="<%= p.status %>"
+                          data-loc="ware" data-itemid="<%= wid %>" data-qty="<%= p.qty %>"
                           onclick="toggleDelivered(this)">
                           <%= p.status === 'Delivered' ? '✓ Delivered' : 'In warehouse — mark delivered' %>
                         </button>
@@ -415,10 +417,17 @@ async function deleteItem(id, name) {
 }
 // Manually flip an office-stock item between In office / Delivered for one project,
 // as you physically pull and drop it off. Reloads so the totals recompute.
+function bump(id, delta) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = (parseInt(el.textContent, 10) || 0) + delta;
+}
 async function toggleDelivered(btn) {
   const pid = btn.dataset.pid;
   const keys = (btn.dataset.keys || '').split('||').filter(Boolean);
-  const newStatus = btn.dataset.status === 'Delivered' ? 'In Office' : 'Delivered';
+  const toDelivered = btn.dataset.status !== 'Delivered';
+  const newStatus = toDelivered ? 'Delivered' : 'In Office';
+  const prevText = btn.textContent;
+  if (!keys.length) { alert('This item has no tracking key — cannot mark delivered.'); return; }
   btn.disabled = true; btn.textContent = 'Saving…';
   try {
     for (const key of keys) {
@@ -427,12 +436,31 @@ async function toggleDelivered(btn) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: 'item_key=' + encodeURIComponent(key) + '&status=' + encodeURIComponent(newStatus),
       });
-      if (!r.ok) throw new Error('save failed');
+      if (!r.ok) throw new Error('save failed (' + r.status + ')');
     }
-    location.reload();
+    // Update the button in place — no reload, so the expanded row stays open.
+    const ware = btn.dataset.loc === 'ware';
+    btn.dataset.status = newStatus;
+    btn.classList.toggle('cell-delivered', toDelivered);
+    btn.classList.toggle(ware ? 'cell-in_ware' : 'cell-in_office', !toDelivered);
+    btn.textContent = toDelivered ? '✓ Delivered' : (ware ? 'In warehouse — mark delivered' : 'In office — mark delivered');
+    btn.disabled = false;
+    // Update this item's Delivered / In-office(warehouse) counts and the section totals.
+    const qty = parseInt(btn.dataset.qty, 10) || 0;
+    const sign = toDelivered ? 1 : -1;
+    const row = document.querySelector('tr.item-row[data-id="' + btn.dataset.itemid + '"]');
+    if (row) {
+      const d = row.querySelector('.deliv-cell');
+      const o = row.querySelector(ware ? '.ware-cell' : '.office-cell');
+      if (d) d.textContent = (parseInt(d.textContent, 10) || 0) + sign * qty;
+      if (o) o.textContent = (parseInt(o.textContent, 10) || 0) - sign * qty;
+    }
+    bump(ware ? 'tot-wdeliv' : 'tot-odeliv', sign * qty);
+    bump(ware ? 'tot-wware' : 'tot-ooffice', -sign * qty);
   } catch (e) {
     btn.disabled = false;
-    btn.textContent = 'Error — try again';
+    btn.textContent = prevText;
+    alert('Could not save: ' + e.message + '. Please try again.');
   }
 }
 document.getElementById('addModal').addEventListener('click', e => { if (e.target.id === 'addModal') closeAdd(); });
