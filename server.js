@@ -842,6 +842,19 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
   return { threadId: null, messageId: data && data.id };
 }
 
+// Post a message to a Google Chat space via its incoming webhook URL
+const CHAT_WEBHOOK_URL = process.env.CHAT_WEBHOOK_URL;
+async function postToChat(text) {
+  if (!CHAT_WEBHOOK_URL) return;
+  try {
+    await fetch(CHAT_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify({ text }),
+    });
+  } catch (e) { console.error('postToChat:', e.message); }
+}
+
 // Create a Gmail draft (instead of sending) so the user can review/send from Gmail
 async function createDraft({ to, cc, subject, text, html, attachments }) {
   if (!useGmail) throw new Error('Drafts require Gmail to be configured.');
@@ -1309,6 +1322,12 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
     `INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
     [req.params.id, req.params.code]
   );
+  // Capture the prior delivery date so we only alert when it actually changes
+  let oldDate = null;
+  if (!statusOnly && delivery_date) {
+    const { rows: [cur] } = await pool.query('SELECT delivery_date FROM project_items WHERE project_id=$1 AND item_code=$2', [req.params.id, req.params.code]);
+    oldDate = cur && cur.delivery_date ? new Date(cur.delivery_date).toISOString().slice(0, 10) : null;
+  }
   if (statusOnly) {
     // Grid edit: only change status, preserve date/notes
     await pool.query(
@@ -1321,6 +1340,16 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
        WHERE project_id=$5 AND item_code=$6`,
       [status, delivery_date||null, notes||null, order_date||null, req.params.id, req.params.code]
     );
+  }
+  // Post to the Delivery Alerts Chat space when a delivery date is newly set/changed
+  if (!statusOnly && delivery_date && delivery_date !== oldDate) {
+    const { rows: [proj] } = await pool.query('SELECT address FROM projects WHERE id=$1', [req.params.id]);
+    const name = ITEM_NAME[req.params.code] || req.params.code;
+    const parts = delivery_date.split('-').map(Number);
+    const when = parts.length === 3
+      ? new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+      : delivery_date;
+    postToChat(`📦 *${name}* scheduled for delivery *${when}* — ${proj ? proj.address : ''}`);
   }
   res.json({ ok: true });
 });
