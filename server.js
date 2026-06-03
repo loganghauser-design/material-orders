@@ -1990,10 +1990,16 @@ app.get('/inventory', requireAuth, async (req, res) => {
     let usages = [], error = null;
     try { usages = await computeHeldUsages(); }
     catch (e) { error = e.message; }
-    // Draw each item down by the held-stock schedule lines its product keyword matches.
+    // Draw each item down by the held-stock schedule lines that match its Model #
+    // (exact match on the schedule's Model # column), with a text fallback so a
+    // plain keyword still works.
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const enriched = items.map(it => {
       const term = (it.product || it.name || '').toLowerCase().trim();
-      const matched = term ? usages.filter(u => u.text.includes(term)) : [];
+      const nterm = norm(term);
+      const matched = term
+        ? usages.filter(u => (nterm && norm(u.model) === nterm) || u.text.includes(term))
+        : [];
       const byProject = {};
       for (const u of matched) byProject[u.project] = (byProject[u.project] || 0) + u.qty;
       const inUse = matched.reduce((s, u) => s + u.qty, 0);

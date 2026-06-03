@@ -44,8 +44,8 @@
     <button class="btn btn-primary" onclick="openAdd()">+ Add Inventory</button>
   </div>
   <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:780px">
-    Office/warehouse stock you buy and hold. Add an item with a <strong>Product</strong> keyword and a <strong>Qty</strong>.
-    Each project that uses it as held stock (<%= heldSuppliers.join(' / ') %> — e.g. a range hood flipped to Buildoly Stock)
+    Office/warehouse stock you buy and hold. Add an item with its <strong>Model #</strong> and a <strong>Qty</strong>.
+    Each project that uses that model as held stock (<%= heldSuppliers.join(' / ') %> — e.g. a range hood flipped to Buildoly Stock)
     automatically subtracts one, so <strong>Available</strong> always shows what's still free.
   </p>
 
@@ -57,14 +57,14 @@
     <% if (!items.length) { %>
       <div style="padding:1.6rem;color:var(--muted)">
         No inventory items yet. Click <strong>+ Add Inventory</strong> to add your first one
-        (e.g. name <em>Range Hood</em>, product keyword <em>hood</em>, qty <em>13</em>).
+        (e.g. name <em>Range Hood</em>, model <em>HP30IDCHX4</em>, qty <em>13</em>).
       </div>
     <% } else { %>
     <table class="inv-table">
       <thead>
         <tr>
           <th>Item</th>
-          <th>Product</th>
+          <th>Model #</th>
           <th style="text-align:center">Qty</th>
           <th style="text-align:center">In use</th>
           <th style="text-align:center">Available</th>
@@ -108,15 +108,15 @@
 <div class="modal-overlay" id="addModal">
   <div class="modal">
     <h2>Add inventory item</h2>
-    <p class="modal-sub">Stock you keep in the office. The <strong>Product</strong> keyword is what the app looks for in your finish schedules.</p>
+    <p class="modal-sub">Stock you keep in the office. The <strong>Model #</strong> is matched against your finish schedules' Model # column to track usage.</p>
     <form onsubmit="return submitAdd(event)">
       <div class="form-group">
         <label>Item name</label>
         <input type="text" id="add_name" placeholder="Range Hood" required>
       </div>
       <div class="form-group">
-        <label>Product (keyword to match in the schedule — e.g. "hood")</label>
-        <input type="text" id="add_product" placeholder="hood">
+        <label>Model # (matches the schedule's Model # column — e.g. HP30IDCHX4)</label>
+        <input type="text" id="add_product" placeholder="HP30IDCHX4">
       </div>
       <div class="form-group">
         <label>Qty on hand</label>
