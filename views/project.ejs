@@ -19,14 +19,13 @@
     <a href="/payments" class="nav-tab">Payments</a>
     <a href="/driving" class="nav-tab">Driving Log</a>
     <a href="/inventory" class="nav-tab">Inventory</a>
-    <a href="/stock-status" class="nav-tab">Stock Status</a>
     <a href="/suppliers" class="nav-tab">Suppliers</a>
     <a href="/settings" class="nav-tab">Settings</a>
   </div>
   <div class="nav-actions">
-    <a href="/projects/<%= project.id %>/status-pdf" target="_blank" class="btn btn-ghost">⬇ Status PDF</a>
+    <a href="/projects/<%= project.id %>/status-pdf" target="_blank" class="btn btn-ghost">â¬‡ Status PDF</a>
     <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost">Edit Project</a>
-    <a href="/" class="btn btn-ghost">← Back</a>
+    <a href="/" class="btn btn-ghost">â† Back</a>
   </div>
 </nav>
 
@@ -49,21 +48,21 @@
     .modal-overlay{padding:2vh 0}
   </style>
   <div class="tabs">
-    <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">🧱 Materials</button>
-    <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">📦 Orders</button>
-    <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">✉️ Emails</button>
-    <button type="button" class="tab-btn" data-tab="docs" onclick="showTab('docs')">📄 Docs &amp; $</button>
-    <button type="button" class="tab-btn" data-tab="schedule" onclick="showTab('schedule')">📋 Finish Schedule</button>
-    <button type="button" class="btn btn-primary" style="margin-left:auto" onclick="openRfqDialog('','','','')">📧 Email Vendor</button>
+    <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">ðŸ§± Materials</button>
+    <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">ðŸ“¦ Orders</button>
+    <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">âœ‰ï¸ Emails</button>
+    <button type="button" class="tab-btn" data-tab="docs" onclick="showTab('docs')">ðŸ“„ Docs &amp; $</button>
+    <button type="button" class="tab-btn" data-tab="schedule" onclick="showTab('schedule')">ðŸ“‹ Finish Schedule</button>
+    <button type="button" class="btn btn-primary" style="margin-left:auto" onclick="openRfqDialog('','','','')">ðŸ“§ Email Vendor</button>
   </div>
 
   <div class="tab-panel" data-tab="schedule">
     <div class="email-card">
       <div class="email-header">
-        <div><strong>Finish Schedule</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Read live from your Google Sheet — verify what the app sees.</div></div>
-        <button class="btn btn-ghost btn-sm" onclick="loadFinishSchedule(true)">↻ Refresh</button>
+        <div><strong>Finish Schedule</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Read live from your Google Sheet â€” verify what the app sees.</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadFinishSchedule(true)">â†» Refresh</button>
       </div>
-      <div id="finSchedView" style="margin-top:.5rem;overflow-x:auto"><div style="color:var(--muted);font-size:.85rem">Open this tab to load…</div></div>
+      <div id="finSchedView" style="margin-top:.5rem;overflow-x:auto"><div style="color:var(--muted);font-size:.85rem">Open this tab to loadâ€¦</div></div>
     </div>
   </div>
 
@@ -75,9 +74,9 @@
         <strong>Send Client Milestone Email</strong>
         <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">
           <% if (project.client_email) { %>
-            To: <%= project.client_name ? project.client_name + ' — ' : '' %><%= project.client_email %>
+            To: <%= project.client_name ? project.client_name + ' â€” ' : '' %><%= project.client_email %>
           <% } else { %>
-            <span style="color:var(--danger)">No client email set — add one via Edit Project.</span>
+            <span style="color:var(--danger)">No client email set â€” add one via Edit Project.</span>
           <% } %>
         </div>
       </div>
@@ -105,8 +104,8 @@
         <div style="margin:.5rem 0">
           <% documents.forEach(d => { %>
             <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--border)">
-              <a href="/documents/<%= d.id %>" target="_blank">📄 <%= d.filename %></a>
-              <form method="POST" action="/documents/<%= d.id %>/delete" onsubmit="return confirm('Delete this document?')"><button class="btn btn-danger btn-sm">✕</button></form>
+              <a href="/documents/<%= d.id %>" target="_blank">ðŸ“„ <%= d.filename %></a>
+              <form method="POST" action="/documents/<%= d.id %>/delete" onsubmit="return confirm('Delete this document?')"><button class="btn btn-danger btn-sm">âœ•</button></form>
             </div>
           <% }) %>
         </div>
@@ -118,14 +117,14 @@
     </div>
 
     <div class="email-card" style="margin-bottom:0">
-      <div class="email-header"><div><strong>Milestone Payments</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Recorded when you send a milestone email. <a href="/payments">Full ledger →</a></div></div></div>
+      <div class="email-header"><div><strong>Milestone Payments</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Recorded when you send a milestone email. <a href="/payments">Full ledger â†’</a></div></div></div>
       <% if (payments && payments.length) { %>
         <table style="width:100%;font-size:.85rem;margin-top:.5rem">
           <% payments.forEach(p => { %>
             <tr style="border-bottom:1px solid var(--border)">
               <td style="padding:.35rem 0"><%= p.phase_name %></td>
               <td style="padding:.35rem 0"><strong>$<%= Number(p.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %></strong></td>
-              <td style="padding:.35rem 0;text-align:right"><span class="badge <%= p.paid ? 'badge-all_delivered' : 'badge-not_yet' %>"><%= p.paid ? '✓ Paid' : 'Unpaid' %></span></td>
+              <td style="padding:.35rem 0;text-align:right"><span class="badge <%= p.paid ? 'badge-all_delivered' : 'badge-not_yet' %>"><%= p.paid ? 'âœ“ Paid' : 'Unpaid' %></span></td>
             </tr>
           <% }) %>
         </table>
@@ -139,11 +138,11 @@
   <div class="email-card">
     <div class="email-header">
       <div><strong>Vendor Email Threads</strong>
-        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Order, delivery & quote emails you've sent for this project — with replies.</div>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Order, delivery & quote emails you've sent for this project â€” with replies.</div>
       </div>
-      <button class="btn btn-ghost btn-sm" onclick="loadThreads()">↻ Refresh</button>
+      <button class="btn btn-ghost btn-sm" onclick="loadThreads()">â†» Refresh</button>
     </div>
-    <div id="threadList" style="margin-top:.5rem"><div style="color:var(--muted);font-size:.85rem">Loading…</div></div>
+    <div id="threadList" style="margin-top:.5rem"><div style="color:var(--muted);font-size:.85rem">Loadingâ€¦</div></div>
   </div>
 
   </div><!-- /emails (part 2) -->
@@ -152,9 +151,9 @@
   <div class="email-card">
     <div class="email-header">
       <div><strong>Confirmed Orders</strong>
-        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Materials a vendor has confirmed, by vendor. Log from a vendor's reply (📦) or upload a receipt PDF →</div>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Materials a vendor has confirmed, by vendor. Log from a vendor's reply (ðŸ“¦) or upload a receipt PDF â†’</div>
       </div>
-      <button class="btn btn-primary btn-sm" onclick="openReceiptUpload()">⬆ Upload Receipt</button>
+      <button class="btn btn-primary btn-sm" onclick="openReceiptUpload()">â¬† Upload Receipt</button>
     </div>
     <% if (ordersByVendor && ordersByVendor.length) { %>
       <% ordersByVendor.forEach(v => { %>
@@ -169,8 +168,8 @@
                 <td style="padding:.4rem .5rem;white-space:nowrap;text-align:right;vertical-align:top"><% if (o.amount != null) { %><strong>$<%= Number(o.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %></strong><% } %></td>
                 <td style="padding:.4rem .5rem;white-space:nowrap;text-align:right;color:var(--muted);font-size:.78rem;vertical-align:top"><%= new Date(o.confirmed_at).toLocaleDateString() %></td>
                 <td style="padding:.4rem 0;text-align:right;white-space:nowrap;vertical-align:top">
-                  <% if (o.has_receipt) { %><a href="/orders/<%= o.id %>/receipt" target="_blank" class="btn btn-ghost btn-sm">📄 Receipt</a><% } %>
-                  <form method="POST" action="/orders/<%= o.id %>/delete" style="display:inline" onsubmit="return confirm('Delete this order record?')"><button class="btn btn-danger btn-sm">✕</button></form>
+                  <% if (o.has_receipt) { %><a href="/orders/<%= o.id %>/receipt" target="_blank" class="btn btn-ghost btn-sm">ðŸ“„ Receipt</a><% } %>
+                  <form method="POST" action="/orders/<%= o.id %>/delete" style="display:inline" onsubmit="return confirm('Delete this order record?')"><button class="btn btn-danger btn-sm">âœ•</button></form>
                 </td>
               </tr>
             <% }) %>
@@ -178,7 +177,7 @@
         </div>
       <% }) %>
     <% } else { %>
-      <div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No confirmed orders yet. Open a vendor reply above and click “📦 Log Order Confirmation”.</div>
+      <div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No confirmed orders yet. Open a vendor reply above and click â€œðŸ“¦ Log Order Confirmationâ€.</div>
     <% } %>
   </div>
 
@@ -186,17 +185,17 @@
   <div class="email-card">
     <div class="email-header">
       <div><strong>Order Tracking by Category</strong>
-        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Items you've ordered, grouped by material category (Rough Plumb, Finish Plumb, Appliances…).</div>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Items you've ordered, grouped by material category (Rough Plumb, Finish Plumb, Appliancesâ€¦).</div>
       </div>
     </div>
     <% if (ordersByCategory && ordersByCategory.length) { %>
       <% ordersByCategory.forEach(cat => { %>
         <div style="margin-top:.85rem">
           <div style="font-weight:600;font-size:.9rem;display:flex;justify-content:space-between;align-items:center;gap:.5rem">
-            <span><%= cat.name %> <span style="color:var(--muted);font-weight:400;font-size:.78rem"><%= cat.code %> · <%= cat.stage %></span></span>
+            <span><%= cat.name %> <span style="color:var(--muted);font-weight:400;font-size:.78rem"><%= cat.code %> Â· <%= cat.stage %></span></span>
             <span style="display:flex;align-items:center;gap:.6rem">
               <% if (cat.lines.length) { %><span style="font-weight:600;font-size:.82rem">$<%= cat.subtotal.toLocaleString(undefined,{minimumFractionDigits:2}) %></span><% } %>
-              <% if (cat.lines.length) { %><button type="button" class="btn btn-ghost btn-sm" onclick="openCategoryRequest('<%= cat.code %>')" title="Email the vendor to request these items">✉ Request</button><% } %>
+              <% if (cat.lines.length) { %><button type="button" class="btn btn-ghost btn-sm" onclick="openCategoryRequest('<%= cat.code %>')" title="Email the vendor to request these items">âœ‰ Request</button><% } %>
             </span>
           </div>
           <% if (cat.lines.length) { %>
@@ -204,8 +203,8 @@
               <% cat.lines.forEach(l => { %>
                 <tr style="border-bottom:1px solid var(--border)">
                   <td style="padding:.3rem 0;vertical-align:top">
-                    <%= l.description || l.product_code %><% if (l.qty && Number(l.qty) > 1) { %> <span style="color:var(--muted)">×<%= Number(l.qty) %></span><% } %>
-                    <% if (l.product_code) { %><br><span style="color:var(--muted);font-size:.72rem"><%= l.product_code %><% if (l.supplier_name) { %> · <%= l.supplier_name %><% } %></span><% } %>
+                    <%= l.description || l.product_code %><% if (l.qty && Number(l.qty) > 1) { %> <span style="color:var(--muted)">Ã—<%= Number(l.qty) %></span><% } %>
+                    <% if (l.product_code) { %><br><span style="color:var(--muted);font-size:.72rem"><%= l.product_code %><% if (l.supplier_name) { %> Â· <%= l.supplier_name %><% } %></span><% } %>
                   </td>
                   <td style="padding:.3rem 0;white-space:nowrap;text-align:right;vertical-align:top"><% if (l.price != null) { %>$<%= Number(l.price).toLocaleString(undefined,{minimumFractionDigits:2}) %><% } %></td>
                 </tr>
@@ -214,13 +213,13 @@
           <% } %>
           <% cat.summaryOrders.forEach(o => { %>
             <div style="font-size:.82rem;color:var(--muted);margin-top:.25rem">
-              <%= o.supplier_name || o.supplier_email || 'Unknown vendor' %><% if (o.amount != null) { %> — $<%= Number(o.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %> (order total)<% } %><% if (o.has_receipt) { %> · <a href="/orders/<%= o.id %>/receipt" target="_blank">📄 receipt</a><% } %>
+              <%= o.supplier_name || o.supplier_email || 'Unknown vendor' %><% if (o.amount != null) { %> â€” $<%= Number(o.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %> (order total)<% } %><% if (o.has_receipt) { %> Â· <a href="/orders/<%= o.id %>/receipt" target="_blank">ðŸ“„ receipt</a><% } %>
             </div>
           <% }) %>
         </div>
       <% }) %>
     <% } else { %>
-      <div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No orders logged yet. When you log an order (📦 above), its items appear here grouped by category.</div>
+      <div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No orders logged yet. When you log an order (ðŸ“¦ above), its items appear here grouped by category.</div>
     <% } %>
   </div>
 
@@ -249,7 +248,7 @@
         %>
         <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
           <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
-          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
+          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">â–¸</span> <strong><%= item.name %></strong></span> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
           <td>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
@@ -264,7 +263,7 @@
             <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)">
           </td>
           <td>
-            <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)">
+            <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notesâ€¦" onblur="saveItem(this)">
           </td>
         </tr>
         <tr class="sched-sub" id="sub_<%= item.code %>" style="display:none">
@@ -293,8 +292,8 @@
       <input type="text" id="emailMelio" placeholder="https://melio.me/...">
     </div>
     <div class="form-group" style="margin-top:.85rem">
-      <label>Below the Melio link (optional — paste from Google Sheets)</label>
-      <div id="emailExtra" class="paste-box" contenteditable="true" data-placeholder="Paste cells or type anything to appear below the Melio link…"></div>
+      <label>Below the Melio link (optional â€” paste from Google Sheets)</label>
+      <div id="emailExtra" class="paste-box" contenteditable="true" data-placeholder="Paste cells or type anything to appear below the Melio linkâ€¦"></div>
     </div>
     <div class="form-group" style="margin-top:.85rem">
       <label>Additional attachments (optional)</label>
@@ -316,8 +315,8 @@
     <p class="modal-sub">Drafts an email to the supplier. Paste your item list straight from Google Sheets.</p>
     <input type="hidden" id="rfqItemCode">
     <div class="form-group">
-      <label>Vendor — auto-fill from finish schedule</label>
-      <select id="rfqVendor" onchange="fillFromVendor()"><option value="">Loading vendors…</option></select>
+      <label>Vendor â€” auto-fill from finish schedule</label>
+      <select id="rfqVendor" onchange="fillFromVendor()"><option value="">Loading vendorsâ€¦</option></select>
       <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Pick a vendor to auto-fill their items from this project's schedule, or just type below.</small>
     </div>
     <div class="form-group">
@@ -341,7 +340,7 @@
     <div class="form-group" style="margin-top:.85rem">
       <label id="rfqEmailLabel">Supplier Email(s)</label>
       <input type="text" id="rfqSupplierEmail" placeholder="email@vendor.com, second@vendor.com">
-      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Separate multiple addresses with commas — all get the same one email.</small>
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Separate multiple addresses with commas â€” all get the same one email.</small>
     </div>
     <div class="form-group rfq-cc" style="margin-top:.85rem;display:none">
       <label>CC</label>
@@ -349,8 +348,8 @@
     </div>
     <div class="form-group" style="margin-top:.85rem">
       <label id="rfqItemsLabel">Items (paste from Google Sheets)</label>
-      <div id="rfqItems" class="paste-box" contenteditable="true" data-placeholder="Select cells in your sheet, copy, and paste here — the table appears exactly as it looks."></div>
-      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">The pasted table shows here before you send. Use the ✕ to clear.</small>
+      <div id="rfqItems" class="paste-box" contenteditable="true" data-placeholder="Select cells in your sheet, copy, and paste here â€” the table appears exactly as it looks."></div>
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">The pasted table shows here before you send. Use the âœ• to clear.</small>
     </div>
     <div class="form-group" style="margin-top:.85rem">
       <label>Extra note (optional)</label>
@@ -369,11 +368,11 @@
   </div>
 </div>
 
-<!-- Reply → material update confirmation -->
+<!-- Reply â†’ material update confirmation -->
 <div id="confirmUpdateModal" class="modal-overlay">
   <div class="modal">
     <h2>Update materials from your reply?</h2>
-    <p class="modal-sub">Your reply mentioned these materials. Set a delivery date and/or status, then apply — or skip.</p>
+    <p class="modal-sub">Your reply mentioned these materials. Set a delivery date and/or status, then apply â€” or skip.</p>
     <div id="confirmItems" style="margin:.5rem 0 1rem"></div>
     <div class="form-group">
       <label>Delivery Date (optional)</label>
@@ -397,7 +396,7 @@
 <div id="orderModal" class="modal-overlay">
   <div class="modal">
     <h2>Log Order Confirmation</h2>
-    <p class="modal-sub">Record what this vendor confirmed. Detected materials are pre-checked — adjust as needed.</p>
+    <p class="modal-sub">Record what this vendor confirmed. Detected materials are pre-checked â€” adjust as needed.</p>
     <input type="hidden" id="orderThreadId">
     <input type="hidden" id="orderMessageId">
     <div style="font-size:.85rem;margin-bottom:.6rem">Vendor: <strong id="orderVendorLabel"></strong></div>
@@ -406,11 +405,11 @@
       <div id="orderMaterials" style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;margin-top:.35rem"></div>
     </div>
     <div class="form-group" style="margin-top:.85rem">
-      <label>Total Amount ($) — optional</label>
+      <label>Total Amount ($) â€” optional</label>
       <input type="text" id="orderAmount" placeholder="e.g. 12,500.00">
     </div>
     <div class="form-group" style="margin-top:.85rem">
-      <label>Receipt — optional</label>
+      <label>Receipt â€” optional</label>
       <div id="orderEmailAttachments" style="font-size:.85rem;margin:.25rem 0"></div>
       <small style="color:var(--muted);font-size:.75rem">Or upload a file:</small>
       <input type="file" id="orderReceiptFile">
@@ -422,11 +421,11 @@
   </div>
 </div>
 
-<!-- Upload a receipt PDF → auto-extract + categorize → review → save -->
+<!-- Upload a receipt PDF â†’ auto-extract + categorize â†’ review â†’ save -->
 <div id="receiptModal" class="modal-overlay">
   <div class="modal" style="max-width:660px">
     <h2>Upload Receipt</h2>
-    <p class="modal-sub">Upload a vendor PDF — we'll pull the items and sort them into categories for you to review before saving.</p>
+    <p class="modal-sub">Upload a vendor PDF â€” we'll pull the items and sort them into categories for you to review before saving.</p>
     <div id="receiptStep1">
       <div class="form-group">
         <label>Receipt PDF</label>
@@ -442,7 +441,7 @@
         <div class="form-group" style="flex:1;min-width:200px"><label>Vendor</label><input type="text" id="receiptVendor"></div>
         <div class="form-group" style="width:130px"><label>Total ($)</label><input type="text" id="receiptAmount"></div>
       </div>
-      <label style="font-size:.8rem;color:var(--muted)">Items — set the category for each (fix any that look wrong, ✕ to drop a row):</label>
+      <label style="font-size:.8rem;color:var(--muted)">Items â€” set the category for each (fix any that look wrong, âœ• to drop a row):</label>
       <div id="receiptLines" style="max-height:320px;overflow:auto;margin-top:.35rem"></div>
       <div class="modal-actions">
         <button class="btn btn-primary" id="receiptSaveBtn" onclick="saveReceiptOrder()">Save Order</button>
@@ -500,7 +499,7 @@
       </select>
     </div>
     <div class="form-group" style="margin-top:.85rem">
-      <label>Items (one per line — edit as needed)</label>
+      <label>Items (one per line â€” edit as needed)</label>
       <textarea id="catReqItems" rows="7" style="width:100%;font-size:.85rem"></textarea>
     </div>
     <div class="form-group" style="margin-top:.85rem">
@@ -540,7 +539,7 @@ function statusToClass(st){ return 'cell-' + String(st).toLowerCase().replace(/[
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
 
-// ── Tabs ──────────────────────────────────────────────────────────────────
+// â”€â”€ Tabs â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function showTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = (p.dataset.tab === tab) ? 'block' : 'none'; });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
@@ -570,7 +569,7 @@ async function loadMaterialsSchedule() {
       return `<td style="padding:3px 6px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td>`;
     }
     function officeCell(it) {
-      if (!it.held) return '<td style="padding:3px 6px;color:var(--muted)">—</td>';
+      if (!it.held) return '<td style="padding:3px 6px;color:var(--muted)">â€”</td>';
       const cur = it.officeStatus || 'In Office';
       const opts = heldStatuses.map(s => `<option value="${escapeHtmlJs(s)}"${s === cur ? ' selected' : ''}>${escapeHtmlJs(s)}</option>`).join('');
       const cls = cur === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory';
@@ -583,26 +582,26 @@ async function loadMaterialsSchedule() {
       const sub = document.getElementById('sub_' + code);
       if (sub) {
         sub.querySelector('.sched-items').innerHTML = items.length
-          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Office status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
+          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Office status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">Ã—${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
           : '<div style="color:var(--muted);font-size:.8rem">No schedule items in this category.</div>';
       }
     });
     MAT_SCHED_LOADED = true;
-  } catch (e) { /* schedule unavailable — leave the materials list plain */ }
+  } catch (e) { /* schedule unavailable â€” leave the materials list plain */ }
 }
 function toggleCategory(code) {
   const sub = document.getElementById('sub_' + code), car = document.getElementById('car_' + code);
   if (!sub) return;
   const show = sub.style.display === 'none';
   sub.style.display = show ? '' : 'none';
-  if (car) car.textContent = show ? '▾' : '▸';
+  if (car) car.textContent = show ? 'â–¾' : 'â–¸';
 }
 async function setRecSource(source) {
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/rec-lighting-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
     const data = await r.json();
     if (data.ok) {
-      showToast(source === 'oncall' ? 'Recessed lighting → On Call LED' : 'Recessed lighting → GC Procure');
+      showToast(source === 'oncall' ? 'Recessed lighting â†’ On Call LED' : 'Recessed lighting â†’ GC Procure');
       MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 1e drill-down
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
@@ -612,7 +611,7 @@ async function setRangeHoodSource(source) {
     const r = await fetch(`/projects/${PROJECT_ID}/range-hood-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
     const data = await r.json();
     if (data.ok) {
-      showToast(source === 'buildoly' ? 'Range hood → Buildoly Stock' : 'Range hood → schedule vendor');
+      showToast(source === 'buildoly' ? 'Range hood â†’ Buildoly Stock' : 'Range hood â†’ schedule vendor');
       MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 2d drill-down
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
@@ -622,7 +621,7 @@ async function setJedcoSource(source) {
     const r = await fetch(`/projects/${PROJECT_ID}/jedco-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
     const data = await r.json();
     if (data.ok) {
-      showToast(source === 'buildoly' ? 'Jedco items → Buildoly Stock' : 'Jedco items → JEDCO');
+      showToast(source === 'buildoly' ? 'Jedco items â†’ Buildoly Stock' : 'Jedco items â†’ JEDCO');
       MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the drill-downs
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
@@ -635,7 +634,7 @@ async function saveHeldStatus(itemKey, sel) {
     if (data.ok) {
       sel.classList.remove('cell-in_inventory', 'cell-delivered');
       sel.classList.add(status === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory');
-      showToast('Office status → ' + status);
+      showToast('Office status â†’ ' + status);
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }
@@ -645,7 +644,7 @@ let FIN_SCHED_LOADED = false;
 async function loadFinishSchedule(force) {
   if (FIN_SCHED_LOADED && !force) return;
   const el = document.getElementById('finSchedView');
-  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading from Google Sheet…</div>';
+  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading from Google Sheetâ€¦</div>';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/finish-schedule`);
     const data = await r.json();
@@ -690,12 +689,12 @@ async function sendEmail(asDraft) {
   const fileInput = document.getElementById('emailFile');
   for (const f of fileInput.files) fd.append('attachments', f);
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = asDraft ? 'Saving…' : 'Sending…';
+  btn.disabled = true; btn.textContent = asDraft ? 'Savingâ€¦' : 'Sendingâ€¦';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/send-email`, { method: 'POST', body: fd });
     const data = await r.json();
     if (data.ok) {
-      showToast(data.draft ? 'Draft saved to your Gmail — review & send there' : 'Email sent to ' + data.sentTo);
+      showToast(data.draft ? 'Draft saved to your Gmail â€” review & send there' : 'Email sent to ' + data.sentTo);
       closeEmailDialog();
       document.getElementById('emailAmount').value = '';
       document.getElementById('emailMelio').value = '';
@@ -711,10 +710,10 @@ async function sendEmail(asDraft) {
   }
 }
 
-// ── Vendor email threads ──────────────────────────────────────────────
+// â”€â”€ Vendor email threads â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function loadThreads() {
   const el = document.getElementById('threadList');
-  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading…</div>';
+  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loadingâ€¦</div>';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/threads`);
     const data = await r.json();
@@ -731,8 +730,8 @@ async function loadThreads() {
             <span class="thread-type">${escapeHtmlJs(t.email_type || '')}</span>
           </div>
           <div style="display:flex;align-items:center;gap:.6rem">
-            <span style="font-size:.78rem;color:var(--muted)">${escapeHtmlJs(t.supplier_name||'')} · ${new Date(t.sent_at).toLocaleDateString()}</span>
-            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteThread(${t.id})" title="Remove from list (does not delete from Gmail)">✕</button>
+            <span style="font-size:.78rem;color:var(--muted)">${escapeHtmlJs(t.supplier_name||'')} Â· ${new Date(t.sent_at).toLocaleDateString()}</span>
+            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteThread(${t.id})" title="Remove from list (does not delete from Gmail)">âœ•</button>
           </div>
         </div>
         <div class="thread-body" id="tb_${t.gmail_thread_id}"></div>
@@ -747,7 +746,7 @@ async function toggleThread(threadId, headEl) {
   const box = document.getElementById('tb_' + threadId);
   if (box.classList.contains('open')) { box.classList.remove('open'); box.innerHTML=''; return; }
   box.classList.add('open');
-  box.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:.5rem">Loading conversation…</div>';
+  box.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:.5rem">Loading conversationâ€¦</div>';
   try {
     const r = await fetch(`/threads/${threadId}`);
     const data = await r.json();
@@ -755,16 +754,16 @@ async function toggleThread(threadId, headEl) {
     THREAD_MSGS[threadId] = data.messages;
     const msgs = data.messages.map((m, idx) => `
       <div class="msg ${m.fromMe ? 'msg-me':'msg-them'}">
-        <div class="msg-meta"><strong>${escapeHtmlJs(m.from)}</strong> · ${escapeHtmlJs(m.date)}</div>
+        <div class="msg-meta"><strong>${escapeHtmlJs(m.from)}</strong> Â· ${escapeHtmlJs(m.date)}</div>
         <div class="msg-body">${m.isHtml ? m.body : escapeHtmlJs(m.body).replace(/\\n/g,'<br>')}</div>
-        ${m.fromMe ? '' : `<div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" onclick="openOrderDialog('${threadId}', ${idx})">📦 Log Order Confirmation</button></div>`}
+        ${m.fromMe ? '' : `<div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" onclick="openOrderDialog('${threadId}', ${idx})">ðŸ“¦ Log Order Confirmation</button></div>`}
       </div>
     `).join('');
     box.innerHTML = msgs + `
       <div class="reply-box">
-        <textarea id="reply_${threadId}" rows="3" placeholder="Write a reply…"></textarea>
+        <textarea id="reply_${threadId}" rows="3" placeholder="Write a replyâ€¦"></textarea>
         <button class="btn btn-primary btn-sm" onclick="sendReply('${threadId}')">Send Reply</button>
-        <button class="btn btn-ghost btn-sm" onclick="openDeliveryRequest('${threadId}')" title="Reply to this order asking for a stage's items to be delivered">📦 Request Delivery</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDeliveryRequest('${threadId}')" title="Reply to this order asking for a stage's items to be delivered">ðŸ“¦ Request Delivery</button>
       </div>`;
   } catch(e) {
     box.innerHTML = '<div style="color:var(--danger);padding:.5rem">Error loading conversation.</div>';
@@ -849,7 +848,7 @@ let rfqSavedSupplierEmail = '';
 function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
   document.getElementById('rfqItemCode').value = itemCode;
   const _lbl = supplierName || itemName;
-  document.getElementById('rfqModalTitle').textContent = _lbl ? ('Email Vendor — ' + _lbl) : 'Email Vendor';
+  document.getElementById('rfqModalTitle').textContent = _lbl ? ('Email Vendor â€” ' + _lbl) : 'Email Vendor';
   rfqSavedSupplierEmail = supplierEmail || '';
   document.getElementById('rfqSupplierName').value = supplierName || '';
   document.getElementById('rfqSupplierEmail').value = supplierEmail || '';
@@ -869,13 +868,13 @@ function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
 // Load vendors from the project's finish schedule into the dropdown
 async function loadScheduleVendors() {
   const sel = document.getElementById('rfqVendor');
-  sel.innerHTML = '<option value="">Loading vendors…</option>';
+  sel.innerHTML = '<option value="">Loading vendorsâ€¦</option>';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/schedule-vendors`);
     const data = await r.json();
     if (data.ok && data.vendors && data.vendors.length) {
       SCHEDULE_VENDORS = data.vendors;
-      sel.innerHTML = '<option value="">— pick a vendor to auto-fill —</option>' +
+      sel.innerHTML = '<option value="">â€” pick a vendor to auto-fill â€”</option>' +
         data.vendors.map(v => `<option value="${escapeHtmlJs(v.name)}">${escapeHtmlJs(v.name)} (${v.items.length})</option>`).join('');
     } else {
       sel.innerHTML = `<option value="">${escapeHtmlJs((data && data.note) || 'No finish schedule linked')}</option>`;
@@ -933,12 +932,12 @@ async function sendRfq(asDraft) {
   fd.append('note', document.getElementById('rfqNote').value.trim());
   for (const f of document.getElementById('rfqFiles').files) fd.append('attachments', f);
   const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = asDraft ? 'Saving…' : 'Sending…';
+  btn.disabled = true; btn.textContent = asDraft ? 'Savingâ€¦' : 'Sendingâ€¦';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/rfq`, { method: 'POST', body: fd });
     const data = await r.json();
     if (data.ok && data.draft) {
-      showToast('Draft saved to your Gmail — review & send there');
+      showToast('Draft saved to your Gmail â€” review & send there');
       document.getElementById('rfqModal').classList.remove('show');
     } else if (data.ok) {
       // Reflect auto-advanced statuses in the item rows
@@ -950,7 +949,7 @@ async function sendRfq(asDraft) {
           if (sel) { sel.value = u.status; STATUS_CLASSES.forEach(c => sel.classList.remove(c)); sel.classList.add(statusToClass(u.status)); bumped++; }
         }
       });
-      showToast('Sent to ' + data.sentTo + (bumped ? ` · ${bumped} item(s) updated` : ''));
+      showToast('Sent to ' + data.sentTo + (bumped ? ` Â· ${bumped} item(s) updated` : ''));
       document.getElementById('rfqModal').classList.remove('show');
       loadThreads();
     } else {
@@ -988,15 +987,15 @@ async function saveItem(el) {
     showToast('Saved');
   } catch(e) {
     if (e.message === 'LOGGED_OUT') {
-      showToast('Not saved — you were signed out. Reloading…', true);
+      showToast('Not saved â€” you were signed out. Reloadingâ€¦', true);
       setTimeout(() => location.href = '/login', 1300);
     } else {
-      showToast('Not saved — please try again', true);
+      showToast('Not saved â€” please try again', true);
     }
   }
 }
 
-// ── Log order confirmation ────────────────────────────────────────────────
+// â”€â”€ Log order confirmation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function openOrderDialog(threadId, msgIndex) {
   const t = THREAD_INFO[threadId] || {};
   const msg = (THREAD_MSGS[threadId] || [])[msgIndex] || {};
@@ -1004,7 +1003,7 @@ function openOrderDialog(threadId, msgIndex) {
   document.getElementById('orderMessageId').value = msg.id || '';
   const vName = t.supplier_name || '', vEmail = t.supplier_email || '';
   document.getElementById('orderVendorLabel').textContent =
-    vName ? (vName + (vEmail ? ' — ' + vEmail : '')) : (vEmail || 'Unknown vendor');
+    vName ? (vName + (vEmail ? ' â€” ' + vEmail : '')) : (vEmail || 'Unknown vendor');
 
   // Pre-check materials this email mentioned, plus the one this thread is about
   const detected = new Set((msg.detected || []).map(d => d.code));
@@ -1026,7 +1025,7 @@ function openOrderDialog(threadId, msgIndex) {
       atts.map((a, i) => `
         <label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem">
           <input type="radio" name="orderAtt" value="${i}" ${i === 0 ? 'checked' : ''}>
-          <span>📎 ${escapeHtmlJs(a.filename)}</span>
+          <span>ðŸ“Ž ${escapeHtmlJs(a.filename)}</span>
         </label>`).join('') +
       `<label style="display:flex;align-items:center;gap:.4rem;font-size:.82rem"><input type="radio" name="orderAtt" value="-1"><span>None</span></label>`;
   } else {
@@ -1064,7 +1063,7 @@ async function saveOrder() {
     }
   }
 
-  btn.disabled = true; btn.textContent = 'Saving…';
+  btn.disabled = true; btn.textContent = 'Savingâ€¦';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/orders`, { method: 'POST', body: fd });
     const data = await r.json();
@@ -1082,7 +1081,7 @@ async function saveOrder() {
   }
 }
 
-// ── Upload receipt → extract → review → save ──────────────────────────────
+// â”€â”€ Upload receipt â†’ extract â†’ review â†’ save â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 let RECEIPT_FILE = null;
 function openReceiptUpload() {
   RECEIPT_FILE = null;
@@ -1102,7 +1101,7 @@ async function parseReceipt() {
   if (!f) { showToast('Pick a PDF first', true); return; }
   RECEIPT_FILE = f;
   const btn = document.getElementById('receiptReadBtn');
-  btn.disabled = true; btn.textContent = 'Reading…';
+  btn.disabled = true; btn.textContent = 'Readingâ€¦';
   const fd = new FormData(); fd.append('receipt', f);
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/parse-receipt`, { method: 'POST', body: fd });
@@ -1113,7 +1112,7 @@ async function parseReceipt() {
     renderReceiptLines(data.lines || []);
     document.getElementById('receiptStep1').style.display = 'none';
     document.getElementById('receiptStep2').style.display = '';
-    if (!data.lines || !data.lines.length) showToast('No items detected — check the PDF', true);
+    if (!data.lines || !data.lines.length) showToast('No items detected â€” check the PDF', true);
   } catch (e) {
     showToast('Could not read PDF', true);
   } finally {
@@ -1128,7 +1127,7 @@ function renderReceiptLines(lines) {
       <input class="rcpt-desc" value="${rcptAttr(l.description || l.product_code || '')}" style="flex:1;font-size:.82rem">
       <input class="rcpt-price" value="${l.price != null ? l.price : ''}" style="width:72px;font-size:.82rem" placeholder="$">
       <select class="rcpt-cat" style="font-size:.82rem">${ALL_MATERIALS.map(m => `<option value="${m.code}" ${m.code === l.item_code ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
-      <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.rcpt-row').remove()">✕</button>
+      <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.rcpt-row').remove()">âœ•</button>
     </div>`).join('') || '<div style="color:var(--muted);font-size:.85rem;padding:.5rem 0">No items detected in this PDF.</div>';
 }
 
@@ -1143,7 +1142,7 @@ async function saveReceiptOrder() {
   })).filter(l => l.description);
   if (!lines.length) { showToast('No items to save', true); return; }
   const btn = document.getElementById('receiptSaveBtn');
-  btn.disabled = true; btn.textContent = 'Saving…';
+  btn.disabled = true; btn.textContent = 'Savingâ€¦';
   const fd = new FormData();
   fd.append('receipt', RECEIPT_FILE);
   fd.append('vendorName', document.getElementById('receiptVendor').value.trim());
@@ -1161,7 +1160,7 @@ async function saveReceiptOrder() {
   }
 }
 
-// ── Request delivery of a stage's items (replies to the order thread) ──────
+// â”€â”€ Request delivery of a stage's items (replies to the order thread) â”€â”€â”€â”€â”€â”€
 function openDeliveryRequest(threadId) {
   document.getElementById('delThreadId').value = threadId;
   const sel = document.getElementById('delStage');
@@ -1187,7 +1186,7 @@ async function sendDeliveryRequest() {
   const note = document.getElementById('delNote').value.trim();
   const deliveryDate = document.getElementById('delDate').value;
   if (!itemCodes.length) { showToast('Pick at least one item', true); return; }
-  btn.disabled = true; btn.textContent = 'Sending…';
+  btn.disabled = true; btn.textContent = 'Sendingâ€¦';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/request-delivery`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1195,7 +1194,7 @@ async function sendDeliveryRequest() {
     });
     const data = await r.json();
     if (data.ok) {
-      showToast('Delivery request sent — ' + data.count + ' item(s)');
+      showToast('Delivery request sent â€” ' + data.count + ' item(s)');
       document.getElementById('deliveryModal').classList.remove('show');
       loadThreads();
     } else {
@@ -1208,12 +1207,12 @@ async function sendDeliveryRequest() {
   }
 }
 
-// ── Request a category's items from the vendor ────────────────────────────
+// â”€â”€ Request a category's items from the vendor â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function openCategoryRequest(code) {
   const c = (CATEGORY_REQUEST_DATA || []).find(x => x.code === code);
   if (!c) { showToast('No items to request', true); return; }
   document.getElementById('catReqCode').value = code;
-  document.getElementById('catReqTitle').textContent = 'Request — ' + c.name;
+  document.getElementById('catReqTitle').textContent = 'Request â€” ' + c.name;
   document.getElementById('catReqTo').value = c.vendorEmail || '';
   document.getElementById('catReqType').value = 'delivery';
   document.getElementById('catReqItems').value = c.items
@@ -1232,7 +1231,7 @@ async function sendCategoryRequest() {
   const note = document.getElementById('catReqNote').value.trim();
   if (!to) { showToast('Enter a recipient email', true); return; }
   if (!items) { showToast('No items to request', true); return; }
-  btn.disabled = true; btn.textContent = 'Sending…';
+  btn.disabled = true; btn.textContent = 'Sendingâ€¦';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/category-request`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -1254,7 +1253,7 @@ async function sendCategoryRequest() {
 }
 
 async function deleteThread(id) {
-  if (!confirm('Remove this email from the list?\n(It stays in your Gmail — this only clears it from the app.)')) return;
+  if (!confirm('Remove this email from the list?\n(It stays in your Gmail â€” this only clears it from the app.)')) return;
   try {
     const r = await fetch(`/vendor-emails/${id}/delete`, { method: 'POST' });
     const data = await r.json();

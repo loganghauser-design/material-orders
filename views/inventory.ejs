@@ -7,15 +7,17 @@
   <link rel="stylesheet" href="/css/app.css">
   <style>
     .inv-table { width:100%; border-collapse:collapse; font-size:.9rem; }
-    .inv-table th { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:.55rem .8rem; text-align:left; border-bottom:1px solid var(--border); }
-    .inv-table td { padding:.7rem .8rem; border-bottom:1px solid var(--border); vertical-align:middle; }
-    .inv-table tbody tr:hover { background:var(--bg); }
-    .num { text-align:center; font-weight:600; }
+    .inv-table th { font-size:.7rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:.55rem .7rem; text-align:center; border-bottom:1px solid var(--border); white-space:nowrap; }
+    .inv-table th.l, .inv-table td.l { text-align:left; }
+    .inv-table td { padding:.7rem .7rem; border-bottom:1px solid var(--border); vertical-align:middle; text-align:center; }
+    .inv-table tbody tr.item-row:hover { background:var(--bg); }
+    .num { font-weight:600; }
     .prod-tag { font-family:ui-monospace,Menlo,monospace; font-size:.76rem; color:var(--muted); background:rgba(120,120,160,.12); padding:1px 7px; border-radius:8px; }
-    .proj-breakdown { font-size:.75rem; color:var(--muted); margin-top:3px; }
     .avail-pos { color:#4caf7d; } .avail-low { color:#e0a106; } .avail-neg { color:#cc2222; }
-    .qty-input { width:62px; padding:5px 6px; text-align:center; font-size:.95rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
-    .qty-step { border:1px solid var(--border); background:var(--surface); width:26px; height:30px; border-radius:6px; cursor:pointer; font-size:1rem; line-height:1; }
+    .col-deliv { color:#16a34a; } .col-office { color:#7c3aed; }
+    .grp-sep { border-left:1px solid var(--border); }
+    .qty-input { width:58px; padding:5px 6px; text-align:center; font-size:.95rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+    .qty-step { border:1px solid var(--border); background:var(--surface); width:24px; height:30px; border-radius:6px; cursor:pointer; font-size:1rem; line-height:1; }
     .qty-step:hover { background:var(--bg); }
     .saved-tick { color:#4caf7d; font-size:.8rem; opacity:0; transition:opacity .2s; }
     .saved-tick.show { opacity:1; }
@@ -24,11 +26,18 @@
     .name-toggle { cursor:pointer; }
     .name-toggle:hover { text-decoration:underline; }
     .detail-cell { background:var(--bg); padding:0 !important; }
-    .alloc { width:auto; border-collapse:collapse; font-size:.84rem; margin:.5rem 0 .7rem 1.8rem; }
-    .alloc th, .alloc td { padding:4px 14px 4px 0; text-align:left; }
+    .alloc { width:auto; border-collapse:collapse; font-size:.84rem; margin:.5rem 0 .7rem 2.4rem; }
+    .alloc th, .alloc td { padding:5px 16px 5px 0; text-align:left; }
     .alloc th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; }
-    .status-pill { padding:2px 9px; border-radius:10px; font-size:.76rem; font-weight:600; display:inline-block; }
-    .cell-in_office { background:#d9c2f0; color:#4a235a; }
+    .status-pill { padding:3px 11px; border-radius:11px; font-size:.78rem; font-weight:600; display:inline-block; }
+    .cell-in_office { background:#ede0fb; color:#5b2a86; }
+    .cell-delivered { background:#6aa84f; color:#fff; }
+    .toggle-btn { border:none; cursor:pointer; font-family:inherit; }
+    .toggle-btn:hover { filter:brightness(.96); box-shadow:0 0 0 2px rgba(0,0,0,.07); }
+    .toggle-btn:disabled { opacity:.6; cursor:default; }
+    .stat-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.7rem 1.3rem; }
+    .stat-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+    .stat-value { font-size:1.5rem; font-weight:700; }
     .form-group { margin-bottom:.85rem; }
     .form-group label { display:block; margin-bottom:.25rem; }
     .form-group input { width:100%; }
@@ -42,7 +51,6 @@
     <a href="/payments" class="nav-tab">Payments</a>
     <a href="/driving" class="nav-tab">Driving Log</a>
     <a href="/inventory" class="nav-tab active">Inventory</a>
-    <a href="/stock-status" class="nav-tab">Stock Status</a>
     <a href="/suppliers" class="nav-tab">Suppliers</a>
     <a href="/settings" class="nav-tab">Settings</a>
   </div>
@@ -52,14 +60,27 @@
 </nav>
 
 <div class="container">
-  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between">
-    <h1>Inventory</h1>
-    <button class="btn btn-primary" onclick="openAdd()">+ Add Inventory</button>
+  <%
+    const totQty = items.reduce((s,i)=>s+(i.qty||0),0);
+    const totDeliv = items.reduce((s,i)=>s+(i.delivered||0),0);
+    const totOffice = items.reduce((s,i)=>s+(i.inOffice||0),0);
+    const totAvail = items.reduce((s,i)=>s+(i.available||0),0);
+  %>
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+    <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+      <h1>Inventory</h1>
+      <button class="btn btn-primary" onclick="openAdd()">+ Add Inventory</button>
+    </div>
+    <div style="display:flex;gap:.7rem;flex-wrap:wrap">
+      <div class="stat-card"><div class="stat-label">On hand</div><div class="stat-value"><%= totQty %></div></div>
+      <div class="stat-card"><div class="stat-label">Delivered</div><div class="stat-value col-deliv"><%= totDeliv %></div></div>
+      <div class="stat-card"><div class="stat-label">In office</div><div class="stat-value col-office"><%= totOffice %></div></div>
+    </div>
   </div>
-  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:780px">
-    Office/warehouse stock you buy and hold. Add an item with its <strong>Model #</strong> (or <strong>Prod. Code</strong> for items with no model) and a <strong>Qty</strong>.
-    Each project that uses that exact model/code as held stock (<%= heldSuppliers.join(' / ') %> — e.g. a range hood flipped to Buildoly Stock)
-    automatically subtracts one, so <strong>Available</strong> always shows what's still free.
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:820px">
+    Office/warehouse stock you buy and hold. These items don't get delivered by a supplier — they sit here until you pull them for a job.
+    Click an item to expand its projects, then tap <strong>Mark delivered</strong> as you physically drop each one off.
+    <strong>In office</strong> = what's still on your shelf; <strong>Available</strong> = not yet promised to any job.
   </p>
 
   <% if (error) { %>
@@ -76,49 +97,61 @@
     <table class="inv-table">
       <thead>
         <tr>
-          <th>Item</th>
-          <th>Model # / Code</th>
-          <th style="text-align:center">Qty</th>
-          <th style="text-align:center">In use</th>
-          <th style="text-align:center">Available</th>
+          <th class="l">Item</th>
+          <th class="l">Model # / Code</th>
+          <th>On hand</th>
+          <th>In use</th>
+          <th>Available</th>
+          <th class="grp-sep">Delivered</th>
+          <th>In office</th>
           <th style="width:1rem"></th>
         </tr>
       </thead>
       <tbody>
         <%
-          function statusClass(st){ return 'cell-' + String(st).toLowerCase().replace(/[\s.\/]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,''); }
           items.forEach(it => {
             const cls = it.available < 0 ? 'avail-neg' : (it.available === 0 ? 'avail-low' : 'avail-pos');
             const hasAlloc = it.byProject && it.byProject.length; %>
-          <tr data-id="<%= it.id %>">
-            <td>
+          <tr class="item-row" data-id="<%= it.id %>">
+            <td class="l">
               <span class="caret" id="car_<%= it.id %>" onclick="toggleAlloc(<%= it.id %>)"><%= hasAlloc ? '▸' : '' %></span>
               <strong class="<%= hasAlloc ? 'name-toggle' : '' %>" <% if (hasAlloc) { %>onclick="toggleAlloc(<%= it.id %>)"<% } %>><%= it.name %></strong>
             </td>
-            <td><% if (it.product) { %><span class="prod-tag"><%= it.product %></span><% } else { %><span style="color:var(--muted)">—</span><% } %><% if (it.productName) { %><br><span style="color:var(--muted);font-size:.78rem"><%= it.productName %></span><% } %></td>
+            <td class="l"><% if (it.product) { %><span class="prod-tag"><%= it.product %></span><% } else { %><span style="color:var(--muted)">—</span><% } %><% if (it.productName) { %><br><span style="color:var(--muted);font-size:.78rem"><%= it.productName %></span><% } %></td>
             <td class="num">
               <div style="display:inline-flex;align-items:center;gap:4px">
                 <button class="qty-step" onclick="stepQty(this,-1)" title="Remove one">−</button>
-                <input class="qty-input" type="number" min="0" value="<%= it.qty %>" data-inuse="<%= it.inUse %>" onchange="saveQty(this)">
+                <input class="qty-input" type="number" min="0" value="<%= it.qty %>" data-inuse="<%= it.inUse %>" data-deliv="<%= it.delivered %>" onchange="saveQty(this)">
                 <button class="qty-step" onclick="stepQty(this,1)" title="Add one">+</button>
                 <span class="saved-tick">✓</span>
               </div>
             </td>
-            <td class="num"><%= it.inUse %></td>
+            <td class="num" style="color:var(--muted)"><%= it.inUse %></td>
             <td class="num avail-cell <%= cls %>"><%= it.available %><% if (it.available < 0) { %> ⚠<% } %></td>
+            <td class="num col-deliv grp-sep deliv-cell"><%= it.delivered %></td>
+            <td class="num col-office office-cell" style="<%= it.inOffice < 0 ? 'color:#cc2222' : '' %>"><%= it.inOffice %><% if (it.inOffice < 0) { %> ⚠<% } %></td>
             <td><button class="link-danger" title="Delete" onclick="deleteItem(<%= it.id %>, '<%= it.name.replace(/'/g, "\\'") %>')">✕</button></td>
           </tr>
           <% if (hasAlloc) { %>
           <tr id="det_<%= it.id %>" style="display:none">
-            <td class="detail-cell" colspan="6">
+            <td class="detail-cell" colspan="8">
               <table class="alloc">
-                <thead><tr><th>Project (allocated to)</th><th>Office status</th><th>Qty</th></tr></thead>
+                <thead><tr><th>Project (allocated to)</th><th>Qty</th><th>Status — click to change</th></tr></thead>
                 <tbody>
                   <% it.byProject.forEach(p => { %>
                     <tr>
                       <td><%= p.address %></td>
-                      <td><span class="status-pill <%= statusClass(p.status) %>"><%= p.status %></span></td>
                       <td>×<%= p.qty %></td>
+                      <td>
+                        <button type="button"
+                          class="status-pill toggle-btn <%= p.status === 'Delivered' ? 'cell-delivered' : 'cell-in_office' %>"
+                          data-pid="<%= p.projectId %>"
+                          data-keys="<%= p.itemKeys.join('||') %>"
+                          data-status="<%= p.status %>"
+                          onclick="toggleDelivered(this)">
+                          <%= p.status === 'Delivered' ? '✓ Delivered' : 'In office — mark delivered' %>
+                        </button>
+                      </td>
                     </tr>
                   <% }) %>
                 </tbody>
@@ -131,8 +164,10 @@
     </table>
     <% } %>
   </div>
-  <p style="color:var(--muted);font-size:.78rem;margin-top:.8rem">
-    <strong>Available = Qty − In use.</strong> A <span class="avail-neg">red ⚠</span> means more projects need it than you have — time to order more.
+  <p style="color:var(--muted);font-size:.78rem;margin-top:.8rem;max-width:820px">
+    <strong>On hand</strong> = qty you bought · <strong>In use</strong> = allocated to projects · <strong>Available</strong> = On hand − In use (free to promise) ·
+    <strong>Delivered</strong> = pulled out & dropped at jobs · <strong>In office</strong> = On hand − Delivered (still on your shelf).
+    A <span class="avail-neg">red ⚠</span> means you've committed/delivered more than you have — time to order more.
   </p>
 </div>
 
@@ -179,7 +214,6 @@ async function loadCatalog() {
     CATALOG = d.items || [];
   } catch (e) { CATALOG = []; }
   finally { CATALOG_LOADING = false; }
-  // If the user already typed while it was loading, run the search now
   if (document.getElementById('add_search').value.trim()) onSearch();
 }
 function onSearch() {
@@ -217,7 +251,6 @@ function onSearch() {
 }
 function pickHit(it) {
   document.getElementById('add_name').value = it.name + (it.product && it.product.toLowerCase() !== it.name.toLowerCase() ? ' (' + it.product + ')' : '');
-  // Prefer Prod. Code (the real catalog code — Jedco's S-VG01 etc.); fall back to Model #
   document.getElementById('add_product').value = bestCode(it);
   document.getElementById('searchResults').style.display = 'none';
   document.getElementById('add_search').value = it.name;
@@ -271,12 +304,17 @@ async function saveQty(input) {
   input.value = qty;
   const d = await post('/inventory/item/' + id + '/qty', { qty });
   if (!d.ok) { alert('Could not save: ' + (d.error || 'error')); return; }
-  // recompute available
+  // recompute Available and In office live
   const inUse = parseInt(input.getAttribute('data-inuse'), 10) || 0;
+  const deliv = parseInt(input.getAttribute('data-deliv'), 10) || 0;
   const avail = qty - inUse;
-  const cell = tr.querySelector('.avail-cell');
-  cell.textContent = avail + (avail < 0 ? ' ⚠' : '');
-  cell.className = 'num avail-cell ' + (avail < 0 ? 'avail-neg' : (avail === 0 ? 'avail-low' : 'avail-pos'));
+  const aCell = tr.querySelector('.avail-cell');
+  aCell.textContent = avail + (avail < 0 ? ' ⚠' : '');
+  aCell.className = 'num avail-cell ' + (avail < 0 ? 'avail-neg' : (avail === 0 ? 'avail-low' : 'avail-pos'));
+  const oCell = tr.querySelector('.office-cell');
+  const office = qty - deliv;
+  oCell.textContent = office + (office < 0 ? ' ⚠' : '');
+  oCell.style.color = office < 0 ? '#cc2222' : '';
   const tick = tr.querySelector('.saved-tick');
   tick.classList.add('show'); setTimeout(() => tick.classList.remove('show'), 1200);
 }
@@ -284,6 +322,28 @@ async function deleteItem(id, name) {
   if (!confirm('Delete "' + name + '"?')) return;
   const d = await post('/inventory/item/' + id + '/delete', {});
   if (d.ok) location.reload(); else alert('Could not delete.');
+}
+// Manually flip an office-stock item between In office / Delivered for one project,
+// as you physically pull and drop it off. Reloads so the totals recompute.
+async function toggleDelivered(btn) {
+  const pid = btn.dataset.pid;
+  const keys = (btn.dataset.keys || '').split('||').filter(Boolean);
+  const newStatus = btn.dataset.status === 'Delivered' ? 'In Office' : 'Delivered';
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    for (const key of keys) {
+      const r = await fetch('/projects/' + pid + '/held-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'item_key=' + encodeURIComponent(key) + '&status=' + encodeURIComponent(newStatus),
+      });
+      if (!r.ok) throw new Error('save failed');
+    }
+    location.reload();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Error — try again';
+  }
 }
 document.getElementById('addModal').addEventListener('click', e => { if (e.target.id === 'addModal') closeAdd(); });
 </script>

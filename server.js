@@ -2232,23 +2232,37 @@ app.get('/inventory', requireAuth, async (req, res) => {
             String(u.name || '').toLowerCase().includes(term))
         : [];
       const byProject = {};
+      let delivered = 0;
       for (const u of matched) {
-        if (!byProject[u.project]) {
-          byProject[u.project] = {
-            address: u.project, qty: 0, code: u.code,
-            status: statusMap[u.projectId + '|' + u.itemKey] || 'In Office',
+        const st = statusMap[u.projectId + '|' + u.itemKey] || 'In Office';
+        if (st === 'Delivered') delivered += u.qty;
+        if (!byProject[u.projectId]) {
+          byProject[u.projectId] = {
+            address: u.project, projectId: u.projectId, code: u.code,
+            qty: 0, itemKeys: [], deliveredAll: true,
           };
         }
-        byProject[u.project].qty += u.qty;
+        const bp = byProject[u.projectId];
+        bp.qty += u.qty;
+        if (!bp.itemKeys.includes(u.itemKey)) bp.itemKeys.push(u.itemKey);
+        if (st !== 'Delivered') bp.deliveredAll = false;
       }
+      const projects = Object.values(byProject).map(bp => ({
+        address: bp.address, projectId: bp.projectId, code: bp.code,
+        qty: bp.qty, itemKeys: bp.itemKeys,
+        status: bp.deliveredAll ? 'Delivered' : 'In Office',
+      }));
       const inUse = matched.reduce((s, u) => s + u.qty, 0);
       // Product name for this code, pulled from the matched schedule line(s)
       const productName = matched.length
         ? ((matched.find(u => u.product) || {}).product || (matched.find(u => u.name) || {}).name || '')
         : '';
+      const qty = it.qty || 0;
       return {
-        ...it, inUse, available: (it.qty || 0) - inUse, productName,
-        byProject: Object.values(byProject),
+        ...it, inUse, available: qty - inUse, productName,
+        delivered,                  // pulled out of the office & delivered to jobs
+        inOffice: qty - delivered,  // physically still on the shelf
+        byProject: projects,
       };
     });
     res.render('inventory', { items: enriched, heldSuppliers: HELD_SUPPLIERS, error });
@@ -2257,61 +2271,8 @@ app.get('/inventory', requireAuth, async (req, res) => {
   }
 });
 
-// ── Stock Status: pulled/delivered vs still in the office, per inventory item ──
-app.get('/stock-status', requireAuth, async (req, res) => {
-  try {
-    await initDb();
-    const items = await getInventoryItems();
-    let usages = [], error = null;
-    try { usages = await computeHeldUsages(); }
-    catch (e) { error = e.message; }
-    const { rows: hsRows } = await pool.query('SELECT project_id, item_key, status FROM held_item_status');
-    const statusMap = {};
-    for (const r of hsRows) statusMap[r.project_id + '|' + r.item_key] = r.status;
-    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-    const rows = items.map(it => {
-      const term = (it.product || it.name || '').toLowerCase().trim();
-      const nterm = norm(term);
-      const matched = term
-        ? usages.filter(u =>
-            (nterm && (norm(u.model) === nterm || norm(u.prodCode) === nterm)) ||
-            String(u.name || '').toLowerCase().includes(term))
-        : [];
-      let delivered = 0, reserved = 0;
-      const byProject = {};
-      for (const u of matched) {
-        const st = statusMap[u.projectId + '|' + u.itemKey] || 'In Office';
-        if (st === 'Delivered') delivered += u.qty; else reserved += u.qty;
-        if (!byProject[u.projectId]) byProject[u.projectId] = {
-          address: u.project, projectId: u.projectId, itemKeys: [], qty: 0, deliveredAll: true,
-        };
-        const bp = byProject[u.projectId];
-        bp.qty += u.qty;
-        if (!bp.itemKeys.includes(u.itemKey)) bp.itemKeys.push(u.itemKey);
-        if (st !== 'Delivered') bp.deliveredAll = false;
-      }
-      const projects = Object.values(byProject).map(bp => ({
-        address: bp.address, projectId: bp.projectId, itemKeys: bp.itemKeys,
-        qty: bp.qty, status: bp.deliveredAll ? 'Delivered' : 'In Office',
-      }));
-      const purchased = it.qty || 0;
-      return {
-        id: it.id, name: it.name, code: it.product || '',
-        purchased,
-        delivered,                         // pulled out of the office & delivered to jobs
-        reserved,                          // committed to jobs but still in the office
-        inOffice: purchased - delivered,   // physically still on the shelf
-        byProject: projects,
-      };
-    });
-    // Only items that are office stock (have a code) — sort by name
-    rows.sort((a, b) => a.name.localeCompare(b.name));
-    res.render('stock-status', { rows, error });
-  } catch (err) {
-    res.status(500).send('Error: ' + err.message);
-  }
-});
+// Stock Status was merged into the Inventory page — keep the old link working.
+app.get('/stock-status', requireAuth, (req, res) => res.redirect('/inventory'));
 
 // Catalog of schedule items (for the Add-item search → auto-fill Model #)
 app.get('/inventory/catalog', requireAuth, async (req, res) => {
