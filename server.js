@@ -1505,6 +1505,16 @@ app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   }
 });
 
+// Remove a vendor-email entry from the app's thread list (does NOT delete from Gmail)
+app.post('/vendor-emails/:id/delete', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM vendor_emails WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ── PDF exports ───────────────────────────────────────────────────────────────
 const PDFDocument = require('pdfkit');
 

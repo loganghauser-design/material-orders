@@ -571,7 +571,10 @@ async function loadThreads() {
             <strong>${escapeHtmlJs(t.subject)}</strong>
             <span class="thread-type">${escapeHtmlJs(t.email_type || '')}</span>
           </div>
-          <div style="font-size:.78rem;color:var(--muted)">${escapeHtmlJs(t.supplier_name||'')} · ${new Date(t.sent_at).toLocaleDateString()}</div>
+          <div style="display:flex;align-items:center;gap:.6rem">
+            <span style="font-size:.78rem;color:var(--muted)">${escapeHtmlJs(t.supplier_name||'')} · ${new Date(t.sent_at).toLocaleDateString()}</span>
+            <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteThread(${t.id})" title="Remove from list (does not delete from Gmail)">✕</button>
+          </div>
         </div>
         <div class="thread-body" id="tb_${t.gmail_thread_id}"></div>
       </div>
@@ -1077,6 +1080,16 @@ async function sendCategoryRequest() {
   } finally {
     btn.disabled = false; btn.textContent = 'Send Request';
   }
+}
+
+async function deleteThread(id) {
+  if (!confirm('Remove this email from the list?\n(It stays in your Gmail — this only clears it from the app.)')) return;
+  try {
+    const r = await fetch(`/vendor-emails/${id}/delete`, { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) { showToast('Removed'); loadThreads(); }
+    else showToast(data.error || 'Could not remove', true);
+  } catch (e) { showToast('Could not remove', true); }
 }
 
 function showToast(msg, err) {
