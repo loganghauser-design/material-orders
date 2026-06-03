@@ -456,9 +456,10 @@ function applyRowOverrides(row, opts = {}) {
   // 1) Trust the category name, not the (possibly-wrong) number prefix.
   let code = canonicalCodeFromCategory(rawCat);
 
-  // 2) Shower doors are unmistakable by item name; pull them into Shower Doors (3e)
-  //    even when the schedule files them under plumbing.
-  if (/shower door|shower glass|shower enclosure/.test(text)) code = '3e';
+  // 2) Some items are unmistakable by name; pull them into the right bucket even
+  //    when the schedule files them elsewhere.
+  if (/shower door|shower glass|shower enclosure/.test(text)) code = '3e';        // Shower Doors
+  if (/water heater|wtr htr|water htr|tankless/.test(text)) code = '2e';          // Water Heater
 
   // 3) Recessed lighting supplier toggle (recessed only — never dimmer switches).
   if (opts.recSource === 'oncall' && /contractor to proc/i.test(supplier)) {
