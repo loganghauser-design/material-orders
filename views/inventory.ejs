@@ -20,6 +20,14 @@
     .saved-tick { color:#4caf7d; font-size:.8rem; opacity:0; transition:opacity .2s; }
     .saved-tick.show { opacity:1; }
     .link-danger { color:#cc2222; cursor:pointer; background:none; border:none; font-size:.82rem; }
+    .caret { cursor:pointer; user-select:none; color:var(--muted); margin-right:.4rem; display:inline-block; width:.8rem; }
+    .name-toggle { cursor:pointer; }
+    .name-toggle:hover { text-decoration:underline; }
+    .detail-cell { background:var(--bg); padding:0 !important; }
+    .alloc { width:auto; border-collapse:collapse; font-size:.84rem; margin:.5rem 0 .7rem 1.8rem; }
+    .alloc th, .alloc td { padding:4px 14px 4px 0; text-align:left; }
+    .alloc th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; }
+    .status-pill { padding:2px 9px; border-radius:10px; font-size:.76rem; font-weight:600; display:inline-block; }
     .form-group { margin-bottom:.85rem; }
     .form-group label { display:block; margin-bottom:.25rem; }
     .form-group input { width:100%; }
@@ -72,14 +80,15 @@
         </tr>
       </thead>
       <tbody>
-        <% items.forEach(it => {
-             const cls = it.available < 0 ? 'avail-neg' : (it.available === 0 ? 'avail-low' : 'avail-pos'); %>
+        <%
+          function statusClass(st){ return 'cell-' + String(st).toLowerCase().replace(/[\s.\/]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,''); }
+          items.forEach(it => {
+            const cls = it.available < 0 ? 'avail-neg' : (it.available === 0 ? 'avail-low' : 'avail-pos');
+            const hasAlloc = it.byProject && it.byProject.length; %>
           <tr data-id="<%= it.id %>">
             <td>
-              <strong><%= it.name %></strong>
-              <% if (it.byProject && it.byProject.length) { %>
-                <div class="proj-breakdown">In use: <%= it.byProject.map(p => `${p.address.split(',')[0]} ×${p.qty}`).join('  ·  ') %></div>
-              <% } %>
+              <span class="caret" id="car_<%= it.id %>" onclick="toggleAlloc(<%= it.id %>)"><%= hasAlloc ? '▸' : '' %></span>
+              <strong class="<%= hasAlloc ? 'name-toggle' : '' %>" <% if (hasAlloc) { %>onclick="toggleAlloc(<%= it.id %>)"<% } %>><%= it.name %></strong>
             </td>
             <td><% if (it.product) { %><span class="prod-tag"><%= it.product %></span><% } else { %><span style="color:var(--muted)">—</span><% } %></td>
             <td class="num">
@@ -94,6 +103,24 @@
             <td class="num avail-cell <%= cls %>"><%= it.available %><% if (it.available < 0) { %> ⚠<% } %></td>
             <td><button class="link-danger" title="Delete" onclick="deleteItem(<%= it.id %>, '<%= it.name.replace(/'/g, "\\'") %>')">✕</button></td>
           </tr>
+          <% if (hasAlloc) { %>
+          <tr id="det_<%= it.id %>" style="display:none">
+            <td class="detail-cell" colspan="6">
+              <table class="alloc">
+                <thead><tr><th>Project (allocated to)</th><th>Status on that project</th><th>Qty</th></tr></thead>
+                <tbody>
+                  <% it.byProject.forEach(p => { %>
+                    <tr>
+                      <td><%= p.address %></td>
+                      <td><span class="status-pill <%= statusClass(p.status) %>"><%= p.status %></span></td>
+                      <td>×<%= p.qty %></td>
+                    </tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          <% } %>
         <% }) %>
       </tbody>
     </table>
@@ -197,6 +224,14 @@ async function submitAdd(e) {
   const d = await post('/inventory/item/add', { name, product, qty });
   if (d.ok) location.reload(); else alert('Could not add: ' + (d.error || 'error'));
   return false;
+}
+function toggleAlloc(id) {
+  const row = document.getElementById('det_' + id);
+  const car = document.getElementById('car_' + id);
+  if (!row) return;
+  const show = row.style.display === 'none';
+  row.style.display = show ? '' : 'none';
+  if (car) car.textContent = show ? '▾' : '▸';
 }
 function stepQty(btn, delta) {
   const input = btn.parentElement.querySelector('.qty-input');

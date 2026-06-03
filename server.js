@@ -599,15 +599,17 @@ async function computeHeldUsages() {
     const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source };
     for (let i = 5; i < rows.length; i++) {
       const row = rows[i];
-      const { supplier } = applyRowOverrides(row, opts);
+      const { cat, supplier } = applyRowOverrides(row, opts);
       if (!isHeldSupplier(supplier)) continue;
       const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
       if (!name) continue;
       const prodCode = (row[2] || '').trim();
       const model = (row[7] || '').trim();
       const product = (row[6] || '').trim();
+      const code = (String(cat).match(/^(1[a-e]|2[a-e]|3[a-e])\b/i) || [])[1];
       usages.push({
-        project: proj.address, name, prodCode, model, supplier,
+        projectId: proj.id, project: proj.address, name, prodCode, model, supplier,
+        code: code ? code.toLowerCase() : null,
         qty: parseFloat((row[9] || '').trim()) || 1,
         text: [name, product, model, prodCode].join(' ').toLowerCase(),
       });
@@ -2021,6 +2023,12 @@ app.get('/inventory', requireAuth, async (req, res) => {
     // Draw each item down by the held-stock schedule lines that match its Model #
     // (exact match on the schedule's Model # column), with a text fallback so a
     // plain keyword still works.
+    // Per-project status of each material code, so we can show "what status is
+    // this item on each project" (status is tracked at the category-code level).
+    const { rows: piRows } = await pool.query('SELECT project_id, item_code, status FROM project_items');
+    const statusMap = {};
+    for (const r of piRows) statusMap[r.project_id + '|' + r.item_code] = r.status;
+
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const enriched = items.map(it => {
       const term = (it.product || it.name || '').toLowerCase().trim();
@@ -2029,11 +2037,19 @@ app.get('/inventory', requireAuth, async (req, res) => {
         ? usages.filter(u => (nterm && norm(u.model) === nterm) || u.text.includes(term))
         : [];
       const byProject = {};
-      for (const u of matched) byProject[u.project] = (byProject[u.project] || 0) + u.qty;
+      for (const u of matched) {
+        if (!byProject[u.project]) {
+          byProject[u.project] = {
+            address: u.project, qty: 0, code: u.code,
+            status: (u.code && statusMap[u.projectId + '|' + u.code]) || 'Not yet placed',
+          };
+        }
+        byProject[u.project].qty += u.qty;
+      }
       const inUse = matched.reduce((s, u) => s + u.qty, 0);
       return {
         ...it, inUse, available: (it.qty || 0) - inUse,
-        byProject: Object.entries(byProject).map(([address, qty]) => ({ address, qty })),
+        byProject: Object.values(byProject),
       };
     });
     res.render('inventory', { items: enriched, heldSuppliers: HELD_SUPPLIERS, error });
