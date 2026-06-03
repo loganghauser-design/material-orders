@@ -168,18 +168,29 @@
 
 <script>
 let CATALOG = null;
+let CATALOG_LOADING = false;
 async function loadCatalog() {
-  if (CATALOG) return;
+  if (CATALOG || CATALOG_LOADING) return;
+  CATALOG_LOADING = true;
   try {
     const r = await fetch('/inventory/catalog');
     const d = await r.json();
     CATALOG = d.items || [];
   } catch (e) { CATALOG = []; }
+  finally { CATALOG_LOADING = false; }
+  // If the user already typed while it was loading, run the search now
+  if (document.getElementById('add_search').value.trim()) onSearch();
 }
 function onSearch() {
   const box = document.getElementById('searchResults');
   const q = document.getElementById('add_search').value.trim().toLowerCase();
-  if (!CATALOG || !q) { box.style.display = 'none'; return; }
+  if (!q) { box.style.display = 'none'; return; }
+  if (!CATALOG) {
+    box.innerHTML = '<div style="padding:8px 10px;color:var(--muted);font-size:.82rem">Loading your schedules…</div>';
+    box.style.display = 'block';
+    loadCatalog();
+    return;
+  }
   const hits = CATALOG.filter(it =>
     it.name.toLowerCase().includes(q) ||
     (it.model && it.model.toLowerCase().includes(q)) ||

@@ -690,10 +690,13 @@ async function readScheduleCatalog() {
     "SELECT finish_schedule_url FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> ''"
   );
   const seen = new Map();
-  for (const proj of projects) {
-    let rows;
-    try { rows = await fetchScheduleValues(proj.finish_schedule_url); }
-    catch (e) { continue; }
+  // Read all schedules in parallel (cached) instead of one-at-a-time
+  const fetched = await Promise.all(projects.map(async proj => {
+    try { return await fetchScheduleValues(proj.finish_schedule_url); }
+    catch (e) { return null; }
+  }));
+  for (const rows of fetched) {
+    if (!rows) continue;
     for (let i = 5; i < rows.length; i++) {
       const r = rows[i];
       const name = (r[0] || '').replace(/\n/g, ' ').trim() || (r[6] || '').trim();
