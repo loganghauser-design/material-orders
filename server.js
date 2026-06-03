@@ -422,21 +422,41 @@ function formatOutboundDate(d) {
   return `${weekday} (${m}/${day})`;
 }
 
-// Clean a pasted HTML table (from Google Sheets) down to a simple styled table
+// Clean a pasted HTML table (from Google Sheets) into an email-safe table,
+// PRESERVING merged cells (colspan/rowspan) and fill colors so it looks like the sheet.
 function sanitizePastedHtml(html) {
   if (!html) return '';
   const m = html.match(/<table[\s\S]*<\/table>/i);
   let t = m ? m[0] : html;
   t = t.replace(/<(script|style)[\s\S]*?<\/\1>/gi, '');
   t = t.replace(/<!--[\s\S]*?-->/g, '');
-  // strip attributes from allowed structural tags
-  t = t.replace(/<(\/?)(table|thead|tbody|tr|td|th|b|strong|i|em|br|p|span|div)\b[^>]*>/gi, (mm, slash, tag) => `<${slash}${tag.toLowerCase()}>`);
-  // remove any tags that aren't in the allow-list (keep inner text)
+
+  // Rebuild each cell: keep colspan/rowspan + background-color/text-align/font-weight
+  t = t.replace(/<(td|th)\b([^>]*)>/gi, (mm, tag, attrs) => {
+    const grab = re => { const x = attrs.match(re); return x ? x[1].trim() : null; };
+    const colspan = grab(/colspan\s*=\s*["']?(\d+)/i);
+    const rowspan = grab(/rowspan\s*=\s*["']?(\d+)/i);
+    const sm = attrs.match(/style\s*=\s*"([^"]*)"/i) || attrs.match(/style\s*=\s*'([^']*)'/i);
+    const style = sm ? sm[1] : '';
+    const bg = (style.match(/background(?:-color)?\s*:\s*([^;]+)/i) || [])[1] || grab(/bgcolor\s*=\s*["']?([^"'\s>]+)/i);
+    const align = (style.match(/text-align\s*:\s*([^;]+)/i) || [])[1];
+    const weight = (style.match(/font-weight\s*:\s*([^;]+)/i) || [])[1];
+    let css = 'border:1px solid #ccc;padding:5px 8px;font-size:13px;';
+    if (bg && !/transparent|#ffffff|#fff\b|(^|\s)white/i.test(bg)) css += `background-color:${bg};`;
+    if (align) css += `text-align:${align};`;
+    if (weight && /bold|[6-9]00/i.test(weight)) css += 'font-weight:bold;';
+    let out = `<${tag.toLowerCase()} style="${css}"`;
+    if (colspan) out += ` colspan="${colspan}"`;
+    if (rowspan) out += ` rowspan="${rowspan}"`;
+    return out + '>';
+  });
+
+  // Strip attributes from the other allowed tags (cells already handled above)
+  t = t.replace(/<(\/?)(table|thead|tbody|tr|b|strong|i|em|br|p|span|div)\b[^>]*>/gi, (mm, slash, tag) => `<${slash}${tag.toLowerCase()}>`);
+  // Remove any tags not in the allow-list (keep inner text)
   t = t.replace(/<(?!\/?(?:table|thead|tbody|tr|td|th|b|strong|i|em|br|p|span|div)\b)[^>]*>/gi, '');
-  // apply clean styling
-  t = t.replace(/<table>/gi, '<table style="border-collapse:collapse;margin:12px 0">');
-  t = t.replace(/<td>/gi, '<td style="border:1px solid #ccc;padding:6px 10px;font-size:14px">');
-  t = t.replace(/<th>/gi, '<th style="border:1px solid #ccc;padding:6px 10px;font-size:14px;text-align:left">');
+  // Style the table itself
+  t = t.replace(/<table>/gi, '<table style="border-collapse:collapse;margin:12px 0;font-family:Arial,sans-serif">');
   return t;
 }
 
