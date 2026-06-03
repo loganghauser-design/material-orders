@@ -292,6 +292,11 @@
     <p class="modal-sub">Drafts an email to the supplier. Paste your item list straight from Google Sheets.</p>
     <input type="hidden" id="rfqItemCode">
     <div class="form-group">
+      <label>Vendor — auto-fill from finish schedule</label>
+      <select id="rfqVendor" onchange="fillFromVendor()"><option value="">Loading vendors…</option></select>
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Pick a vendor to auto-fill their items from this project's schedule, or just type below.</small>
+    </div>
+    <div class="form-group">
       <label>Email Type</label>
       <select id="rfqType" onchange="onRfqTypeChange()">
         <option value="order">Place Order (initial full order)</option>
@@ -482,6 +487,8 @@ const PROJECT_ID = '<%= project.id %>';
 const ALL_MATERIALS = <%- JSON.stringify(STAGES.flatMap(s => s.items)) %>;
 const STAGES_DATA = <%- JSON.stringify(STAGES) %>;
 const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
+const SUPPLIER_EMAILS = <%- JSON.stringify(Object.values(suppliers||{}).reduce((m,s)=>{ if(s&&s.name&&s.email) m[s.name.toLowerCase()]=s.email; return m; }, {})) %>;
+let SCHEDULE_VENDORS = [];
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
 
@@ -680,7 +687,41 @@ function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
   // Default to the warehouse-outbound template for warehouse-shipped materials
   document.getElementById('rfqType').value = WAREHOUSE_MATERIALS.includes(itemCode) ? 'warehouse' : 'order';
   onRfqTypeChange();
+  loadScheduleVendors();
   document.getElementById('rfqModal').classList.add('show');
+}
+
+// Load vendors from the project's finish schedule into the dropdown
+async function loadScheduleVendors() {
+  const sel = document.getElementById('rfqVendor');
+  sel.innerHTML = '<option value="">Loading vendors…</option>';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/schedule-vendors`);
+    const data = await r.json();
+    if (data.ok && data.vendors && data.vendors.length) {
+      SCHEDULE_VENDORS = data.vendors;
+      sel.innerHTML = '<option value="">— pick a vendor to auto-fill —</option>' +
+        data.vendors.map(v => `<option value="${escapeHtmlJs(v.name)}">${escapeHtmlJs(v.name)} (${v.items.length})</option>`).join('');
+    } else {
+      sel.innerHTML = `<option value="">${escapeHtmlJs((data && data.note) || 'No finish schedule linked')}</option>`;
+    }
+  } catch (e) {
+    sel.innerHTML = '<option value="">(could not load schedule)</option>';
+  }
+}
+
+// Auto-fill the order with the selected vendor's items from the schedule
+function fillFromVendor() {
+  const name = document.getElementById('rfqVendor').value;
+  const v = SCHEDULE_VENDORS.find(x => x.name === name);
+  if (!v) return;
+  document.getElementById('rfqSupplierName').value = v.name;
+  const email = SUPPLIER_EMAILS[v.name.toLowerCase()];
+  if (email) { document.getElementById('rfqSupplierEmail').value = email; rfqSavedSupplierEmail = email; }
+  const rowsHtml = v.items.map(it =>
+    `<tr><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
+  document.getElementById('rfqItems').innerHTML =
+    `<table><tr><td><b>Item</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
 }
 
 function onRfqTypeChange() {
