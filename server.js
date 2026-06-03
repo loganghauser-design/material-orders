@@ -854,6 +854,7 @@ async function initDb() {
       qty_on_hand INTEGER NOT NULL DEFAULT 0,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS qty_on_order INTEGER NOT NULL DEFAULT 0;
 
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -1961,11 +1962,16 @@ app.get('/inventory', requireAuth, async (req, res) => {
     let stock = [], error = null;
     try { stock = await readHeldStockAcrossProjects(); }
     catch (e) { error = e.message; }
-    const { rows: counts } = await pool.query('SELECT prod_key, qty_on_hand FROM inventory_counts');
-    const onHand = Object.fromEntries(counts.map(c => [c.prod_key, c.qty_on_hand]));
+    const { rows: counts } = await pool.query('SELECT prod_key, qty_on_hand, qty_on_order FROM inventory_counts');
+    const byKey = Object.fromEntries(counts.map(c => [c.prod_key, c]));
     const items = stock.map(s => {
-      const have = onHand[s.key] != null ? onHand[s.key] : 0;
-      return { ...s, onHand: have, shortfall: Math.max(0, Math.round((s.needed - have) * 100) / 100) };
+      const c = byKey[s.key] || {};
+      const have = c.qty_on_hand != null ? c.qty_on_hand : 0;
+      const ordered = c.qty_on_order != null ? c.qty_on_order : 0;
+      return {
+        ...s, onHand: have, onOrder: ordered,
+        shortfall: Math.max(0, Math.round((s.needed - have - ordered) * 100) / 100),
+      };
     });
     res.render('inventory', { items, heldSuppliers: HELD_SUPPLIERS, error });
   } catch (err) {
@@ -1973,16 +1979,17 @@ app.get('/inventory', requireAuth, async (req, res) => {
   }
 });
 
-// Live-save an on-hand count (called as you adjust quantities)
+// Live-save an on-hand or on-order count (called as you adjust quantities)
 app.post('/inventory/count', requireAuth, async (req, res) => {
   try {
     const key = String(req.body.key || '').trim();
     if (!key) return res.status(400).json({ ok: false, error: 'Missing item key.' });
+    const field = req.body.field === 'order' ? 'qty_on_order' : 'qty_on_hand';
     let qty = parseInt(req.body.qty, 10);
     if (isNaN(qty) || qty < 0) qty = 0;
     await pool.query(
-      `INSERT INTO inventory_counts (prod_key, qty_on_hand, updated_at) VALUES ($1, $2, NOW())
-       ON CONFLICT (prod_key) DO UPDATE SET qty_on_hand = EXCLUDED.qty_on_hand, updated_at = NOW()`,
+      `INSERT INTO inventory_counts (prod_key, ${field}, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (prod_key) DO UPDATE SET ${field} = EXCLUDED.${field}, updated_at = NOW()`,
       [key, qty]
     );
     res.json({ ok: true, qty });

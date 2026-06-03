@@ -76,12 +76,13 @@
           <th>Prod. Code</th>
           <th style="text-align:center">Needed<br><span style="font-weight:400;text-transform:none">(all jobs)</span></th>
           <th style="text-align:center">On hand</th>
-          <th style="text-align:center">Shortfall</th>
+          <th style="text-align:center">On order</th>
+          <th style="text-align:center">Still to order</th>
         </tr>
       </thead>
       <tbody>
         <% items.forEach(it => { %>
-          <tr data-key="<%= it.key %>">
+          <tr data-key="<%= it.key %>" data-needed="<%= it.needed %>">
             <td><span class="sup-tag"><%= it.supplier %></span></td>
             <td>
               <div><strong><%= it.name %></strong><% if (it.brand) { %> <span style="color:var(--muted);font-size:.8rem">· <%= it.brand %></span><% } %></div>
@@ -92,8 +93,17 @@
             <td style="text-align:center">
               <div style="display:inline-flex;align-items:center;gap:4px">
                 <button class="qty-step" onclick="stepQty(this, -1)" title="Remove one">−</button>
-                <input class="qty-input" type="number" min="0" value="<%= it.onHand %>"
-                       onchange="saveQty(this)" data-needed="<%= it.needed %>">
+                <input class="qty-input qty-hand" type="number" min="0" value="<%= it.onHand %>"
+                       onchange="saveQty(this)" data-field="hand">
+                <button class="qty-step" onclick="stepQty(this, 1)" title="Add one">+</button>
+                <span class="saved-tick">✓</span>
+              </div>
+            </td>
+            <td style="text-align:center">
+              <div style="display:inline-flex;align-items:center;gap:4px">
+                <button class="qty-step" onclick="stepQty(this, -1)" title="Remove one">−</button>
+                <input class="qty-input qty-order" type="number" min="0" value="<%= it.onOrder %>"
+                       onchange="saveQty(this)" data-field="order">
                 <button class="qty-step" onclick="stepQty(this, 1)" title="Add one">+</button>
                 <span class="saved-tick">✓</span>
               </div>
@@ -119,24 +129,27 @@ function stepQty(btn, delta) {
 async function saveQty(input) {
   const tr = input.closest('tr');
   const key = tr.getAttribute('data-key');
+  const field = input.getAttribute('data-field'); // 'hand' or 'order'
   const qty = Math.max(0, parseInt(input.value, 10) || 0);
   input.value = qty;
   try {
     const r = await fetch('/inventory/count', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key, qty })
+      body: JSON.stringify({ key, field, qty })
     });
     const data = await r.json();
     if (!data.ok) { alert('Could not save: ' + (data.error || 'error')); return; }
-    // update shortfall live
-    const needed = parseFloat(input.getAttribute('data-needed')) || 0;
-    const short = Math.max(0, Math.round((needed - qty) * 100) / 100);
+    // recompute "still to order" = needed − on hand − on order
+    const needed = parseFloat(tr.getAttribute('data-needed')) || 0;
+    const have = parseInt(tr.querySelector('.qty-hand').value, 10) || 0;
+    const ordered = parseInt(tr.querySelector('.qty-order').value, 10) || 0;
+    const short = Math.max(0, Math.round((needed - have - ordered) * 100) / 100);
     const cell = tr.querySelector('.short-cell');
     cell.textContent = short > 0 ? '−' + short : '0';
     cell.className = 'short-cell ' + (short > 0 ? 'short-pos' : 'short-zero');
-    const tick = tr.querySelector('.saved-tick');
-    tick.classList.add('show');
-    setTimeout(() => tick.classList.remove('show'), 1200);
+    // show the tick next to the input the user just changed
+    const tick = input.parentElement.querySelector('.saved-tick');
+    if (tick) { tick.classList.add('show'); setTimeout(() => tick.classList.remove('show'), 1200); }
   } catch (e) { alert('Could not save (network).'); }
 }
 </script>
