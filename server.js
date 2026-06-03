@@ -55,7 +55,7 @@ const STAGES = [
       { code: '2a', name: 'Millwork' },
       { code: '2b', name: 'Flooring' },
       { code: '2c', name: 'Decking' },
-      { code: '2d', name: 'Appliances' },
+      { code: '3b', name: 'Fs. Plumb/Light/Hood' },
       { code: '2e', name: 'Water Heater' },
     ],
   },
@@ -64,7 +64,7 @@ const STAGES = [
     name: '1 Week after Warehouse Outbound',
     items: [
       { code: '3a', name: 'Countertops' },
-      { code: '3b', name: 'Fs. Plumb/Light/Hood' },
+      { code: '2d', name: 'Appliances' },
       { code: '3c', name: 'Hardware' },
       { code: '3d', name: 'Misc' },
       { code: '3e', name: 'Shower Doors' },
