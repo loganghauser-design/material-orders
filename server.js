@@ -583,40 +583,49 @@ function isHeldSupplier(supplier) {
   return HELD_SUPPLIERS.some(h => s === h.toLowerCase().replace(/[^a-z0-9]/g, ''));
 }
 
-// Scan every linked finish schedule and pool demand for held-stock items.
-// Returns one entry per distinct item (keyed by Prod. Code, else name):
-//   { key, prodCode, name, brand, supplier, needed, byProject:[{address, qty}] }
-async function readHeldStockAcrossProjects() {
+// Scan every linked finish schedule (WITH per-project overrides applied, so a
+// range hood toggled to Buildoly Stock counts) and return every line whose
+// resolved supplier is held stock. These are what draw inventory items down.
+//   [{ project, name, prodCode, model, supplier, qty, text }]
+async function computeHeldUsages() {
   const { rows: projects } = await pool.query(
-    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
+    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
   );
-  const items = {};
+  const usages = [];
   for (const proj of projects) {
     let rows;
     try { rows = await fetchScheduleValues(proj.finish_schedule_url); }
     catch (e) { continue; } // skip a project whose sheet can't be read right now
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source };
     for (let i = 5; i < rows.length; i++) {
       const row = rows[i];
-      const supplier = (row[14] || '').trim();
+      const { supplier } = applyRowOverrides(row, opts);
       if (!isHeldSupplier(supplier)) continue;
       const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
       if (!name) continue;
       const prodCode = (row[2] || '').trim();
-      const qty = parseFloat((row[9] || '').trim()) || 1;
-      const key = (prodCode && !/^custom$/i.test(prodCode) ? prodCode : name).toLowerCase();
-      if (!items[key]) {
-        items[key] = {
-          key, prodCode: prodCode || '', name, brand: (row[5] || '').trim(),
-          supplier, needed: 0, byProject: [],
-        };
-      }
-      const it = items[key];
-      it.needed += qty;
-      it.byProject.push({ address: proj.address, qty });
+      const model = (row[7] || '').trim();
+      const product = (row[6] || '').trim();
+      usages.push({
+        project: proj.address, name, prodCode, model, supplier,
+        qty: parseFloat((row[9] || '').trim()) || 1,
+        text: [name, product, model, prodCode].join(' ').toLowerCase(),
+      });
     }
   }
-  return Object.values(items).sort((a, b) =>
-    (a.supplier + a.name).localeCompare(b.supplier + b.name));
+  return usages;
+}
+
+// Load manual inventory items with their purchase batches.
+async function getInventoryItems() {
+  const { rows: items } = await pool.query('SELECT * FROM inventory_items ORDER BY name');
+  const { rows: purchases } = await pool.query('SELECT * FROM inventory_purchases ORDER BY purchased_on DESC NULLS LAST, id DESC');
+  const byItem = {};
+  for (const p of purchases) (byItem[p.item_id] = byItem[p.item_id] || []).push(p);
+  return items.map(it => {
+    const buys = byItem[it.id] || [];
+    return { ...it, purchases: buys, purchased: buys.reduce((s, b) => s + (b.qty || 0), 0) };
+  });
 }
 
 function escapeHtml(s) {
@@ -855,6 +864,27 @@ async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     ALTER TABLE inventory_counts ADD COLUMN IF NOT EXISTS qty_on_order INTEGER NOT NULL DEFAULT 0;
+
+    -- Manually-added office stock items (e.g. "Range Hood"). match_keyword decides
+    -- which finish-schedule lines draw this item down (only when their supplier is
+    -- held stock: Buildoly Stock / JEDCO).
+    CREATE TABLE IF NOT EXISTS inventory_items (
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(200) NOT NULL,
+      match_keyword VARCHAR(200) NOT NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    -- Each purchase batch for an item (date, qty, price) — the dropdown history.
+    CREATE TABLE IF NOT EXISTS inventory_purchases (
+      id SERIAL PRIMARY KEY,
+      item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE CASCADE,
+      qty INTEGER NOT NULL DEFAULT 0,
+      unit_price NUMERIC(10,2),
+      purchased_on DATE,
+      note TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -1955,44 +1985,99 @@ app.get('/suppliers', requireAuth, async (req, res) => {
   }
 });
 
-// ── Inventory (held office/warehouse stock: Buildoly Stock + JEDCO) ────────────
+// ── Inventory (manual office stock with purchase history + schedule draw-down) ──
 app.get('/inventory', requireAuth, async (req, res) => {
   try {
     await initDb();
-    let stock = [], error = null;
-    try { stock = await readHeldStockAcrossProjects(); }
+    const items = await getInventoryItems();
+    let usages = [], error = null;
+    try { usages = await computeHeldUsages(); }
     catch (e) { error = e.message; }
-    const { rows: counts } = await pool.query('SELECT prod_key, qty_on_hand, qty_on_order FROM inventory_counts');
-    const byKey = Object.fromEntries(counts.map(c => [c.prod_key, c]));
-    const items = stock.map(s => {
-      const c = byKey[s.key] || {};
-      const have = c.qty_on_hand != null ? c.qty_on_hand : 0;
-      const ordered = c.qty_on_order != null ? c.qty_on_order : 0;
+    // Draw each item down by the held-stock schedule lines its keyword matches.
+    const enriched = items.map(it => {
+      const kw = (it.match_keyword || '').toLowerCase().trim();
+      const matched = kw ? usages.filter(u => u.text.includes(kw)) : [];
+      const byProject = {};
+      for (const u of matched) byProject[u.project] = (byProject[u.project] || 0) + u.qty;
+      const inUse = matched.reduce((s, u) => s + u.qty, 0);
+      const active = it.purchased - inUse;
+      const spend = it.purchases.reduce((s, b) => s + (b.qty || 0) * (Number(b.unit_price) || 0), 0);
       return {
-        ...s, onHand: have, onOrder: ordered,
-        shortfall: Math.max(0, Math.round((s.needed - have - ordered) * 100) / 100),
+        ...it, inUse, active,
+        byProject: Object.entries(byProject).map(([address, qty]) => ({ address, qty })),
+        spend,
       };
     });
-    res.render('inventory', { items, heldSuppliers: HELD_SUPPLIERS, error });
+    res.render('inventory', { items: enriched, heldSuppliers: HELD_SUPPLIERS, error });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
 });
 
-// Live-save an on-hand or on-order count (called as you adjust quantities)
-app.post('/inventory/count', requireAuth, async (req, res) => {
+// Add an inventory item
+app.post('/inventory/item/add', requireAuth, async (req, res) => {
   try {
-    const key = String(req.body.key || '').trim();
-    if (!key) return res.status(400).json({ ok: false, error: 'Missing item key.' });
-    const field = req.body.field === 'order' ? 'qty_on_order' : 'qty_on_hand';
-    let qty = parseInt(req.body.qty, 10);
-    if (isNaN(qty) || qty < 0) qty = 0;
-    await pool.query(
-      `INSERT INTO inventory_counts (prod_key, ${field}, updated_at) VALUES ($1, $2, NOW())
-       ON CONFLICT (prod_key) DO UPDATE SET ${field} = EXCLUDED.${field}, updated_at = NOW()`,
-      [key, qty]
+    const name = String(req.body.name || '').trim();
+    const keyword = String(req.body.match_keyword || '').trim() || name;
+    const notes = String(req.body.notes || '').trim() || null;
+    if (!name) return res.status(400).json({ ok: false, error: 'Name is required.' });
+    const { rows: [row] } = await pool.query(
+      'INSERT INTO inventory_items (name, match_keyword, notes) VALUES ($1,$2,$3) RETURNING id',
+      [name, keyword, notes]
     );
-    res.json({ ok: true, qty });
+    res.json({ ok: true, id: row.id });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Edit an inventory item (name / keyword / notes)
+app.post('/inventory/item/:id/edit', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const keyword = String(req.body.match_keyword || '').trim() || name;
+    const notes = String(req.body.notes || '').trim() || null;
+    if (!name) return res.status(400).json({ ok: false, error: 'Name is required.' });
+    await pool.query('UPDATE inventory_items SET name=$1, match_keyword=$2, notes=$3 WHERE id=$4',
+      [name, keyword, notes, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Delete an inventory item (purchases cascade)
+app.post('/inventory/item/:id/delete', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM inventory_items WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Add a purchase batch to an item
+app.post('/inventory/item/:id/purchase/add', requireAuth, async (req, res) => {
+  try {
+    let qty = parseInt(req.body.qty, 10); if (isNaN(qty) || qty < 0) qty = 0;
+    const price = req.body.unit_price === '' || req.body.unit_price == null ? null : parseFloat(req.body.unit_price);
+    const date = String(req.body.purchased_on || '').trim() || null;
+    const note = String(req.body.note || '').trim() || null;
+    await pool.query(
+      'INSERT INTO inventory_purchases (item_id, qty, unit_price, purchased_on, note) VALUES ($1,$2,$3,$4,$5)',
+      [req.params.id, qty, isNaN(price) ? null : price, date, note]
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Delete a purchase batch
+app.post('/inventory/purchase/:pid/delete', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM inventory_purchases WHERE id=$1', [req.params.pid]);
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
