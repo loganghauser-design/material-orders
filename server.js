@@ -580,13 +580,28 @@ function parseScheduleRows(rows) {
 // Cache raw sheet values per sheet id for a few minutes — avoids re-hitting the
 // Google Sheets API on every inventory/materials load (overrides are applied after).
 const _sheetCache = new Map(); // id -> { at, values }
+const _sheetFail = new Map();  // id -> at (negative cache for unreadable sheets)
 const SHEET_TTL_MS = 5 * 60 * 1000;
+const SHEET_FAIL_TTL_MS = 5 * 60 * 1000;
 async function fetchScheduleValues(scheduleUrl) {
   const id = sheetIdFromUrl(scheduleUrl);
   if (!id) throw new Error('Invalid finish-schedule link.');
   const hit = _sheetCache.get(id);
   if (hit && (Date.now() - hit.at) < SHEET_TTL_MS) return hit.values;
-
+  // Don't keep re-hitting a sheet that just failed (e.g. wrong tab name / not shared) —
+  // those network round-trips were making every Inventory load slow.
+  const failAt = _sheetFail.get(id);
+  if (failAt && (Date.now() - failAt) < SHEET_FAIL_TTL_MS) {
+    throw new Error('Schedule unreadable (cached — will retry in a few minutes).');
+  }
+  try {
+    return await _fetchScheduleValuesUncached(id);
+  } catch (e) {
+    _sheetFail.set(id, Date.now());
+    throw e;
+  }
+}
+async function _fetchScheduleValuesUncached(id) {
   let values;
   // Preferred: read AS the user (sheets can stay private; only logan@buildoly.com needs access)
   if (sheetsClient) {
@@ -2229,7 +2244,11 @@ app.get('/suppliers', requireAuth, async (req, res) => {
 });
 
 // ── Inventory (manual office stock with purchase history + schedule draw-down) ──
-app.get('/inventory', requireAuth, async (req, res) => {
+// The shell renders instantly; the heavy tables (which read every schedule) load
+// via AJAX from /inventory/data below.
+app.get('/inventory', requireAuth, (req, res) => res.render('inventory'));
+
+app.get('/inventory/data', requireAuth, async (req, res) => {
   try {
     await initDb();
     const items = await getInventoryItems();
@@ -2321,7 +2340,7 @@ app.get('/inventory', requireAuth, async (req, res) => {
       })),
     })).sort((a, b) => a.name.localeCompare(b.name));
 
-    res.render('inventory', { officeItems, warehouseItems, heldSuppliers: HELD_SUPPLIERS, error });
+    res.render('_inventory-tables', { officeItems, warehouseItems, error });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
