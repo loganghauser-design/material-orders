@@ -110,6 +110,11 @@
     <h2>Add inventory item</h2>
     <p class="modal-sub">Stock you keep in the office. The <strong>Model #</strong> is matched against your finish schedules' Model # column to track usage.</p>
     <form onsubmit="return submitAdd(event)">
+      <div class="form-group" style="position:relative">
+        <label>🔍 Search your schedules (auto-fills the model #)</label>
+        <input type="text" id="add_search" placeholder="Type an item, e.g. hood" autocomplete="off" oninput="onSearch()" onfocus="onSearch()">
+        <div id="searchResults" style="display:none;position:absolute;z-index:5;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:2px;max-height:230px;overflow-y:auto;box-shadow:0 6px 24px rgba(0,0,0,.15)"></div>
+      </div>
       <div class="form-group">
         <label>Item name</label>
         <input type="text" id="add_name" placeholder="Range Hood" required>
@@ -131,7 +136,53 @@
 </div>
 
 <script>
-function openAdd() { document.getElementById('addModal').classList.add('show'); document.getElementById('add_name').focus(); }
+let CATALOG = null;
+async function loadCatalog() {
+  if (CATALOG) return;
+  try {
+    const r = await fetch('/inventory/catalog');
+    const d = await r.json();
+    CATALOG = d.items || [];
+  } catch (e) { CATALOG = []; }
+}
+function onSearch() {
+  const box = document.getElementById('searchResults');
+  const q = document.getElementById('add_search').value.trim().toLowerCase();
+  if (!CATALOG || !q) { box.style.display = 'none'; return; }
+  const hits = CATALOG.filter(it =>
+    it.name.toLowerCase().includes(q) ||
+    (it.model && it.model.toLowerCase().includes(q)) ||
+    (it.product && it.product.toLowerCase().includes(q))
+  ).slice(0, 40);
+  if (!hits.length) { box.innerHTML = '<div style="padding:8px 10px;color:var(--muted);font-size:.82rem">No matches in your schedules.</div>'; box.style.display = 'block'; return; }
+  box.innerHTML = hits.map((it, i) =>
+    `<div class="search-hit" data-i="${i}" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:.85rem">
+       <strong>${escapeHtml(it.name)}</strong>
+       ${it.model ? `<span style="font-family:ui-monospace,monospace;color:var(--muted)"> · ${escapeHtml(it.model)}</span>` : '<span style="color:#cc8800"> · no model #</span>'}
+       ${it.supplier ? `<span style="color:var(--muted);font-size:.78rem"> · ${escapeHtml(it.supplier)}</span>` : ''}
+     </div>`).join('');
+  box.style.display = 'block';
+  Array.from(box.querySelectorAll('.search-hit')).forEach(el => {
+    el.addEventListener('click', () => pickHit(hits[parseInt(el.getAttribute('data-i'), 10)]));
+    el.addEventListener('mouseover', () => el.style.background = 'var(--bg)');
+    el.addEventListener('mouseout', () => el.style.background = '');
+  });
+}
+function pickHit(it) {
+  document.getElementById('add_name').value = it.name;
+  document.getElementById('add_product').value = it.model || '';
+  document.getElementById('searchResults').style.display = 'none';
+  document.getElementById('add_search').value = it.name;
+  document.getElementById('add_qty').focus();
+}
+function escapeHtml(s) { return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function openAdd() {
+  document.getElementById('addModal').classList.add('show');
+  document.getElementById('add_search').value = '';
+  document.getElementById('searchResults').style.display = 'none';
+  loadCatalog();
+  document.getElementById('add_search').focus();
+}
 function closeAdd() { document.getElementById('addModal').classList.remove('show'); }
 async function post(url, body) {
   const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });

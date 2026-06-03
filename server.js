@@ -622,6 +622,34 @@ async function getInventoryItems() {
   return rows;
 }
 
+// Distinct item catalog across all linked schedules — powers the Add-item search
+// so picking a name auto-fills its Model #. Deduped by name + model.
+async function readScheduleCatalog() {
+  const { rows: projects } = await pool.query(
+    "SELECT finish_schedule_url FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> ''"
+  );
+  const seen = new Map();
+  for (const proj of projects) {
+    let rows;
+    try { rows = await fetchScheduleValues(proj.finish_schedule_url); }
+    catch (e) { continue; }
+    for (let i = 5; i < rows.length; i++) {
+      const r = rows[i];
+      const name = (r[0] || '').replace(/\n/g, ' ').trim() || (r[6] || '').trim();
+      if (!name) continue;
+      const model = (r[7] || '').trim();
+      const key = (name + '|' + model).toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, {
+          name, model, brand: (r[5] || '').trim(),
+          product: (r[6] || '').trim(), supplier: (r[14] || '').trim(),
+        });
+      }
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -2011,6 +2039,16 @@ app.get('/inventory', requireAuth, async (req, res) => {
     res.render('inventory', { items: enriched, heldSuppliers: HELD_SUPPLIERS, error });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Catalog of schedule items (for the Add-item search → auto-fill Model #)
+app.get('/inventory/catalog', requireAuth, async (req, res) => {
+  try {
+    const items = await readScheduleCatalog();
+    res.json({ ok: true, items });
+  } catch (err) {
+    res.json({ ok: false, error: err.message, items: [] });
   }
 });
 
