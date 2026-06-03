@@ -510,6 +510,17 @@ const ALL_MATERIALS = <%- JSON.stringify(STAGES.flatMap(s => s.items)) %>;
 const STAGES_DATA = <%- JSON.stringify(STAGES) %>;
 const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
 const SUPPLIER_EMAILS = <%- JSON.stringify(Object.values(suppliers||{}).reduce((m,s)=>{ if(s&&s.name&&s.email) m[s.name.toLowerCase()]=s.email; return m; }, {})) %>;
+// Forgiving vendor-name match (e.g. "Amerfit Hardware"=="Amerfit", "Tilebar"=="Tile Bar")
+function normVendor(s){ return String(s||'').toLowerCase().replace(/\b(hardware|us|usa|inc|llc|co|enterprises|supply|construction|company|store|the)\b/g,'').replace(/[^a-z0-9]/g,''); }
+function lookupVendorEmail(name){
+  const n = normVendor(name);
+  if (!n) return null;
+  for (const k in SUPPLIER_EMAILS){
+    const kn = normVendor(k);
+    if (kn === n || (kn.length>=4 && n.length>=4 && (kn.includes(n)||n.includes(kn)))) return SUPPLIER_EMAILS[k];
+  }
+  return null;
+}
 let SCHEDULE_VENDORS = [];
 let RFQ_COVERED = [];   // material codes the current auto-filled order covers
 const STATUS_CLASSES = ['cell-not_yet_placed','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
@@ -772,7 +783,7 @@ function fillFromVendor() {
   const v = SCHEDULE_VENDORS.find(x => x.name === name);
   if (!v) { RFQ_COVERED = []; return; }
   document.getElementById('rfqSupplierName').value = v.name;
-  const email = SUPPLIER_EMAILS[v.name.toLowerCase()];
+  const email = lookupVendorEmail(v.name);
   if (email) { document.getElementById('rfqSupplierEmail').value = email; rfqSavedSupplierEmail = email; }
   RFQ_COVERED = [...new Set(v.items.map(it => it.code))];
   const rowsHtml = v.items.map(it =>
