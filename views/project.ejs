@@ -555,11 +555,16 @@ async function loadMaterialsSchedule() {
     const data = await r.json();
     if (!data.ok || !data.byCode) { MAT_SCHED_LOADED = true; return; }
     const rhSrc = data.rangeHoodSource || 'default';
+    const jSrc = data.jedcoSource || 'default';
     const heldStatuses = data.heldStatuses || ['In Office', 'Delivered'];
     function supplierCell(it) {
       if (it.hood) {
         const def = escapeHtmlJs(it.defaultSupplier || 'Vendor');
         return `<td style="padding:3px 6px"><select onchange="setRangeHoodSource(this.value)" title="Switch range hood supplier" style="font-size:.78rem;padding:1px 4px"><option value="default"${rhSrc !== 'buildoly' ? ' selected' : ''}>${def}</option><option value="buildoly"${rhSrc === 'buildoly' ? ' selected' : ''}>Buildoly Stock (office)</option></select></td>`;
+      }
+      if (it.jedco) {
+        const def = escapeHtmlJs(it.defaultSupplier || 'JEDCO');
+        return `<td style="padding:3px 6px"><select onchange="setJedcoSource(this.value)" title="Switch Jedco supplier" style="font-size:.78rem;padding:1px 4px"><option value="default"${jSrc !== 'buildoly' ? ' selected' : ''}>${def}</option><option value="buildoly"${jSrc === 'buildoly' ? ' selected' : ''}>Buildoly Stock (office)</option></select></td>`;
       }
       return `<td style="padding:3px 6px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td>`;
     }
@@ -608,6 +613,16 @@ async function setRangeHoodSource(source) {
     if (data.ok) {
       showToast(source === 'buildoly' ? 'Range hood → Buildoly Stock' : 'Range hood → schedule vendor');
       MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 2d drill-down
+    } else showToast('Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
+}
+async function setJedcoSource(source) {
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/jedco-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
+    const data = await r.json();
+    if (data.ok) {
+      showToast(source === 'buildoly' ? 'Jedco items → Buildoly Stock' : 'Jedco items → JEDCO');
+      MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the drill-downs
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }

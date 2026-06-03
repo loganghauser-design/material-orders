@@ -483,6 +483,11 @@ function applyRowOverrides(row, opts = {}) {
     supplier = 'Buildoly Stock';
   }
 
+  // 5) Jedco supplier toggle: 'buildoly' → supply Jedco items from Buildoly office stock.
+  if (opts.jedcoSource === 'buildoly' && /jedco/i.test(supplier)) {
+    supplier = 'Buildoly Stock';
+  }
+
   const cat = code ? (code + '. ' + (CODE_NAME[code] || '')) : rawCat;
   return { cat, supplier };
 }
@@ -576,13 +581,15 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
     if (!name) continue;
     const code = m[1].toLowerCase();
     const hood = isRangeHoodRow(row);
+    const origSupplier = (row[14] || '').trim();
+    const jedco = /jedco/i.test(origSupplier);
     const prodCode = (row[2] || '').trim();
     const model = (row[7] || '').trim();
     const held = isHeldSupplier(supplier);
     (byCode[code] = byCode[code] || []).push({
       name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
       model, qty: (row[9] || '').trim() || '1', supplier,
-      hood, defaultSupplier: hood ? (row[14] || '').trim() : undefined,
+      hood, jedco, defaultSupplier: (hood || jedco) ? origSupplier : undefined,
       held, itemKey: held ? heldItemKey(prodCode, model, name) : undefined,
     });
   }
@@ -609,14 +616,14 @@ function heldItemKey(prodCode, model, name) {
 //   [{ project, name, prodCode, model, supplier, qty, text }]
 async function computeHeldUsages() {
   const { rows: projects } = await pool.query(
-    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
+    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
   );
   const usages = [];
   for (const proj of projects) {
     let rows;
     try { rows = await fetchScheduleValues(proj.finish_schedule_url); }
     catch (e) { continue; } // skip a project whose sheet can't be read right now
-    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source };
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source };
     for (let i = 5; i < rows.length; i++) {
       const row = rows[i];
       const { cat, supplier } = applyRowOverrides(row, opts);
@@ -928,6 +935,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS finish_schedule_url TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -1830,9 +1838,9 @@ ${sig ? '<br>' + sig : ''}
 // Vendors (+ their items) from this project's finish schedule, for order auto-fill
 app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source });
     res.json({ ok: true, vendors });
   } catch (err) {
     console.error('schedule-vendors:', err.message);
@@ -1866,9 +1874,9 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
 // Schedule items grouped by material category (for the Materials tab drill-down)
 app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
-    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source });
+    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source });
     // Attach saved office-stock status to held items
     const { rows: hs } = await pool.query('SELECT item_key, status FROM held_item_status WHERE project_id=$1', [req.params.id]);
     const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r.status]));
@@ -1877,7 +1885,7 @@ app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
         if (it.held) it.officeStatus = hsMap[it.itemKey] || 'In Office';
       }
     }
-    res.json({ ok: true, byCode, rangeHoodSource: p.range_hood_source || 'default', heldStatuses: HELD_STATUSES });
+    res.json({ ok: true, byCode, rangeHoodSource: p.range_hood_source || 'default', jedcoSource: p.jedco_source || 'default', heldStatuses: HELD_STATUSES });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
@@ -1916,6 +1924,17 @@ app.post('/projects/:id/range-hood-source', requireAuth, async (req, res) => {
   try {
     const src = req.body.source === 'buildoly' ? 'buildoly' : 'default';
     await pool.query('UPDATE projects SET range_hood_source=$1 WHERE id=$2', [src, req.params.id]);
+    res.json({ ok: true, source: src });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Toggle who supplies Jedco items: 'default' (JEDCO) or 'buildoly' (Buildoly office stock)
+app.post('/projects/:id/jedco-source', requireAuth, async (req, res) => {
+  try {
+    const src = req.body.source === 'buildoly' ? 'buildoly' : 'default';
+    await pool.query('UPDATE projects SET jedco_source=$1 WHERE id=$2', [src, req.params.id]);
     res.json({ ok: true, source: src });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
