@@ -426,7 +426,7 @@ async function readScheduleVendors(scheduleUrl) {
   }
   const rows = ((await r.json()).values) || [];
   const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
-  const SKIP = /buildoly stock|contractor to proc|^n\/a$/i;     // not vendor-ordered
+  const SKIP = /contractor to proc|^n\/a$/i;     // skip contractor-procured / N/A (keep Buildoly Stock — it ships from the warehouse)
   const vendors = {};
   for (let i = 5; i < rows.length; i++) {
     const row = rows[i];
