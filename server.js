@@ -2283,9 +2283,18 @@ app.get('/stock-status', requireAuth, async (req, res) => {
       for (const u of matched) {
         const st = statusMap[u.projectId + '|' + u.itemKey] || 'In Office';
         if (st === 'Delivered') delivered += u.qty; else reserved += u.qty;
-        if (!byProject[u.project]) byProject[u.project] = { address: u.project, qty: 0, status: st };
-        byProject[u.project].qty += u.qty;
+        if (!byProject[u.projectId]) byProject[u.projectId] = {
+          address: u.project, projectId: u.projectId, itemKeys: [], qty: 0, deliveredAll: true,
+        };
+        const bp = byProject[u.projectId];
+        bp.qty += u.qty;
+        if (!bp.itemKeys.includes(u.itemKey)) bp.itemKeys.push(u.itemKey);
+        if (st !== 'Delivered') bp.deliveredAll = false;
       }
+      const projects = Object.values(byProject).map(bp => ({
+        address: bp.address, projectId: bp.projectId, itemKeys: bp.itemKeys,
+        qty: bp.qty, status: bp.deliveredAll ? 'Delivered' : 'In Office',
+      }));
       const purchased = it.qty || 0;
       return {
         id: it.id, name: it.name, code: it.product || '',
@@ -2293,7 +2302,7 @@ app.get('/stock-status', requireAuth, async (req, res) => {
         delivered,                         // pulled out of the office & delivered to jobs
         reserved,                          // committed to jobs but still in the office
         inOffice: purchased - delivered,   // physically still on the shelf
-        byProject: Object.values(byProject),
+        byProject: projects,
       };
     });
     // Only items that are office stock (have a code) — sort by name

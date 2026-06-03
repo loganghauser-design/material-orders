@@ -19,6 +19,9 @@
     .alloc th, .alloc td { padding:4px 14px 4px 0; text-align:left; }
     .alloc th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; }
     .status-pill { padding:2px 9px; border-radius:10px; font-size:.76rem; font-weight:600; display:inline-block; }
+    .toggle-btn { border:none; cursor:pointer; font-family:inherit; }
+    .toggle-btn:hover { filter:brightness(.95); box-shadow:0 0 0 2px rgba(0,0,0,.08); }
+    .toggle-btn:disabled { opacity:.6; cursor:default; }
     .cell-in_office { background:#d9c2f0; color:#4a235a; }
     .cell-delivered { background:#6aa84f; color:#fff; }
     .col-deliv { color:#16a34a; } .col-office { color:#7c3aed; }
@@ -95,13 +98,22 @@
           <tr id="det_<%= r.id %>" style="display:none">
             <td class="detail-cell" colspan="6">
               <table class="alloc">
-                <thead><tr><th>Project</th><th>Status</th><th>Qty</th></tr></thead>
+                <thead><tr><th>Project</th><th>Qty</th><th>Status — click to change</th></tr></thead>
                 <tbody>
                   <% r.byProject.forEach(p => { %>
                     <tr>
                       <td><%= p.address %></td>
-                      <td><span class="status-pill <%= p.status === 'Delivered' ? 'cell-delivered' : 'cell-in_office' %>"><%= p.status %></span></td>
                       <td>×<%= p.qty %></td>
+                      <td>
+                        <button type="button"
+                          class="status-pill toggle-btn <%= p.status === 'Delivered' ? 'cell-delivered' : 'cell-in_office' %>"
+                          data-pid="<%= p.projectId %>"
+                          data-keys="<%= p.itemKeys.join('||') %>"
+                          data-status="<%= p.status %>"
+                          onclick="toggleDelivered(this)">
+                          <%= p.status === 'Delivered' ? '✓ Delivered' : 'In Office — mark delivered' %>
+                        </button>
+                      </td>
                     </tr>
                   <% }) %>
                 </tbody>
@@ -122,6 +134,28 @@ function toggleAlloc(id) {
   const show = det.style.display === 'none';
   det.style.display = show ? '' : 'none';
   if (car) car.textContent = show ? '▾' : '▸';
+}
+
+async function toggleDelivered(btn) {
+  const pid = btn.dataset.pid;
+  const keys = (btn.dataset.keys || '').split('||').filter(Boolean);
+  const newStatus = btn.dataset.status === 'Delivered' ? 'In Office' : 'Delivered';
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    for (const key of keys) {
+      const r = await fetch('/projects/' + pid + '/held-status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'item_key=' + encodeURIComponent(key) + '&status=' + encodeURIComponent(newStatus),
+      });
+      if (!r.ok) throw new Error('save failed');
+    }
+    // Reload so the top totals (Delivered / Still in Office) recompute
+    location.reload();
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = 'Error — try again';
+  }
 }
 </script>
 </body>
