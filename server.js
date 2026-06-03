@@ -553,16 +553,24 @@ function parseScheduleRows(rows) {
   }
   return out;
 }
+// Cache raw sheet values per sheet id for a few minutes — avoids re-hitting the
+// Google Sheets API on every inventory/materials load (overrides are applied after).
+const _sheetCache = new Map(); // id -> { at, values }
+const SHEET_TTL_MS = 5 * 60 * 1000;
 async function fetchScheduleValues(scheduleUrl) {
   if (!SHEETS_API_KEY) throw new Error('Google Sheets API key not configured.');
   const id = sheetIdFromUrl(scheduleUrl);
   if (!id) throw new Error('Invalid finish-schedule link.');
+  const hit = _sheetCache.get(id);
+  if (hit && (Date.now() - hit.at) < SHEET_TTL_MS) return hit.values;
   const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Fin%20Sched!A1:S400?key=${SHEETS_API_KEY}`);
   if (!r.ok) {
     if (r.status === 403) throw new Error('Sheet not shared — set it to "Anyone with the link → Viewer".');
     throw new Error('Could not read the schedule (HTTP ' + r.status + ').');
   }
-  return ((await r.json()).values) || [];
+  const values = ((await r.json()).values) || [];
+  _sheetCache.set(id, { at: Date.now(), values });
+  return values;
 }
 async function readScheduleRows(scheduleUrl) {
   return parseScheduleRows(await fetchScheduleValues(scheduleUrl));
@@ -619,11 +627,15 @@ async function computeHeldUsages() {
   const { rows: projects } = await pool.query(
     "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
   );
+  // Fetch all schedules in parallel (cached) instead of one-at-a-time
+  const fetched = await Promise.all(projects.map(async proj => {
+    try { return { proj, rows: await fetchScheduleValues(proj.finish_schedule_url) }; }
+    catch (e) { return null; }
+  }));
   const usages = [];
-  for (const proj of projects) {
-    let rows;
-    try { rows = await fetchScheduleValues(proj.finish_schedule_url); }
-    catch (e) { continue; } // skip a project whose sheet can't be read right now
+  for (const f of fetched) {
+    if (!f) continue;
+    const { proj, rows } = f;
     const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source };
     for (let i = 5; i < rows.length; i++) {
       const row = rows[i];
