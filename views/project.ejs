@@ -247,7 +247,7 @@
         %>
         <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
           <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
-          <td><strong><%= item.name %></strong></td>
+          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span></td>
           <td>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
@@ -264,6 +264,9 @@
           <td>
             <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)">
           </td>
+        </tr>
+        <tr class="sched-sub" id="sub_<%= item.code %>" style="display:none">
+          <td colspan="6" style="padding:0"><div class="sched-items" style="padding:.4rem .9rem;background:var(--bg)"></div></td>
         </tr>
         <% }) %>
       </tbody>
@@ -533,6 +536,36 @@ function showTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = (p.dataset.tab === tab) ? 'block' : 'none'; });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   if (tab === 'schedule') loadFinishSchedule();
+  if (tab === 'materials') loadMaterialsSchedule();
+}
+
+let MAT_SCHED_LOADED = false;
+async function loadMaterialsSchedule() {
+  if (MAT_SCHED_LOADED) return;
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/schedule-by-category`);
+    const data = await r.json();
+    if (!data.ok || !data.byCode) { MAT_SCHED_LOADED = true; return; }
+    Object.keys(data.byCode).forEach(code => {
+      const items = data.byCode[code] || [];
+      const cnt = document.getElementById('cnt_' + code);
+      if (cnt) cnt.textContent = items.length ? '(' + items.length + ')' : '';
+      const sub = document.getElementById('sub_' + code);
+      if (sub) {
+        sub.querySelector('.sched-items').innerHTML = items.length
+          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem">' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td><td style="padding:3px 6px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td></tr>`).join('') + '</table>'
+          : '<div style="color:var(--muted);font-size:.8rem">No schedule items in this category.</div>';
+      }
+    });
+    MAT_SCHED_LOADED = true;
+  } catch (e) { /* schedule unavailable — leave the materials list plain */ }
+}
+function toggleCategory(code) {
+  const sub = document.getElementById('sub_' + code), car = document.getElementById('car_' + code);
+  if (!sub) return;
+  const show = sub.style.display === 'none';
+  sub.style.display = show ? '' : 'none';
+  if (car) car.textContent = show ? '▾' : '▸';
 }
 document.addEventListener('DOMContentLoaded', () => showTab('materials'));
 

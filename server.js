@@ -471,7 +471,7 @@ function parseScheduleRows(rows) {
   }
   return out;
 }
-async function readScheduleRows(scheduleUrl) {
+async function fetchScheduleValues(scheduleUrl) {
   if (!SHEETS_API_KEY) throw new Error('Google Sheets API key not configured.');
   const id = sheetIdFromUrl(scheduleUrl);
   if (!id) throw new Error('Invalid finish-schedule link.');
@@ -480,7 +480,29 @@ async function readScheduleRows(scheduleUrl) {
     if (r.status === 403) throw new Error('Sheet not shared — set it to "Anyone with the link → Viewer".');
     throw new Error('Could not read the schedule (HTTP ' + r.status + ').');
   }
-  return parseScheduleRows(((await r.json()).values) || []);
+  return ((await r.json()).values) || [];
+}
+async function readScheduleRows(scheduleUrl) {
+  return parseScheduleRows(await fetchScheduleValues(scheduleUrl));
+}
+// Schedule items grouped by material category code (1a..3e) — for the Materials tab drill-down
+async function readScheduleByCategory(scheduleUrl) {
+  const rows = await fetchScheduleValues(scheduleUrl);
+  const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
+  const byCode = {};
+  for (let i = 5; i < rows.length; i++) {
+    const row = rows[i];
+    const m = (row[4] || '').trim().match(CATRE);
+    if (!m) continue;
+    const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
+    if (!name) continue;
+    const code = m[1].toLowerCase();
+    (byCode[code] = byCode[code] || []).push({
+      name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
+      model: (row[7] || '').trim(), qty: (row[9] || '').trim() || '1', supplier: (row[14] || '').trim(),
+    });
+  }
+  return byCode;
 }
 
 function escapeHtml(s) {
@@ -1558,6 +1580,18 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
     res.json({ ok: true, items });
   } catch (err) {
     console.error('finish-schedule:', err.message);
+    res.json({ ok: false, error: err.message });
+  }
+});
+
+// Schedule items grouped by material category (for the Materials tab drill-down)
+app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
+  try {
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
+    if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
+    const byCode = await readScheduleByCategory(p.finish_schedule_url);
+    res.json({ ok: true, byCode });
+  } catch (err) {
     res.json({ ok: false, error: err.message });
   }
 });
