@@ -778,6 +778,7 @@ async function initDb() {
     );
 
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_requested_at TIMESTAMPTZ;
+    ALTER TABLE project_items ADD COLUMN IF NOT EXISTS order_date DATE;
   `);
 }
 
@@ -1023,7 +1024,7 @@ app.post('/projects/:id/status', requireAuth, async (req, res) => {
 // ── Update single item status (AJAX) ──────────────────────────────────────────
 
 app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
-  const { status, delivery_date, notes, statusOnly } = req.body;
+  const { status, delivery_date, notes, order_date, statusOnly } = req.body;
   // Ensure the row exists first
   await pool.query(
     `INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
@@ -1037,9 +1038,9 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
     );
   } else {
     await pool.query(
-      `UPDATE project_items SET status=$1, delivery_date=$2, notes=$3
-       WHERE project_id=$4 AND item_code=$5`,
-      [status, delivery_date||null, notes||null, req.params.id, req.params.code]
+      `UPDATE project_items SET status=$1, delivery_date=$2, notes=$3, order_date=$4
+       WHERE project_id=$5 AND item_code=$6`,
+      [status, delivery_date||null, notes||null, order_date||null, req.params.id, req.params.code]
     );
   }
   res.json({ ok: true });
@@ -1163,6 +1164,18 @@ ${signoff}
 
     // Auto-advance the status of all this vendor's materials on the project
     const updatedItems = itemCode ? await advanceVendorItems(req.params.id, itemCode, emailType) : [];
+
+    // Vendor-dropdown orders pass the covered material codes; advance + stamp those too
+    const validCodes = new Set(ALL_ITEMS.map(i => i.code));
+    const coveredCodes = [].concat(req.body.coveredCodes || []).filter(c => validCodes.has(c));
+    if (emailType === 'order' && coveredCodes.length) {
+      await bumpItemsForward(req.params.id, coveredCodes, 'Order Placed');
+    }
+    // Stamp Order Date (today) on everything this order touched
+    if (emailType === 'order') {
+      const stamp = [...new Set([...updatedItems.map(u => u.code), ...coveredCodes])];
+      if (stamp.length) await pool.query('UPDATE project_items SET order_date=CURRENT_DATE WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, stamp]);
+    }
 
     res.json({ ok: true, sentTo: supplierEmail, updatedItems });
   } catch (err) {
@@ -1434,7 +1447,7 @@ ${signoff}
 app.post('/projects/:id/request-delivery', requireAuth, async (req, res) => {
   try {
     if (!useGmail) return res.status(400).json({ ok: false, error: 'Gmail not configured.' });
-    const { threadId, note } = req.body;
+    const { threadId, note, deliveryDate } = req.body;
     if (!threadId) return res.status(400).json({ ok: false, error: 'No order thread.' });
     const valid = new Set(ALL_ITEMS.map(i => i.code));
     const codes = [].concat(req.body.itemCodes || []).filter(c => valid.has(c));
@@ -1461,12 +1474,16 @@ app.post('/projects/:id/request-delivery', requireAuth, async (req, res) => {
 <p>We're ready for delivery of the following items to <strong>${escapeHtml(fullAddress)}</strong>:</p>
 ${itemsHtml}
 ${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
-<p>Please confirm the delivery date. Thank you.</p>
+${deliveryDate ? `<p>We'd like these delivered on <strong>${escapeHtml(deliveryDate)}</strong> — please confirm.</p>` : '<p>Please confirm the delivery date. Thank you.</p>'}
 ${sig ? '<br>' + sig : ''}
 </div>`;
 
     await sendMail({ to: replyTo, subject, html, threadId, inReplyTo: last.messageIdHeader, references: refs });
-    await pool.query('UPDATE project_items SET delivery_requested_at=NOW() WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, codes]);
+    if (deliveryDate) {
+      await pool.query('UPDATE project_items SET delivery_requested_at=NOW(), delivery_date=$3 WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, codes, deliveryDate]);
+    } else {
+      await pool.query('UPDATE project_items SET delivery_requested_at=NOW() WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, codes]);
+    }
 
     res.json({ ok: true, sentTo: replyTo, count: codes.length });
   } catch (err) {

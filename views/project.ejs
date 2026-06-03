@@ -222,6 +222,7 @@
           <th style="width:40px"></th>
           <th>Item</th>
           <th>Status</th>
+          <th>Order Date</th>
           <th>Delivery Date</th>
           <th>Notes</th>
         </tr>
@@ -241,6 +242,9 @@
                 <option value="<%= s %>" <%- st===s?'selected':'' %>><%= s %></option>
               <% }) %>
             </select>
+          </td>
+          <td>
+            <input type="date" class="item-order-date" value="<%= row.order_date ? new Date(row.order_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)">
           </td>
           <td>
             <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)">
@@ -439,6 +443,10 @@
       <div id="delItems" style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;margin-top:.3rem"></div>
     </div>
     <div class="form-group" style="margin-top:.85rem">
+      <label>Delivery Date (sets the Delivery Date on these items)</label>
+      <input type="date" id="delDate">
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
       <label>Note (optional)</label>
       <input type="text" id="delNote" placeholder="e.g. Deliver Friday morning">
     </div>
@@ -491,6 +499,7 @@ const STAGES_DATA = <%- JSON.stringify(STAGES) %>;
 const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
 const SUPPLIER_EMAILS = <%- JSON.stringify(Object.values(suppliers||{}).reduce((m,s)=>{ if(s&&s.name&&s.email) m[s.name.toLowerCase()]=s.email; return m; }, {})) %>;
 let SCHEDULE_VENDORS = [];
+let RFQ_COVERED = [];   // material codes the current auto-filled order covers
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
 
@@ -683,6 +692,7 @@ function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
   document.getElementById('rfqSupplierName').value = supplierName || '';
   document.getElementById('rfqSupplierEmail').value = supplierEmail || '';
   document.getElementById('rfqItems').innerHTML = '';
+  RFQ_COVERED = [];
   document.getElementById('rfqNote').value = '';
   document.getElementById('rfqCc').value = WAREHOUSE_CC;
   document.getElementById('rfqOutboundDate').value = '';
@@ -716,14 +726,15 @@ async function loadScheduleVendors() {
 function fillFromVendor() {
   const name = document.getElementById('rfqVendor').value;
   const v = SCHEDULE_VENDORS.find(x => x.name === name);
-  if (!v) return;
+  if (!v) { RFQ_COVERED = []; return; }
   document.getElementById('rfqSupplierName').value = v.name;
   const email = SUPPLIER_EMAILS[v.name.toLowerCase()];
   if (email) { document.getElementById('rfqSupplierEmail').value = email; rfqSavedSupplierEmail = email; }
+  RFQ_COVERED = [...new Set(v.items.map(it => it.code))];
   const rowsHtml = v.items.map(it =>
     `<tr><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
   document.getElementById('rfqItems').innerHTML =
-    `<table><tr><td><b>Item</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
+    `<table><colgroup><col width="240"><col width="120"><col width="170"><col width="45"></colgroup><tr><td><b>Item</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
 }
 
 function onRfqTypeChange() {
@@ -745,6 +756,7 @@ async function sendRfq() {
   if (!supplierEmail) { showToast('Enter a supplier email', true); return; }
   const fd = new FormData();
   fd.append('itemCode', document.getElementById('rfqItemCode').value);
+  RFQ_COVERED.forEach(c => fd.append('coveredCodes', c));
   fd.append('emailType', document.getElementById('rfqType').value);
   fd.append('supplierName', document.getElementById('rfqSupplierName').value.trim());
   fd.append('supplierEmail', supplierEmail);
@@ -787,12 +799,13 @@ async function saveItem(el) {
   const code = row.dataset.code;
   const status = row.querySelector('.item-select').value;
   const delivery_date = row.querySelector('.item-date').value;
+  const order_date = row.querySelector('.item-order-date').value;
   const notes = row.querySelector('.item-notes').value;
   try {
     const r = await fetch(`/projects/${projectId}/items/${code}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, delivery_date, notes }),
+      body: JSON.stringify({ status, delivery_date, order_date, notes }),
     });
     if (r.redirected && /\/login/.test(r.url)) throw new Error('LOGGED_OUT');
     let data = null;
@@ -980,6 +993,7 @@ function openDeliveryRequest(threadId) {
   const sel = document.getElementById('delStage');
   sel.innerHTML = STAGES_DATA.map((s, i) => `<option value="${i}">${escapeHtmlJs(s.name)}</option>`).join('');
   document.getElementById('delNote').value = '';
+  document.getElementById('delDate').value = '';
   fillDeliveryItems();
   document.getElementById('deliveryModal').classList.add('show');
 }
@@ -997,12 +1011,13 @@ async function sendDeliveryRequest() {
   const threadId = document.getElementById('delThreadId').value;
   const itemCodes = Array.from(document.querySelectorAll('#delItems .del-cb:checked')).map(c => c.value);
   const note = document.getElementById('delNote').value.trim();
+  const deliveryDate = document.getElementById('delDate').value;
   if (!itemCodes.length) { showToast('Pick at least one item', true); return; }
   btn.disabled = true; btn.textContent = 'Sending…';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/request-delivery`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ threadId, itemCodes, note }),
+      body: JSON.stringify({ threadId, itemCodes, note, deliveryDate }),
     });
     const data = await r.json();
     if (data.ok) {
