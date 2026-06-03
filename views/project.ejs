@@ -116,8 +116,9 @@
   <div class="email-card">
     <div class="email-header">
       <div><strong>Confirmed Orders</strong>
-        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Materials a vendor has confirmed, by vendor. Log one from a vendor's reply above (📦 button).</div>
+        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Materials a vendor has confirmed, by vendor. Log from a vendor's reply (📦) or upload a receipt PDF →</div>
       </div>
+      <button class="btn btn-primary btn-sm" onclick="openReceiptUpload()">⬆ Upload Receipt</button>
     </div>
     <% if (ordersByVendor && ordersByVendor.length) { %>
       <% ordersByVendor.forEach(v => { %>
@@ -363,6 +364,36 @@
     <div class="modal-actions">
       <button class="btn btn-primary" id="orderSaveBtn" onclick="saveOrder()">Save Order</button>
       <button class="btn btn-ghost" onclick="document.getElementById('orderModal').classList.remove('show')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Upload a receipt PDF → auto-extract + categorize → review → save -->
+<div id="receiptModal" class="modal-overlay">
+  <div class="modal" style="max-width:660px">
+    <h2>Upload Receipt</h2>
+    <p class="modal-sub">Upload a vendor PDF — we'll pull the items and sort them into categories for you to review before saving.</p>
+    <div id="receiptStep1">
+      <div class="form-group">
+        <label>Receipt PDF</label>
+        <input type="file" id="receiptFile" accept="application/pdf">
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="receiptReadBtn" onclick="parseReceipt()">Read Receipt</button>
+        <button class="btn btn-ghost" onclick="closeReceipt()">Cancel</button>
+      </div>
+    </div>
+    <div id="receiptStep2" style="display:none">
+      <div style="display:flex;gap:.6rem;flex-wrap:wrap">
+        <div class="form-group" style="flex:1;min-width:200px"><label>Vendor</label><input type="text" id="receiptVendor"></div>
+        <div class="form-group" style="width:130px"><label>Total ($)</label><input type="text" id="receiptAmount"></div>
+      </div>
+      <label style="font-size:.8rem;color:var(--muted)">Items — set the category for each (fix any that look wrong, ✕ to drop a row):</label>
+      <div id="receiptLines" style="max-height:320px;overflow:auto;margin-top:.35rem"></div>
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="receiptSaveBtn" onclick="saveReceiptOrder()">Save Order</button>
+        <button class="btn btn-ghost" onclick="closeReceipt()">Cancel</button>
+      </div>
     </div>
   </div>
 </div>
@@ -760,6 +791,85 @@ async function saveOrder() {
     } else {
       showToast(data.error || 'Save failed', true);
     }
+  } catch (e) {
+    showToast('Save failed', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Order';
+  }
+}
+
+// ── Upload receipt → extract → review → save ──────────────────────────────
+let RECEIPT_FILE = null;
+function openReceiptUpload() {
+  RECEIPT_FILE = null;
+  document.getElementById('receiptStep1').style.display = '';
+  document.getElementById('receiptStep2').style.display = 'none';
+  document.getElementById('receiptFile').value = '';
+  document.getElementById('receiptModal').classList.add('show');
+}
+function closeReceipt() {
+  document.getElementById('receiptModal').classList.remove('show');
+  RECEIPT_FILE = null;
+}
+function rcptAttr(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+async function parseReceipt() {
+  const f = document.getElementById('receiptFile').files[0];
+  if (!f) { showToast('Pick a PDF first', true); return; }
+  RECEIPT_FILE = f;
+  const btn = document.getElementById('receiptReadBtn');
+  btn.disabled = true; btn.textContent = 'Reading…';
+  const fd = new FormData(); fd.append('receipt', f);
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/parse-receipt`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!data.ok) { showToast(data.error || 'Could not read PDF', true); return; }
+    document.getElementById('receiptVendor').value = data.vendor || '';
+    document.getElementById('receiptAmount').value = data.amount != null ? data.amount : '';
+    renderReceiptLines(data.lines || []);
+    document.getElementById('receiptStep1').style.display = 'none';
+    document.getElementById('receiptStep2').style.display = '';
+    if (!data.lines || !data.lines.length) showToast('No items detected — check the PDF', true);
+  } catch (e) {
+    showToast('Could not read PDF', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Read Receipt';
+  }
+}
+
+function renderReceiptLines(lines) {
+  const el = document.getElementById('receiptLines');
+  el.innerHTML = lines.map(l => `
+    <div class="rcpt-row" data-pc="${rcptAttr(l.product_code || '')}" data-qty="${l.qty || 1}" style="display:flex;gap:.4rem;align-items:center;border-bottom:1px solid var(--border);padding:.3rem 0">
+      <input class="rcpt-desc" value="${rcptAttr(l.description || l.product_code || '')}" style="flex:1;font-size:.82rem">
+      <input class="rcpt-price" value="${l.price != null ? l.price : ''}" style="width:72px;font-size:.82rem" placeholder="$">
+      <select class="rcpt-cat" style="font-size:.82rem">${ALL_MATERIALS.map(m => `<option value="${m.code}" ${m.code === l.item_code ? 'selected' : ''}>${m.name}</option>`).join('')}</select>
+      <button type="button" class="btn btn-danger btn-sm" onclick="this.closest('.rcpt-row').remove()">✕</button>
+    </div>`).join('') || '<div style="color:var(--muted);font-size:.85rem;padding:.5rem 0">No items detected in this PDF.</div>';
+}
+
+async function saveReceiptOrder() {
+  if (!RECEIPT_FILE) { showToast('No file', true); return; }
+  const lines = Array.from(document.querySelectorAll('#receiptLines .rcpt-row')).map(r => ({
+    description: r.querySelector('.rcpt-desc').value.trim(),
+    price: parseFloat(String(r.querySelector('.rcpt-price').value).replace(/[^0-9.]/g, '')) || null,
+    item_code: r.querySelector('.rcpt-cat').value,
+    product_code: r.dataset.pc || null,
+    qty: Number(r.dataset.qty) || 1,
+  })).filter(l => l.description);
+  if (!lines.length) { showToast('No items to save', true); return; }
+  const btn = document.getElementById('receiptSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const fd = new FormData();
+  fd.append('receipt', RECEIPT_FILE);
+  fd.append('vendorName', document.getElementById('receiptVendor').value.trim());
+  fd.append('amount', document.getElementById('receiptAmount').value.trim());
+  fd.append('linesJson', JSON.stringify(lines));
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/orders-from-receipt`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) { showToast('Order saved'); closeReceipt(); setTimeout(() => location.reload(), 700); }
+    else showToast(data.error || 'Save failed', true);
   } catch (e) {
     showToast('Save failed', true);
   } finally {

@@ -103,6 +103,74 @@ function detectMaterials(text) {
   return found;
 }
 
+// ── Receipt categorization (keyword rules) ─────────────────────────────────────
+// Map a free-text line-item description to a material code. Order matters
+// (more specific buckets first). The upload review screen lets users fix misses.
+const CATEGORY_KEYWORDS = [
+  ['2e', ['water heater', 'tankless', 'wtr htr', 'water htr']],
+  ['2d', ['refrigerator', 'refrig', 'fridge', 'range', 'wall oven', 'oven', 'cooktop', 'cook top', 'dishwasher', 'dishwshr', 'dishwash', 'microwave', 'micro hood', 'washer', 'dryer', 'freezer', 'frzr', 'wine cooler', 'ice maker', 'icemaker']],
+  ['1b', ['rough-in', 'rough in', 'ri vlv', 'rough vlv', 'shower drain', 'shwr flr', 'shower flr', 'shower floor', 'shower pan', 'shower base', 'shr flr', 'vent fan', 'exhaust fan', 'exh fan', 'ceiling fan', 'bath fan']],
+  ['1d', ['tile', 'grout', 'thinset']],
+  ['1e', ['recessed', 'rec light', 'rec. light', 'can light', 'downlight']],
+  ['2a', ['millwork', 'cabinet', 'crown mold', 'baseboard', 'casing']],
+  ['2b', ['flooring', 'hardwood floor', 'laminate', 'lvp', 'vinyl plank', 'underlayment']],
+  ['2c', ['decking', 'deck board', 'composite deck']],
+  ['3a', ['countertop', 'counter top', 'quartz', 'granite slab']],
+  ['3c', ['handleset', 'lever', 'strike', 'privacy set', 'deadbolt', 'door knob', 'cabinet pull', 'cabinet knob', 'hinge', 'door hardware']],
+  ['3e', ['shower door', 'shower glass', 'shower enclosure']],
+  ['3b', ['faucet', 'fct', 'toilet', 'tlt', 'sink', 'shower trim', 'shower', 'disposal', 'disposer', 'air gap', 'flange', 'sconce', 'wall light', 'vanity light', 'light', 'mirror', 'range hood', 'hood', 'thermostat', 'tstat', 'p-trap', 'supply line', 'tub', 'lav', 'drain', 'valve', 'trim']],
+];
+function categorizeItem(desc) {
+  const d = ' ' + String(desc || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ') + ' ';
+  for (const [code, kws] of CATEGORY_KEYWORDS) {
+    if (kws.some(k => d.includes(k))) return code;
+  }
+  return '3d'; // Misc fallback
+}
+
+// Extract { vendor, amount, lines[] } from a receipt PDF buffer
+async function parseReceiptPdf(buffer) {
+  const { PDFParse } = require('pdf-parse');
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  let text = '';
+  try { const r = await parser.getText(); text = (r && r.text) || ''; }
+  finally { if (parser.destroy) { try { await parser.destroy(); } catch (e) {} } }
+  const rawLines = text.split(/\r?\n/);
+
+  // Vendor = first line with letters
+  let vendor = '';
+  for (const l of rawLines) { const t = l.trim(); if (t.length > 3 && /[a-z]/i.test(t)) { vendor = t.replace(/\s+#\d+.*$/, '').slice(0, 120); break; } }
+
+  // Grand total = last "Total: $X" that isn't sub/net total
+  let amount = null;
+  for (const l of rawLines) {
+    if (/sub\s*total|net\s*total/i.test(l)) continue;
+    const m = l.match(/\btotal\s*:?\s*\$?\s*([\d,]+\.\d{2})/i);
+    if (m) { const v = parseFloat(m[1].replace(/,/g, '')); if (!isNaN(v)) amount = v; }
+  }
+
+  // Line items: rows split on tabs / 2+ spaces, ending in a price, containing a qty
+  const lines = [];
+  for (const raw of rawLines) {
+    if (/total|tax|freight|page \d|^item\b|description|warranty|warning|notice|payment|p65|lead law|water flow|terms|^\s*$/i.test(raw)) continue;
+    const parts = raw.split(/\t+|\s{2,}/).map(s => s.trim()).filter(Boolean);
+    if (parts.length < 3) continue;
+    const last = parts[parts.length - 1].replace(/[$,]/g, '');
+    if (!/^\d+\.\d{2}$/.test(last)) continue;
+    const price = parseFloat(last);
+    if (isNaN(price) || price <= 0) continue;
+    let qty = 1;
+    for (let i = 1; i < parts.length - 1; i++) { if (/^\d{1,3}$/.test(parts[i])) { qty = parseInt(parts[i], 10); break; } }
+    const product_code = /^[A-Z0-9][A-Z0-9\-\/]{2,}$/i.test(parts[0]) ? parts[0] : '';
+    const description = (product_code ? parts.slice(1) : parts)
+      .filter(p => !/^[\d.,]+$/.test(p) && !/^(ea|each|pc|pcs|lf|sf|box|cs)$/i.test(p))
+      .join(' ').slice(0, 200) || product_code;
+    if (!description) continue;
+    lines.push({ product_code, description, qty, price, item_code: categorizeItem(description + ' ' + product_code) });
+  }
+  return { vendor, amount, lines };
+}
+
 const ITEM_STATUSES = [
   'Not yet placed',
   'RFQ sent',
@@ -1181,6 +1249,54 @@ app.post('/orders/:id/delete', requireAuth, async (req, res) => {
   const { rows: [o] } = await pool.query('SELECT project_id FROM vendor_orders WHERE id=$1', [req.params.id]);
   await pool.query('DELETE FROM vendor_orders WHERE id=$1', [req.params.id]);
   res.redirect(o ? `/projects/${o.project_id}` : '/');
+});
+
+// Read an uploaded receipt PDF and return parsed/categorized items (no save)
+app.post('/projects/:id/parse-receipt', requireAuth, upload.single('receipt'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ ok: false, error: 'No file uploaded.' });
+    const parsed = await parseReceiptPdf(req.file.buffer);
+    res.json({ ok: true, vendor: parsed.vendor, amount: parsed.amount, lines: parsed.lines });
+  } catch (err) {
+    console.error('Parse receipt error:', err.message);
+    res.status(500).json({ ok: false, error: 'Could not read this PDF — ' + err.message });
+  }
+});
+
+// Save a reviewed receipt as an order (line items + receipt + status bumps)
+app.post('/projects/:id/orders-from-receipt', requireAuth, upload.single('receipt'), async (req, res) => {
+  try {
+    const { vendorName, vendorEmail, amount } = req.body;
+    const valid = new Set(ALL_ITEMS.map(i => i.code));
+    let lines = [];
+    try { lines = JSON.parse(req.body.linesJson || '[]'); } catch (e) {}
+    lines = (Array.isArray(lines) ? lines : []).filter(l => l && valid.has(l.item_code));
+    if (!lines.length) return res.status(400).json({ ok: false, error: 'No valid line items to save.' });
+
+    const amountNum = amount ? parseFloat(String(amount).replace(/[^0-9.]/g, '')) : NaN;
+    let rName = null, rMime = null, rData = null;
+    if (req.file) { rName = req.file.originalname; rMime = req.file.mimetype; rData = req.file.buffer; }
+
+    const { rows: [ord] } = await pool.query(
+      `INSERT INTO vendor_orders (project_id, supplier_name, supplier_email, amount, receipt_name, receipt_mime, receipt_data)
+       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
+      [req.params.id, vendorName || null, vendorEmail || null, isNaN(amountNum) ? null : amountNum, rName, rMime, rData]);
+
+    const cats = new Set();
+    for (const l of lines) {
+      await pool.query(
+        'INSERT INTO vendor_order_lines (order_id, item_code, product_code, description, qty, price) VALUES ($1,$2,$3,$4,$5,$6)',
+        [ord.id, l.item_code, l.product_code || null, l.description || null, l.qty != null ? l.qty : 1, l.price != null ? l.price : null]);
+      cats.add(l.item_code);
+    }
+    for (const c of cats) await pool.query('INSERT INTO vendor_order_items (order_id, item_code) VALUES ($1,$2)', [ord.id, c]);
+    await bumpItemsForward(req.params.id, [...cats], 'Order Placed');
+
+    res.json({ ok: true, orderId: ord.id });
+  } catch (err) {
+    console.error('Save receipt order error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
 });
 
 // Email a vendor a request for the items in one category
