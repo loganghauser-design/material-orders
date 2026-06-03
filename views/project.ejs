@@ -296,12 +296,13 @@
       <div id="emailExtra" class="paste-box" contenteditable="true" data-placeholder="Paste cells or type anything to appear below the Melio link…"></div>
     </div>
     <div class="form-group" style="margin-top:.85rem">
-      <label>Additional attachment (optional)</label>
-      <input type="file" id="emailFile">
-      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Your default attachment (set in Settings) is included automatically.</small>
+      <label>Additional attachments (optional)</label>
+      <input type="file" id="emailFile" multiple>
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">You can select multiple files. Your default attachment (set in Settings) is included automatically.</small>
     </div>
     <div class="modal-actions">
-      <button class="btn btn-primary" id="emailSendBtn" onclick="sendEmail()">Send Email</button>
+      <button class="btn btn-primary" id="emailSendBtn" onclick="sendEmail(false)">Send Email</button>
+      <button class="btn btn-ghost" id="emailDraftBtn" onclick="sendEmail(true)">Save as Draft</button>
       <button class="btn btn-ghost" onclick="closeEmailDialog()">Cancel</button>
     </div>
   </div>
@@ -354,8 +355,14 @@
       <label>Extra note (optional)</label>
       <input type="text" id="rfqNote" placeholder="e.g. Needed by end of month">
     </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Attachments (optional)</label>
+      <input type="file" id="rfqFiles" multiple>
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">You can select multiple files.</small>
+    </div>
     <div class="modal-actions">
-      <button class="btn btn-primary" id="rfqSendBtn" onclick="sendRfq()">Send RFQ</button>
+      <button class="btn btn-primary" id="rfqSendBtn" onclick="sendRfq(false)">Send</button>
+      <button class="btn btn-ghost" id="rfqDraftBtn" onclick="sendRfq(true)">Save as Draft</button>
       <button class="btn btn-ghost" onclick="document.getElementById('rfqModal').classList.remove('show')">Cancel</button>
     </div>
   </div>
@@ -652,37 +659,39 @@ function openEmailDialog(phaseKey, label) {
 function closeEmailDialog() {
   document.getElementById('emailModal').classList.remove('show');
 }
-async function sendEmail() {
-  const btn = document.getElementById('emailSendBtn');
+async function sendEmail(asDraft) {
+  const btn = asDraft ? document.getElementById('emailDraftBtn') : document.getElementById('emailSendBtn');
   const amount = document.getElementById('emailAmount').value.trim();
   if (!amount) { showToast('Enter an amount', true); return; }
   const fd = new FormData();
   fd.append('phaseKey', document.getElementById('emailPhaseKey').value);
   fd.append('amount', amount);
   fd.append('melioLink', document.getElementById('emailMelio').value.trim());
+  if (asDraft) fd.append('asDraft', 'true');
   const extraEl = document.getElementById('emailExtra');
   fd.append('extraHtml', extraEl.innerHTML);
   fd.append('extraText', extraEl.innerText);
   const fileInput = document.getElementById('emailFile');
-  if (fileInput.files[0]) fd.append('attachment', fileInput.files[0]);
-  btn.disabled = true; btn.textContent = 'Sending…';
+  for (const f of fileInput.files) fd.append('attachments', f);
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = asDraft ? 'Saving…' : 'Sending…';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/send-email`, { method: 'POST', body: fd });
     const data = await r.json();
     if (data.ok) {
-      showToast('Email sent to ' + data.sentTo);
+      showToast(data.draft ? 'Draft saved to your Gmail — review & send there' : 'Email sent to ' + data.sentTo);
       closeEmailDialog();
       document.getElementById('emailAmount').value = '';
       document.getElementById('emailMelio').value = '';
       document.getElementById('emailExtra').innerHTML = '';
       fileInput.value = '';
     } else {
-      showToast(data.error || 'Send failed', true);
+      showToast(data.error || 'Failed', true);
     }
   } catch(e) {
-    showToast('Send failed', true);
+    showToast('Failed', true);
   } finally {
-    btn.disabled = false; btn.textContent = 'Send Email';
+    btn.disabled = false; btn.textContent = orig;
   }
 }
 
@@ -831,6 +840,7 @@ function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
   document.getElementById('rfqItems').innerHTML = '';
   RFQ_COVERED = [];
   document.getElementById('rfqNote').value = '';
+  document.getElementById('rfqFiles').value = '';
   document.getElementById('rfqCc').value = WAREHOUSE_CC;
   document.getElementById('rfqOutboundDate').value = '';
   // Default to the warehouse-outbound template for warehouse-shipped materials
@@ -888,8 +898,8 @@ function onRfqTypeChange() {
   document.getElementById('rfqSupplierEmail').value = isWh ? WAREHOUSE_TO : rfqSavedSupplierEmail;
 }
 
-async function sendRfq() {
-  const btn = document.getElementById('rfqSendBtn');
+async function sendRfq(asDraft) {
+  const btn = asDraft ? document.getElementById('rfqDraftBtn') : document.getElementById('rfqSendBtn');
   const supplierEmail = document.getElementById('rfqSupplierEmail').value.trim();
   if (!supplierEmail) { showToast('Enter a supplier email', true); return; }
   const fd = new FormData();
@@ -900,15 +910,21 @@ async function sendRfq() {
   fd.append('supplierEmail', supplierEmail);
   fd.append('cc', document.getElementById('rfqCc').value.trim());
   fd.append('outboundDate', document.getElementById('rfqOutboundDate').value);
+  if (asDraft) fd.append('asDraft', 'true');
   const itemsEl = document.getElementById('rfqItems');
   fd.append('itemsHtml', itemsEl.innerHTML);
   fd.append('items', itemsEl.innerText);
   fd.append('note', document.getElementById('rfqNote').value.trim());
-  btn.disabled = true; btn.textContent = 'Sending…';
+  for (const f of document.getElementById('rfqFiles').files) fd.append('attachments', f);
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = asDraft ? 'Saving…' : 'Sending…';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/rfq`, { method: 'POST', body: fd });
     const data = await r.json();
-    if (data.ok) {
+    if (data.ok && data.draft) {
+      showToast('Draft saved to your Gmail — review & send there');
+      document.getElementById('rfqModal').classList.remove('show');
+    } else if (data.ok) {
       // Reflect auto-advanced statuses in the item rows
       let bumped = 0;
       (data.updatedItems || []).forEach(u => {
@@ -922,12 +938,12 @@ async function sendRfq() {
       document.getElementById('rfqModal').classList.remove('show');
       loadThreads();
     } else {
-      showToast(data.error || 'Send failed', true);
+      showToast(data.error || 'Failed', true);
     }
   } catch(e) {
-    showToast('Send failed', true);
+    showToast('Failed', true);
   } finally {
-    btn.disabled = false; btn.textContent = 'Send RFQ';
+    btn.disabled = false; btn.textContent = orig;
   }
 }
 

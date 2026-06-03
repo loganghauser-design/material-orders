@@ -242,8 +242,14 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 const FROM_EMAIL = useGmail ? gmailUser : (process.env.FROM_EMAIL || 'onboarding@resend.dev');
 const emailEnabled = useGmail || !!resend;
 
+function encodeHeader(s) {
+  if (!/[^\x00-\x7F]/.test(String(s))) return s;
+  return '=?UTF-8?B?' + Buffer.from(String(s), 'utf8').toString('base64') + '?=';
+}
+
 function buildRawMessage({ from, to, cc, subject, text, html, attachments, inReplyTo, references }) {
   attachments = attachments || [];
+  subject = encodeHeader(subject);
   const bodyType = html ? 'text/html' : 'text/plain';
   const bodyContent = html || text;
   const threadHeaders = [];
@@ -836,6 +842,15 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
   return { threadId: null, messageId: data && data.id };
 }
 
+// Create a Gmail draft (instead of sending) so the user can review/send from Gmail
+async function createDraft({ to, cc, subject, text, html, attachments }) {
+  if (!useGmail) throw new Error('Drafts require Gmail to be configured.');
+  const recipients = parseRecipients(to);
+  const ccList = parseRecipients(cc);
+  const raw = buildRawMessage({ from: gmailUser, to: recipients.join(', '), cc: ccList.join(', ') || undefined, subject, text, html, attachments });
+  await gmailClient.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+}
+
 // Construction milestone payment-request email templates
 const EMAIL_PHASES = [
   { key: 'foundation', label: 'Foundation', phaseName: 'Foundation',
@@ -1312,10 +1327,10 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
 
 // ── Send milestone email ──────────────────────────────────────────────────────
 
-app.post('/projects/:id/send-email', requireAuth, upload.single('attachment'), async (req, res) => {
+app.post('/projects/:id/send-email', requireAuth, upload.array('attachments', 10), async (req, res) => {
   try {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
-    const { phaseKey, amount, melioLink, extraHtml, extraText } = req.body;
+    const { phaseKey, amount, melioLink, extraHtml, extraText, asDraft } = req.body;
     const phase = EMAIL_PHASES.find(p => p.key === phaseKey);
     if (!phase) return res.status(400).json({ ok: false, error: 'Unknown phase.' });
 
@@ -1333,7 +1348,7 @@ app.post('/projects/:id/send-email', requireAuth, upload.single('attachment'), a
     const attachments = [];
     const def = await getDefaultAttachment();
     if (def) attachments.push(def);
-    if (req.file) attachments.push({ filename: req.file.originalname, mimeType: req.file.mimetype, content: req.file.buffer });
+    (req.files || []).forEach(f => attachments.push({ filename: f.originalname, mimeType: f.mimetype, content: f.buffer }));
 
     // Render as HTML so the Gmail signature appears; preserve the body's line breaks
     const sig = await getSignature();
@@ -1342,6 +1357,11 @@ app.post('/projects/:id/send-email', requireAuth, upload.single('attachment'), a
     if (extraHtml && /<table/i.test(extraHtml)) extraBlock = `<div style="margin-top:12px">${sanitizePastedHtml(extraHtml)}</div>`;
     else if (extraText && extraText.trim()) extraBlock = `<div style="margin-top:12px;white-space:pre-wrap">${escapeHtml(extraText.trim())}</div>`;
     const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>${extraBlock}${sig ? '<br>' + sig : ''}`;
+
+    if (asDraft === 'true' || asDraft === true) {
+      await createDraft({ to: project.client_email, subject, html, attachments });
+      return res.json({ ok: true, draft: true });
+    }
 
     await sendMail({ to: project.client_email, subject, html, attachments });
 
@@ -1362,10 +1382,10 @@ app.post('/projects/:id/send-email', requireAuth, upload.single('attachment'), a
 
 // ── Send RFQ to supplier ──────────────────────────────────────────────────────
 
-app.post('/projects/:id/rfq', requireAuth, upload.single('attachment'), async (req, res) => {
+app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), async (req, res) => {
   try {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
-    const { itemCode, supplierEmail, supplierName, note, items, itemsHtml, emailType, cc, outboundDate } = req.body;
+    const { itemCode, supplierEmail, supplierName, note, items, itemsHtml, emailType, cc, outboundDate, asDraft } = req.body;
     if (itemCode && !ALL_ITEMS.find(i => i.code === itemCode)) return res.status(400).json({ ok: false, error: 'Unknown material.' });
     if (!supplierEmail) return res.status(400).json({ ok: false, error: 'No recipient email. Add one in Settings or type it in.' });
 
@@ -1417,7 +1437,12 @@ ${signoff}
     }
 
     const attachments = [];
-    if (req.file) attachments.push({ filename: req.file.originalname, mimeType: req.file.mimetype, content: req.file.buffer });
+    (req.files || []).forEach(f => attachments.push({ filename: f.originalname, mimeType: f.mimetype, content: f.buffer }));
+
+    if (asDraft === 'true' || asDraft === true) {
+      await createDraft({ to: supplierEmail, cc: sendCc, subject, html, attachments });
+      return res.json({ ok: true, draft: true });
+    }
 
     const sent = await sendMail({ to: supplierEmail, cc: sendCc, subject, html, attachments });
     await pool.query(
