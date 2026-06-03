@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Inventory — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .inv-table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    .inv-table th, .inv-table td { padding:.55rem .7rem; text-align:left; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .inv-table th { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); }
+    .inv-table tbody tr:hover { background:var(--bg); }
+    .sup-tag { display:inline-block; font-size:.7rem; font-weight:600; padding:1px 7px; border-radius:10px; background:rgba(120,120,160,.15); color:var(--muted); }
+    .prod-code { font-family:ui-monospace,Menlo,monospace; font-size:.78rem; color:var(--muted); }
+    .proj-breakdown { font-size:.74rem; color:var(--muted); margin-top:2px; }
+    .qty-input { width:64px; padding:4px 6px; text-align:center; font-size:.95rem; border:1px solid var(--border); border-radius:6px; background:var(--card); }
+    .qty-step { border:1px solid var(--border); background:var(--card); width:26px; height:30px; border-radius:6px; cursor:pointer; font-size:1rem; line-height:1; }
+    .qty-step:hover { background:var(--bg); }
+    .num-needed { font-weight:600; }
+    .short-pos { color:#cc2222; font-weight:700; }
+    .short-zero { color:#4caf7d; font-weight:600; }
+    .saved-tick { color:#4caf7d; font-size:.8rem; opacity:0; transition:opacity .2s; }
+    .saved-tick.show { opacity:1; }
+    .reorder-banner { background:rgba(204,34,34,.08); border:1px solid rgba(204,34,34,.3); border-radius:10px; padding:.8rem 1rem; margin-bottom:1.2rem; }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.25rem">
+    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+    <a href="/inventory" class="nav-tab active">Inventory</a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions">
+    <a href="/" class="btn btn-ghost">← Back</a>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="page-header"><h1>Inventory</h1></div>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:760px">
+    Office/warehouse stock you buy and hold yourself — <strong><%= heldSuppliers.join(' &amp; ') %></strong>.
+    This list is built automatically from every project's finish schedule, pooled across all jobs and matched by <strong>Prod. Code</strong>.
+    You only maintain the <strong>On hand</strong> count — edit it any time you receive or lose stock. Anything short turns <span class="short-pos">red</span>.
+  </p>
+
+  <% if (error) { %>
+    <div class="error-msg">Couldn't read one or more schedules: <%= error %></div>
+  <% } %>
+
+  <% const short = items.filter(i => i.shortfall > 0); %>
+  <% if (short.length) { %>
+    <div class="reorder-banner">
+      <strong style="color:#cc2222">🔴 <%= short.length %> item<%= short.length>1?'s':'' %> to order:</strong>
+      <%= short.map(i => `${i.name} (need ${i.shortfall} more)`).join(' · ') %>
+    </div>
+  <% } else if (items.length) { %>
+    <div class="reorder-banner" style="background:rgba(76,175,125,.08);border-color:rgba(76,175,125,.35)">
+      <strong style="color:#4caf7d">✓ Fully stocked</strong> — every job's held-stock needs are covered.
+    </div>
+  <% } %>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    <% if (!items.length) { %>
+      <div style="padding:1.5rem;color:var(--muted)">
+        No held-stock items found. Link finish schedules to your projects and make sure their supplier is set to
+        <strong><%= heldSuppliers.join('</strong> or <strong>') %></strong> in the sheet.
+      </div>
+    <% } else { %>
+    <table class="inv-table">
+      <thead>
+        <tr>
+          <th>Supplier</th>
+          <th>Item</th>
+          <th>Prod. Code</th>
+          <th style="text-align:center">Needed<br><span style="font-weight:400;text-transform:none">(all jobs)</span></th>
+          <th style="text-align:center">On hand</th>
+          <th style="text-align:center">Shortfall</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% items.forEach(it => { %>
+          <tr data-key="<%= it.key %>">
+            <td><span class="sup-tag"><%= it.supplier %></span></td>
+            <td>
+              <div><strong><%= it.name %></strong><% if (it.brand) { %> <span style="color:var(--muted);font-size:.8rem">· <%= it.brand %></span><% } %></div>
+              <div class="proj-breakdown"><%= it.byProject.map(p => `${p.address.split(',')[0]} ×${p.qty}`).join('  ·  ') %></div>
+            </td>
+            <td><span class="prod-code"><%= it.prodCode || '—' %></span></td>
+            <td style="text-align:center"><span class="num-needed"><%= it.needed %></span></td>
+            <td style="text-align:center">
+              <div style="display:inline-flex;align-items:center;gap:4px">
+                <button class="qty-step" onclick="stepQty(this, -1)" title="Remove one">−</button>
+                <input class="qty-input" type="number" min="0" value="<%= it.onHand %>"
+                       onchange="saveQty(this)" data-needed="<%= it.needed %>">
+                <button class="qty-step" onclick="stepQty(this, 1)" title="Add one">+</button>
+                <span class="saved-tick">✓</span>
+              </div>
+            </td>
+            <td style="text-align:center">
+              <span class="short-cell <%= it.shortfall > 0 ? 'short-pos' : 'short-zero' %>"><%= it.shortfall > 0 ? '−' + it.shortfall : '0' %></span>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+    <% } %>
+  </div>
+</div>
+
+<script>
+function stepQty(btn, delta) {
+  const input = btn.parentElement.querySelector('.qty-input');
+  const next = Math.max(0, (parseInt(input.value, 10) || 0) + delta);
+  input.value = next;
+  saveQty(input);
+}
+async function saveQty(input) {
+  const tr = input.closest('tr');
+  const key = tr.getAttribute('data-key');
+  const qty = Math.max(0, parseInt(input.value, 10) || 0);
+  input.value = qty;
+  try {
+    const r = await fetch('/inventory/count', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, qty })
+    });
+    const data = await r.json();
+    if (!data.ok) { alert('Could not save: ' + (data.error || 'error')); return; }
+    // update shortfall live
+    const needed = parseFloat(input.getAttribute('data-needed')) || 0;
+    const short = Math.max(0, Math.round((needed - qty) * 100) / 100);
+    const cell = tr.querySelector('.short-cell');
+    cell.textContent = short > 0 ? '−' + short : '0';
+    cell.className = 'short-cell ' + (short > 0 ? 'short-pos' : 'short-zero');
+    const tick = tr.querySelector('.saved-tick');
+    tick.classList.add('show');
+    setTimeout(() => tick.classList.remove('show'), 1200);
+  } catch (e) { alert('Could not save (network).'); }
+}
+</script>
+</body>
+</html>

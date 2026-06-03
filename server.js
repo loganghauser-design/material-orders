@@ -575,6 +575,50 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
   return byCode;
 }
 
+// Suppliers whose materials we buy and hold ourselves (office/warehouse stock),
+// rather than ordering per-project. Demand for these is pooled across all jobs.
+const HELD_SUPPLIERS = ['Buildoly Stock', 'JEDCO'];
+function isHeldSupplier(supplier) {
+  const s = String(supplier || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  return HELD_SUPPLIERS.some(h => s === h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+}
+
+// Scan every linked finish schedule and pool demand for held-stock items.
+// Returns one entry per distinct item (keyed by Prod. Code, else name):
+//   { key, prodCode, name, brand, supplier, needed, byProject:[{address, qty}] }
+async function readHeldStockAcrossProjects() {
+  const { rows: projects } = await pool.query(
+    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
+  );
+  const items = {};
+  for (const proj of projects) {
+    let rows;
+    try { rows = await fetchScheduleValues(proj.finish_schedule_url); }
+    catch (e) { continue; } // skip a project whose sheet can't be read right now
+    for (let i = 5; i < rows.length; i++) {
+      const row = rows[i];
+      const supplier = (row[14] || '').trim();
+      if (!isHeldSupplier(supplier)) continue;
+      const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
+      if (!name) continue;
+      const prodCode = (row[2] || '').trim();
+      const qty = parseFloat((row[9] || '').trim()) || 1;
+      const key = (prodCode && !/^custom$/i.test(prodCode) ? prodCode : name).toLowerCase();
+      if (!items[key]) {
+        items[key] = {
+          key, prodCode: prodCode || '', name, brand: (row[5] || '').trim(),
+          supplier, needed: 0, byProject: [],
+        };
+      }
+      const it = items[key];
+      it.needed += qty;
+      it.byProject.push({ address: proj.address, qty });
+    }
+  }
+  return Object.values(items).sort((a, b) =>
+    (a.supplier + a.name).localeCompare(b.supplier + b.name));
+}
+
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -801,6 +845,15 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS finish_schedule_url TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
+
+    -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
+    -- (or item name when no code). Demand is derived live from the finish schedules;
+    -- we only persist the on-hand count the user maintains.
+    CREATE TABLE IF NOT EXISTS inventory_counts (
+      prod_key TEXT PRIMARY KEY,
+      qty_on_hand INTEGER NOT NULL DEFAULT 0,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -1898,6 +1951,43 @@ app.get('/suppliers', requireAuth, async (req, res) => {
     res.render('suppliers', { STAGES, suppliers, saved: req.query.saved === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// ── Inventory (held office/warehouse stock: Buildoly Stock + JEDCO) ────────────
+app.get('/inventory', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    let stock = [], error = null;
+    try { stock = await readHeldStockAcrossProjects(); }
+    catch (e) { error = e.message; }
+    const { rows: counts } = await pool.query('SELECT prod_key, qty_on_hand FROM inventory_counts');
+    const onHand = Object.fromEntries(counts.map(c => [c.prod_key, c.qty_on_hand]));
+    const items = stock.map(s => {
+      const have = onHand[s.key] != null ? onHand[s.key] : 0;
+      return { ...s, onHand: have, shortfall: Math.max(0, Math.round((s.needed - have) * 100) / 100) };
+    });
+    res.render('inventory', { items, heldSuppliers: HELD_SUPPLIERS, error });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Live-save an on-hand count (called as you adjust quantities)
+app.post('/inventory/count', requireAuth, async (req, res) => {
+  try {
+    const key = String(req.body.key || '').trim();
+    if (!key) return res.status(400).json({ ok: false, error: 'Missing item key.' });
+    let qty = parseInt(req.body.qty, 10);
+    if (isNaN(qty) || qty < 0) qty = 0;
+    await pool.query(
+      `INSERT INTO inventory_counts (prod_key, qty_on_hand, updated_at) VALUES ($1, $2, NOW())
+       ON CONFLICT (prod_key) DO UPDATE SET qty_on_hand = EXCLUDED.qty_on_hand, updated_at = NOW()`,
+      [key, qty]
+    );
+    res.json({ ok: true, qty });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
