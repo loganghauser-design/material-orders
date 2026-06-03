@@ -41,7 +41,7 @@
   </div>
 
   <form method="GET" action="/" class="toolbar">
-    <input type="text" name="search" placeholder="Search addressâ€¦" value="<%= query.search || '' %>">
+    <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
     <select name="status" onchange="this.form.submit()">
       <option value="">All statuses</option>
       <% PROJECT_STATUSES.forEach(s => { %>
@@ -58,9 +58,9 @@
       const _sortQp = new URLSearchParams(_base); _sortQp.set('sort', 'delivered');
     %>
     <% if (sortedNow) { %>
-      <a href="<%= _base ? '/?' + _base : '/' %>" class="btn btn-primary" title="Back to your manual drag order">âœ“ Most delivered â€” clear</a>
+      <a href="<%= _base ? '/?' + _base : '/' %>" class="btn btn-primary" title="Back to your manual drag order">✓ Most delivered — clear</a>
     <% } else { %>
-      <a href="/?<%= _sortQp.toString() %>" class="btn btn-ghost" title="Order projects from most delivered to least">ðŸ“¦ Sort by delivered</a>
+      <a href="/?<%= _sortQp.toString() %>" class="btn btn-ghost" title="Order projects from most delivered to least">📦 Sort by delivered</a>
     <% } %>
   </form>
 
@@ -73,7 +73,7 @@
 
   <% if (completedProjects.length) { %>
     <div class="completed-divider">
-      <span>âœ“ Completed Projects (<%= completedProjects.length %>)</span>
+      <span>✓ Completed Projects (<%= completedProjects.length %>)</span>
     </div>
     <%- include('_project-grid', { rows: completedProjects, emptyMsg: '' }) %>
   <% } %>
@@ -123,10 +123,10 @@ async function postJson(url, body) {
 }
 function handleSaveError(e) {
   if (e && e.message === 'LOGGED_OUT') {
-    showToast('Not saved â€” you were signed out. Reloadingâ€¦', true);
+    showToast('Not saved — you were signed out. Reloading…', true);
     setTimeout(() => location.href = '/login', 1300);
   } else {
-    showToast('Not saved â€” please try again', true);
+    showToast('Not saved — please try again', true);
   }
 }
 
@@ -189,7 +189,7 @@ async function editFinishSchedule(id, el) {
     if (data.ok) {
       el.dataset.url = trimmed;
       el.style.color = trimmed ? '#16a34a' : '#d97706';
-      el.innerHTML = 'Finish schedule: ' + (trimmed ? 'Yes' : 'No') + ' âœŽ';
+      el.innerHTML = 'Finish schedule: ' + (trimmed ? 'Yes' : 'No') + ' ✎';
       showToast(trimmed ? 'Finish schedule linked' : 'Finish schedule cleared');
     } else {
       showToast(data.error || 'Could not save', true);

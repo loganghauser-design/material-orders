@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Driving Log â€” Material Orders</title>
+  <title>Driving Log — Material Orders</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -17,12 +17,12 @@
     <a href="/suppliers" class="nav-tab">Suppliers</a>
     <a href="/settings" class="nav-tab">Settings</a>
   </div>
-  <div class="nav-actions"><a href="/" class="btn btn-ghost">â† Back</a></div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
 </nav>
 
 <div class="container">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
-    <div style="display:flex;align-items:center;gap:1rem"><h1>Driving Log</h1><a href="/driving/pdf" target="_blank" class="btn btn-ghost btn-sm">â¬‡ Export PDF</a></div>
+    <div style="display:flex;align-items:center;gap:1rem"><h1>Driving Log</h1><a href="/driving/pdf" target="_blank" class="btn btn-ghost btn-sm">⬇ Export PDF</a></div>
     <div style="display:flex;gap:1rem;flex-wrap:wrap">
       <div class="stat-card" style="padding:.75rem 1.5rem"><div class="stat-label">Total Miles</div><div class="stat-value" style="font-size:1.6rem"><%= Number(totalMiles).toFixed(1) %></div></div>
       <div class="stat-card reimb-card" style="padding:.75rem 1.5rem"><div class="stat-label">Reimbursement Due (@ $<%= rate.toFixed(3) %>/mi)</div><div class="stat-value" style="font-size:1.6rem;color:#16a34a">$<%= (Number(totalMiles) * rate).toFixed(2) %></div></div>
@@ -31,7 +31,7 @@
 
   <% if (!drivingEnabled) { %>
     <div class="error-msg" style="background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3);color:#b45309">
-      Mileage calculation isn't enabled yet â€” set <code>ORS_API_KEY</code> on Railway (free key from openrouteservice.org).
+      Mileage calculation isn't enabled yet — set <code>ORS_API_KEY</code> on Railway (free key from openrouteservice.org).
     </div>
   <% } %>
 
@@ -58,7 +58,7 @@
       <div class="form-group">
         <label>Add a project stop</label>
         <select id="stopPicker">
-          <option value="">â€” choose a project â€”</option>
+          <option value="">— choose a project —</option>
           <% projects.forEach(p => { %>
             <option value="<%= p.full_address || p.address %>" data-label="<%= p.address %>"><%= p.address %></option>
           <% }) %>
@@ -139,9 +139,9 @@ function addCustomStop() {
 function removeStop(i) { stops.splice(i,1); renderStops(); resetCalc(); }
 function renderStops() {
   const el = document.getElementById('stopList');
-  if (!stops.length) { el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No stops added yet. Home â†’ (stops) â†’ Home.</div>'; return; }
+  if (!stops.length) { el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No stops added yet. Home → (stops) → Home.</div>'; return; }
   el.innerHTML = '<ol style="margin-left:1.2rem">' + stops.map((s,i) =>
-    `<li style="margin-bottom:.3rem">${s.label} <button onclick="removeStop(${i})" class="btn btn-ghost btn-sm" style="padding:.1rem .4rem;margin-left:.4rem">âœ•</button></li>`
+    `<li style="margin-bottom:.3rem">${s.label} <button onclick="removeStop(${i})" class="btn btn-ghost btn-sm" style="padding:.1rem .4rem;margin-left:.4rem">✕</button></li>`
   ).join('') + '</ol>';
 }
 function resetCalc() {
@@ -152,7 +152,7 @@ function resetCalc() {
 async function calcMiles() {
   if (!stops.length) { showToast('Add at least one stop', true); return; }
   const btn = document.getElementById('calcBtn');
-  btn.disabled = true; btn.textContent = 'Calculatingâ€¦';
+  btn.disabled = true; btn.textContent = 'Calculating…';
   try {
     const r = await fetch('/driving/preview', {
       method:'POST', headers:{'Content-Type':'application/json'},
@@ -161,7 +161,7 @@ async function calcMiles() {
     const data = await r.json();
     if (data.ok) {
       lastMiles = data.miles;
-      document.getElementById('routeText').textContent = ['Home', ...stops.map(s=>s.label), 'Home'].join(' â†’ ');
+      document.getElementById('routeText').textContent = ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ');
       document.getElementById('milesText').textContent = data.miles.toFixed(1);
       document.getElementById('routePreview').style.display = 'block';
       document.getElementById('saveTripBtn').disabled = false;
@@ -173,7 +173,7 @@ async function saveTrip() {
   const date = document.getElementById('tripDate').value;
   if (!date) { showToast('Pick a date', true); return; }
   if (lastMiles == null) { showToast('Calculate miles first', true); return; }
-  const routeText = ['Home', ...stops.map(s=>s.label), 'Home'].join(' â†’ ');
+  const routeText = ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ');
   const r = await fetch('/driving/save', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ trip_date: date, route_text: routeText, miles: lastMiles }),

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Settings â€” Material Orders</title>
+  <title>Settings — Material Orders</title>
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
@@ -17,7 +17,7 @@
     <a href="/suppliers" class="nav-tab">Suppliers</a>
     <a href="/settings" class="nav-tab active">Settings</a>
   </div>
-  <div class="nav-actions"><a href="/" class="btn btn-ghost">â† Back</a></div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
 </nav>
 
 <div class="container">
@@ -32,8 +32,8 @@
     <% if (attachmentName) { %>
       <div class="current-attachment">
         <div>
-          <div style="font-weight:600">ðŸ“Ž <%= attachmentName %></div>
-          <div style="font-size:.8rem;color:var(--muted)">Currently attached to all milestone emails<% if (updatedAt) { %> Â· uploaded <%= new Date(updatedAt).toLocaleDateString() %><% } %></div>
+          <div style="font-weight:600">📎 <%= attachmentName %></div>
+          <div style="font-size:.8rem;color:var(--muted)">Currently attached to all milestone emails<% if (updatedAt) { %> · uploaded <%= new Date(updatedAt).toLocaleDateString() %><% } %></div>
         </div>
         <form method="POST" action="/settings/attachment/delete" onsubmit="return confirm('Remove the default attachment?')">
           <button type="submit" class="btn btn-danger btn-sm">Remove</button>
@@ -59,7 +59,7 @@
   <div class="card" style="margin-top:1.5rem">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">Suppliers</h2>
     <p style="color:var(--muted);font-size:.875rem">
-      Supplier contacts have their own page now â†’ <a href="/suppliers">Manage Suppliers</a>.
+      Supplier contacts have their own page now → <a href="/suppliers">Manage Suppliers</a>.
     </p>
   </div>
 </div>
