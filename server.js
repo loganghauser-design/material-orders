@@ -233,10 +233,12 @@ const gRefreshToken = process.env.GMAIL_REFRESH_TOKEN;
 const useGmail = !!(gmailUser && gClientId && gClientSecret && gRefreshToken);
 
 let gmailClient = null;
+let sheetsClient = null;
 if (useGmail) {
   const oauth2 = new google.auth.OAuth2(gClientId, gClientSecret);
   oauth2.setCredentials({ refresh_token: gRefreshToken });
   gmailClient = google.gmail({ version: 'v1', auth: oauth2 });
+  sheetsClient = google.sheets({ version: 'v4', auth: oauth2 }); // read finish schedules as the user (private sheets OK)
 }
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -558,17 +560,33 @@ function parseScheduleRows(rows) {
 const _sheetCache = new Map(); // id -> { at, values }
 const SHEET_TTL_MS = 5 * 60 * 1000;
 async function fetchScheduleValues(scheduleUrl) {
-  if (!SHEETS_API_KEY) throw new Error('Google Sheets API key not configured.');
   const id = sheetIdFromUrl(scheduleUrl);
   if (!id) throw new Error('Invalid finish-schedule link.');
   const hit = _sheetCache.get(id);
   if (hit && (Date.now() - hit.at) < SHEET_TTL_MS) return hit.values;
-  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Fin%20Sched!A1:S400?key=${SHEETS_API_KEY}`);
-  if (!r.ok) {
-    if (r.status === 403) throw new Error('Sheet not shared — set it to "Anyone with the link → Viewer".');
-    throw new Error('Could not read the schedule (HTTP ' + r.status + ').');
+
+  let values;
+  // Preferred: read AS the user (sheets can stay private; only logan@buildoly.com needs access)
+  if (sheetsClient) {
+    try {
+      const { data } = await sheetsClient.spreadsheets.values.get({ spreadsheetId: id, range: 'Fin Sched!A1:S400' });
+      values = data.values || [];
+    } catch (e) {
+      const code = e.code || (e.response && e.response.status);
+      if (code === 403 || code === 404) throw new Error('Sheet not accessible by logan@buildoly.com — share it with that account (or check the link).');
+      throw new Error('Could not read the schedule: ' + (e.message || code));
+    }
+  } else if (SHEETS_API_KEY) {
+    // Fallback: public API key (requires "Anyone with the link → Viewer")
+    const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Fin%20Sched!A1:S400?key=${SHEETS_API_KEY}`);
+    if (!r.ok) {
+      if (r.status === 403) throw new Error('Sheet not shared — set it to "Anyone with the link → Viewer".');
+      throw new Error('Could not read the schedule (HTTP ' + r.status + ').');
+    }
+    values = ((await r.json()).values) || [];
+  } else {
+    throw new Error('No Google Sheets access configured.');
   }
-  const values = ((await r.json()).values) || [];
   _sheetCache.set(id, { at: Date.now(), values });
   return values;
 }
