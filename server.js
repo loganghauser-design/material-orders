@@ -733,6 +733,8 @@ async function initDb() {
       qty NUMERIC(10,2),
       price NUMERIC(12,2)
     );
+
+    ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_requested_at TIMESTAMPTZ;
   `);
 }
 
@@ -1383,6 +1385,51 @@ ${signoff}
   } catch (err) {
     console.error('Category request error:', err.code || '', '-', err.message);
     res.status(500).json({ ok: false, error: `${err.code || 'ERR'}: ${err.message}` });
+  }
+});
+
+// Request delivery of specific items as a REPLY to an order's email thread
+app.post('/projects/:id/request-delivery', requireAuth, async (req, res) => {
+  try {
+    if (!useGmail) return res.status(400).json({ ok: false, error: 'Gmail not configured.' });
+    const { threadId, note } = req.body;
+    if (!threadId) return res.status(400).json({ ok: false, error: 'No order thread.' });
+    const valid = new Set(ALL_ITEMS.map(i => i.code));
+    const codes = [].concat(req.body.itemCodes || []).filter(c => valid.has(c));
+    if (!codes.length) return res.status(400).json({ ok: false, error: 'Pick at least one item to deliver.' });
+
+    const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
+    const fullAddress = project ? (project.full_address || project.address) : '';
+
+    // Reply within the existing order thread (keeps one conversation)
+    const messages = await fetchThread(threadId);
+    if (!messages.length) return res.status(404).json({ ok: false, error: 'Order thread not found.' });
+    const last = messages[messages.length - 1];
+    const replyTo = last.fromMe ? last.to : last.from;
+    let subject = last.subject || '';
+    if (!/^re:/i.test(subject)) subject = 'Re: ' + subject;
+    const refs = [last.references, last.messageIdHeader].filter(Boolean).join(' ');
+
+    const names = {}; ALL_ITEMS.forEach(i => names[i.code] = i.name);
+    const itemsHtml = '<ul style="margin:8px 0">' + codes.map(c => `<li>${escapeHtml(names[c] || c)}</li>`).join('') + '</ul>';
+    const sig = await getSignature();
+    const html =
+`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+<p>Hi,</p>
+<p>We're ready for delivery of the following items to <strong>${escapeHtml(fullAddress)}</strong>:</p>
+${itemsHtml}
+${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
+<p>Please confirm the delivery date. Thank you.</p>
+${sig ? '<br>' + sig : ''}
+</div>`;
+
+    await sendMail({ to: replyTo, subject, html, threadId, inReplyTo: last.messageIdHeader, references: refs });
+    await pool.query('UPDATE project_items SET delivery_requested_at=NOW() WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, codes]);
+
+    res.json({ ok: true, sentTo: replyTo, count: codes.length });
+  } catch (err) {
+    console.error('Request delivery error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

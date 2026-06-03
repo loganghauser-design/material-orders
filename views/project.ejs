@@ -398,6 +398,31 @@
   </div>
 </div>
 
+<!-- Request delivery of a stage's items (replies to the order thread) -->
+<div id="deliveryModal" class="modal-overlay">
+  <div class="modal">
+    <h2>Request Delivery</h2>
+    <p class="modal-sub">Sends a reply on this order's thread asking the vendor to deliver these items now. Do this per stage, whenever you're ready.</p>
+    <input type="hidden" id="delThreadId">
+    <div class="form-group">
+      <label>Stage</label>
+      <select id="delStage" onchange="fillDeliveryItems()"></select>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Items to request (uncheck any you're not ready for)</label>
+      <div id="delItems" style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem;margin-top:.3rem"></div>
+    </div>
+    <div class="form-group" style="margin-top:.85rem">
+      <label>Note (optional)</label>
+      <input type="text" id="delNote" placeholder="e.g. Deliver Friday morning">
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="delSendBtn" onclick="sendDeliveryRequest()">Send Delivery Request</button>
+      <button class="btn btn-ghost" onclick="document.getElementById('deliveryModal').classList.remove('show')">Cancel</button>
+    </div>
+  </div>
+</div>
+
 <!-- Request a category's items from the vendor -->
 <div id="catReqModal" class="modal-overlay">
   <div class="modal">
@@ -436,6 +461,7 @@
 <script>
 const PROJECT_ID = '<%= project.id %>';
 const ALL_MATERIALS = <%- JSON.stringify(STAGES.flatMap(s => s.items)) %>;
+const STAGES_DATA = <%- JSON.stringify(STAGES) %>;
 const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
@@ -532,6 +558,7 @@ async function toggleThread(threadId, headEl) {
       <div class="reply-box">
         <textarea id="reply_${threadId}" rows="3" placeholder="Write a reply…"></textarea>
         <button class="btn btn-primary btn-sm" onclick="sendReply('${threadId}')">Send Reply</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDeliveryRequest('${threadId}')" title="Reply to this order asking for a stage's items to be delivered">📦 Request Delivery</button>
       </div>`;
   } catch(e) {
     box.innerHTML = '<div style="color:var(--danger);padding:.5rem">Error loading conversation.</div>';
@@ -874,6 +901,51 @@ async function saveReceiptOrder() {
     showToast('Save failed', true);
   } finally {
     btn.disabled = false; btn.textContent = 'Save Order';
+  }
+}
+
+// ── Request delivery of a stage's items (replies to the order thread) ──────
+function openDeliveryRequest(threadId) {
+  document.getElementById('delThreadId').value = threadId;
+  const sel = document.getElementById('delStage');
+  sel.innerHTML = STAGES_DATA.map((s, i) => `<option value="${i}">${escapeHtmlJs(s.name)}</option>`).join('');
+  document.getElementById('delNote').value = '';
+  fillDeliveryItems();
+  document.getElementById('deliveryModal').classList.add('show');
+}
+function fillDeliveryItems() {
+  const i = Number(document.getElementById('delStage').value);
+  const stage = STAGES_DATA[i] || { items: [] };
+  document.getElementById('delItems').innerHTML = stage.items.map(m => `
+    <label style="display:flex;align-items:center;gap:.4rem;font-size:.85rem">
+      <input type="checkbox" class="del-cb" value="${m.code}" checked>
+      <span>${escapeHtmlJs(m.name)}</span>
+    </label>`).join('');
+}
+async function sendDeliveryRequest() {
+  const btn = document.getElementById('delSendBtn');
+  const threadId = document.getElementById('delThreadId').value;
+  const itemCodes = Array.from(document.querySelectorAll('#delItems .del-cb:checked')).map(c => c.value);
+  const note = document.getElementById('delNote').value.trim();
+  if (!itemCodes.length) { showToast('Pick at least one item', true); return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/request-delivery`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ threadId, itemCodes, note }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      showToast('Delivery request sent — ' + data.count + ' item(s)');
+      document.getElementById('deliveryModal').classList.remove('show');
+      loadThreads();
+    } else {
+      showToast(data.error || 'Send failed', true);
+    }
+  } catch (e) {
+    showToast('Send failed', true);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Send Delivery Request';
   }
 }
 
