@@ -537,11 +537,11 @@ async function loadFinishSchedule(force) {
     if (!data.items || !data.items.length) { el.innerHTML = `<div style="color:var(--muted);font-size:.85rem">${escapeHtmlJs(data.note || 'No schedule.')}</div>`; FIN_SCHED_LOADED = true; return; }
     let n = 0;
     let html = '<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr>' +
-      ['Item', 'Cat', 'Brand', 'Model #', 'Qty', 'Cost', 'Supplier'].map(h => `<th style="text-align:left;border-bottom:2px solid var(--border);padding:5px 7px">${h}</th>`).join('') + '</tr></thead><tbody>';
+      ['Item', 'Product', 'Cat', 'Brand', 'Model #', 'Qty', 'Cost', 'Supplier'].map(h => `<th style="text-align:left;border-bottom:2px solid var(--border);padding:5px 7px">${h}</th>`).join('') + '</tr></thead><tbody>';
     data.items.forEach(it => {
-      if (it.type === 'section') html += `<tr><td colspan="7" style="background:var(--bg);font-weight:700;padding:6px 7px;border-top:1px solid var(--border)">${escapeHtmlJs(it.name)}</td></tr>`;
-      else if (it.type === 'subtotal') html += `<tr><td colspan="6" style="text-align:right;color:var(--muted);padding:4px 7px;font-size:.78rem">Subtotal</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.total || '')}</td></tr>`;
-      else { n++; html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 7px">${escapeHtmlJs(it.name)}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td><td style="padding:4px 7px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.model || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.qty || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.cost || '')}</td><td style="padding:4px 7px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td></tr>`; }
+      if (it.type === 'section') html += `<tr><td colspan="8" style="background:var(--bg);font-weight:700;padding:6px 7px;border-top:1px solid var(--border)">${escapeHtmlJs(it.name)}</td></tr>`;
+      else if (it.type === 'subtotal') html += `<tr><td colspan="7" style="text-align:right;color:var(--muted);padding:4px 7px;font-size:.78rem">Subtotal</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.total || '')}</td></tr>`;
+      else { n++; html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 7px">${escapeHtmlJs(it.name)}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td><td style="padding:4px 7px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.model || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.qty || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.cost || '')}</td><td style="padding:4px 7px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td></tr>`; }
     });
     html += '</tbody></table>';
     el.innerHTML = `<div style="font-size:.78rem;color:var(--muted);margin-bottom:.4rem">${n} items</div>` + html;
@@ -776,9 +776,9 @@ function fillFromVendor() {
   if (email) { document.getElementById('rfqSupplierEmail').value = email; rfqSavedSupplierEmail = email; }
   RFQ_COVERED = [...new Set(v.items.map(it => it.code))];
   const rowsHtml = v.items.map(it =>
-    `<tr><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
+    `<tr><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
   document.getElementById('rfqItems').innerHTML =
-    `<table><colgroup><col width="240"><col width="120"><col width="170"><col width="45"></colgroup><tr><td><b>Item</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
+    `<table><colgroup><col width="150"><col width="220"><col width="110"><col width="150"><col width="45"></colgroup><tr><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
 }
 
 function onRfqTypeChange() {
