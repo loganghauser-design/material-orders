@@ -22,7 +22,6 @@
     <a href="/settings" class="nav-tab">Settings</a>
   </div>
   <div class="nav-actions">
-    <button type="button" class="btn btn-primary" onclick="openRfqDialog('','','','')">📧 Email Vendor</button>
     <a href="/projects/<%= project.id %>/status-pdf" target="_blank" class="btn btn-ghost">⬇ Status PDF</a>
     <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost">Edit Project</a>
     <a href="/" class="btn btn-ghost">← Back</a>
@@ -40,7 +39,7 @@
   </div>
 
   <style>
-    .tabs{display:flex;gap:.4rem;flex-wrap:wrap;margin:.25rem 0 1.1rem;border-bottom:1px solid var(--border);padding-bottom:.55rem}
+    .tabs{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin:.25rem 0 1.1rem;border-bottom:1px solid var(--border);padding-bottom:.55rem}
     .tab-btn{background:none;border:1px solid var(--border);border-radius:7px;padding:.45rem 1rem;cursor:pointer;font-size:.92rem;color:var(--muted)}
     .tab-btn.active{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
     .tab-panel{display:none}
@@ -50,6 +49,7 @@
     <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">📦 Orders</button>
     <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">✉️ Emails</button>
     <button type="button" class="tab-btn" data-tab="docs" onclick="showTab('docs')">📄 Docs &amp; $</button>
+    <button type="button" class="btn btn-primary" style="margin-left:auto" onclick="openRfqDialog('','','','')">📧 Email Vendor</button>
   </div>
 
   <div class="tab-panel" data-tab="emails">
