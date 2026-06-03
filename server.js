@@ -573,6 +573,13 @@ async function fetchScheduleValues(scheduleUrl) {
       values = data.values || [];
     } catch (e) {
       const code = e.code || (e.response && e.response.status);
+      // During the transition, fall back to the public API key if the sheet isn't
+      // shared to logan@buildoly.com yet but is still "Anyone with the link".
+      if ((code === 403 || code === 404) && SHEETS_API_KEY) {
+        const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Fin%20Sched!A1:S400?key=${SHEETS_API_KEY}`);
+        if (r.ok) { values = ((await r.json()).values) || []; _sheetCache.set(id, { at: Date.now(), values }); return values; }
+        throw new Error('Sheet not accessible by logan@buildoly.com and not link-shared — share it with that account.');
+      }
       if (code === 403 || code === 404) throw new Error('Sheet not accessible by logan@buildoly.com — share it with that account (or check the link).');
       throw new Error('Could not read the schedule: ' + (e.message || code));
     }
