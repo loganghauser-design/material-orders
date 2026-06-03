@@ -242,13 +242,14 @@
         <% stage.items.forEach(item => {
           const row = itemMap[item.code] || {};
           const st = row.status || 'Not yet placed';
+          const stCls = 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
           const sup = suppliers[item.code] || {};
         %>
         <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
           <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
           <td><strong><%= item.name %></strong></td>
           <td>
-            <select class="item-select status-select" onchange="saveItem(this)">
+            <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
                 <option value="<%= s %>" <%- st===s?'selected':'' %>><%= s %></option>
               <% }) %>
@@ -511,6 +512,8 @@ const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
 const SUPPLIER_EMAILS = <%- JSON.stringify(Object.values(suppliers||{}).reduce((m,s)=>{ if(s&&s.name&&s.email) m[s.name.toLowerCase()]=s.email; return m; }, {})) %>;
 let SCHEDULE_VENDORS = [];
 let RFQ_COVERED = [];   // material codes the current auto-filled order covers
+const STATUS_CLASSES = ['cell-not_yet_placed','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
+function statusToClass(st){ return 'cell-' + String(st).toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,''); }
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)
 
@@ -698,14 +701,14 @@ async function applyConfirmUpdates() {
     if (status) payload.status = status; else payload.statusOnly = false;
     // Send current values: include status (or keep) and date
     const row = document.querySelector(`tr[data-code="${code}"]`);
-    const curStatus = row ? row.querySelector('.item-select').value : '';
+    const curStatus = row ? row.querySelector('.item-status').value : '';
     await fetch(`/projects/${confirmCtx.projectId}/items/${code}`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ status: status || curStatus, delivery_date: date || (row ? row.querySelector('.item-date').value : '') }),
     });
     // reflect in UI
     if (row) {
-      if (status) row.querySelector('.item-select').value = status;
+      if (status) { const ss = row.querySelector('.item-status'); ss.value = status; STATUS_CLASSES.forEach(c => ss.classList.remove(c)); ss.classList.add(statusToClass(status)); }
       if (date) row.querySelector('.item-date').value = date;
     }
     done++;
@@ -817,8 +820,8 @@ async function sendRfq() {
       (data.updatedItems || []).forEach(u => {
         const row = document.querySelector(`tr[data-code="${u.code}"]`);
         if (row) {
-          const sel = row.querySelector('.item-select');
-          if (sel) { sel.value = u.status; bumped++; }
+          const sel = row.querySelector('.item-status');
+          if (sel) { sel.value = u.status; STATUS_CLASSES.forEach(c => sel.classList.remove(c)); sel.classList.add(statusToClass(u.status)); bumped++; }
         }
       });
       showToast('Sent to ' + data.sentTo + (bumped ? ` · ${bumped} item(s) updated` : ''));
@@ -838,7 +841,11 @@ async function saveItem(el) {
   const row = el.closest('tr');
   const projectId = row.dataset.project;
   const code = row.dataset.code;
-  const status = row.querySelector('.item-select').value;
+  const statusSel = row.querySelector('.item-status');
+  const status = statusSel.value;
+  // recolor the status pill like the main grid
+  STATUS_CLASSES.forEach(c => statusSel.classList.remove(c));
+  statusSel.classList.add(statusToClass(status));
   const delivery_date = row.querySelector('.item-date').value;
   const order_date = row.querySelector('.item-order-date').value;
   const notes = row.querySelector('.item-notes').value;
