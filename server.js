@@ -407,6 +407,48 @@ async function getSuppliers() {
   }
 }
 
+// ── Finish-schedule (Google Sheets) reading ────────────────────────────────────
+const SHEETS_API_KEY = process.env.GOOGLE_SHEETS_API_KEY;
+function sheetIdFromUrl(url) {
+  const m = String(url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
+  return m ? m[1] : null;
+}
+// Read the "Fin Sched" tab and group orderable items by their Supplier
+async function readScheduleVendors(scheduleUrl) {
+  if (!SHEETS_API_KEY) throw new Error('Google Sheets API key not configured.');
+  const id = sheetIdFromUrl(scheduleUrl);
+  if (!id) throw new Error('Invalid finish-schedule link.');
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Fin%20Sched!A1:S400?key=${SHEETS_API_KEY}`;
+  const r = await fetch(url);
+  if (!r.ok) {
+    if (r.status === 403) throw new Error('Sheet not shared — set it to "Anyone with the link → Viewer".');
+    throw new Error('Could not read the schedule (HTTP ' + r.status + ').');
+  }
+  const rows = ((await r.json()).values) || [];
+  const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
+  const SKIP = /buildoly stock|contractor to proc|^n\/a$/i;     // not vendor-ordered
+  const vendors = {};
+  for (let i = 5; i < rows.length; i++) {
+    const row = rows[i];
+    const cat = (row[4] || '').trim();
+    if (!CATRE.test(cat)) continue;
+    const supplier = (row[14] || '').trim();
+    if (!supplier || SKIP.test(supplier)) continue;
+    const prodCode = (row[2] || '').trim();
+    if (/not in scope/i.test(prodCode)) continue;
+    const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
+    if (!name) continue;
+    const item = {
+      name, brand: (row[5] || '').trim(), model: (row[7] || '').trim(),
+      qty: (row[9] || '').trim() || '1', code: (cat.match(CATRE) || [])[1].toLowerCase(),
+      planTag: (row[1] || '').trim(), prodCode,
+    };
+    if (!vendors[supplier]) vendors[supplier] = { name: supplier, items: [] };
+    vendors[supplier].items.push(item);
+  }
+  return Object.values(vendors).sort((a, b) => a.name.localeCompare(b.name));
+}
+
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -630,6 +672,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS client_email VARCHAR(255);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS full_address VARCHAR(500);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS finish_schedule_url TEXT;
 
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -834,12 +877,12 @@ app.get('/projects/new', requireAuth, (req, res) => {
 });
 
 app.post('/projects', requireAuth, async (req, res) => {
-  const { address, version, overall_status, notes, client_name, client_email, full_address } = req.body;
+  const { address, version, overall_status, notes, client_name, client_email, full_address, finish_schedule_url } = req.body;
   if (!address) return res.render('project-form', { project: req.body, error: 'Address is required.', PROJECT_STATUSES });
   const { rows: [p] } = await pool.query(
-    `INSERT INTO projects (address, version, overall_status, notes, client_name, client_email, full_address)
-     VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id`,
-    [address, version||null, overall_status||'Not Yet', notes||null, client_name||null, client_email||null, full_address||null]
+    `INSERT INTO projects (address, version, overall_status, notes, client_name, client_email, full_address, finish_schedule_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+    [address, version||null, overall_status||'Not Yet', notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null]
   );
   await ensureProjectItems(p.id);
   res.redirect(`/projects/${p.id}`);
@@ -936,10 +979,10 @@ app.get('/projects/:id/edit', requireAuth, async (req, res) => {
 });
 
 app.post('/projects/:id', requireAuth, async (req, res) => {
-  const { address, version, overall_status, notes, client_name, client_email, full_address } = req.body;
+  const { address, version, overall_status, notes, client_name, client_email, full_address, finish_schedule_url } = req.body;
   await pool.query(
-    `UPDATE projects SET address=$1, version=$2, overall_status=$3, notes=$4, client_name=$5, client_email=$6, full_address=$7, updated_at=NOW() WHERE id=$8`,
-    [address, version||null, overall_status, notes||null, client_name||null, client_email||null, full_address||null, req.params.id]
+    `UPDATE projects SET address=$1, version=$2, overall_status=$3, notes=$4, client_name=$5, client_email=$6, full_address=$7, finish_schedule_url=$8, updated_at=NOW() WHERE id=$9`,
+    [address, version||null, overall_status, notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null, req.params.id]
   );
   res.redirect(`/projects/${req.params.id}`);
 });
@@ -1428,6 +1471,19 @@ ${sig ? '<br>' + sig : ''}
     res.json({ ok: true, sentTo: replyTo, count: codes.length });
   } catch (err) {
     console.error('Request delivery error:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Vendors (+ their items) from this project's finish schedule, for order auto-fill
+app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
+  try {
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
+    if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
+    const vendors = await readScheduleVendors(p.finish_schedule_url);
+    res.json({ ok: true, vendors });
+  } catch (err) {
+    console.error('schedule-vendors:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
 });

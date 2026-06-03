@@ -48,6 +48,11 @@
           <input type="text" name="client_email" value="<%= project ? project.client_email||'' : '' %>" placeholder="client@example.com">
         </div>
         <div class="form-group full">
+          <label>Finish Schedule link (Google Sheet)</label>
+          <input type="text" name="finish_schedule_url" value="<%= project ? project.finish_schedule_url||'' : '' %>" placeholder="https://docs.google.com/spreadsheets/d/.../edit">
+          <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Paste this project's finish-schedule Google Sheet (shared “Anyone with the link → Viewer”). Powers vendor auto-fill when emailing orders.</small>
+        </div>
+        <div class="form-group full">
           <label>Notes</label>
           <textarea name="notes"><%= project ? project.notes||'' : '' %></textarea>
         </div>
