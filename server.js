@@ -845,13 +845,15 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
 // Post a message to a Google Chat space via its incoming webhook URL
 const CHAT_WEBHOOK_URL = process.env.CHAT_WEBHOOK_URL;
 async function postToChat(text) {
-  if (!CHAT_WEBHOOK_URL) return;
+  if (!CHAT_WEBHOOK_URL) { console.log('postToChat: no CHAT_WEBHOOK_URL set'); return; }
   try {
-    await fetch(CHAT_WEBHOOK_URL, {
+    const r = await fetch(CHAT_WEBHOOK_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
       body: JSON.stringify({ text }),
     });
+    console.log('postToChat status:', r.status);
+    if (!r.ok) console.log('postToChat error body:', (await r.text()).slice(0, 200));
   } catch (e) { console.error('postToChat:', e.message); }
 }
 
