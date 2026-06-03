@@ -420,7 +420,8 @@ function applyRowOverrides(row, opts = {}) {
   let supplier = (row[14] || '').trim();
   if (opts.recSource === 'oncall' && /contractor to proc/i.test(supplier)) {
     const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
-    if (/recess|down ?light|canless|\bled\b|dimmer|lighting/.test(text)) { cat = '1e. Rec. Light'; supplier = 'On Call LED'; }
+    // Recessed lighting only — never flip dimmer switches to On Call LED
+    if (!/dimmer|\bswitch\b/.test(text) && /recess|down ?light|canless|\bled\b|lighting/.test(text)) { cat = '1e. Rec. Light'; supplier = 'On Call LED'; }
   }
   return { cat, supplier };
 }
