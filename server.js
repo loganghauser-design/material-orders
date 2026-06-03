@@ -842,8 +842,12 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
   return { threadId: null, messageId: data && data.id };
 }
 
-// Post a message to a Google Chat space via its incoming webhook URL
-const CHAT_WEBHOOK_URL = process.env.CHAT_WEBHOOK_URL;
+// Post a message to a Google Chat space via its incoming webhook URL.
+// The &token=... is stored separately (CHAT_WEBHOOK_TOKEN) to avoid shell-quoting issues.
+let CHAT_WEBHOOK_URL = process.env.CHAT_WEBHOOK_URL;
+if (CHAT_WEBHOOK_URL && process.env.CHAT_WEBHOOK_TOKEN && !/[?&]token=/.test(CHAT_WEBHOOK_URL)) {
+  CHAT_WEBHOOK_URL += (CHAT_WEBHOOK_URL.includes('?') ? '&' : '?') + 'token=' + process.env.CHAT_WEBHOOK_TOKEN;
+}
 async function postToChat(text) {
   if (!CHAT_WEBHOOK_URL) { console.log('postToChat: no CHAT_WEBHOOK_URL set'); return; }
   try {
