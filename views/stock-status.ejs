@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stock Status — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .inv-table { width:100%; border-collapse:collapse; font-size:.9rem; }
+    .inv-table th { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:.55rem .8rem; text-align:left; border-bottom:1px solid var(--border); }
+    .inv-table td { padding:.7rem .8rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .inv-table tbody tr:hover { background:var(--bg); }
+    .num { text-align:center; font-weight:700; }
+    .prod-tag { font-family:ui-monospace,Menlo,monospace; font-size:.76rem; color:var(--muted); background:rgba(120,120,160,.12); padding:1px 7px; border-radius:8px; }
+    .caret { cursor:pointer; user-select:none; color:var(--muted); margin-right:.4rem; display:inline-block; width:.8rem; }
+    .name-toggle { cursor:pointer; } .name-toggle:hover { text-decoration:underline; }
+    .detail-cell { background:var(--bg); padding:0 !important; }
+    .alloc { width:auto; border-collapse:collapse; font-size:.84rem; margin:.5rem 0 .7rem 1.8rem; }
+    .alloc th, .alloc td { padding:4px 14px 4px 0; text-align:left; }
+    .alloc th { color:var(--muted); font-weight:600; font-size:.72rem; text-transform:uppercase; }
+    .status-pill { padding:2px 9px; border-radius:10px; font-size:.76rem; font-weight:600; display:inline-block; }
+    .cell-in_office { background:#d9c2f0; color:#4a235a; }
+    .cell-delivered { background:#6aa84f; color:#fff; }
+    .col-deliv { color:#16a34a; } .col-office { color:#7c3aed; }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab">Payments</a>
+    <a href="/driving" class="nav-tab">Driving Log</a>
+    <a href="/inventory" class="nav-tab">Inventory</a>
+    <a href="/stock-status" class="nav-tab active">Stock Status</a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+
+<div class="container">
+  <%
+    const totPurch = rows.reduce((s,r)=>s+r.purchased,0);
+    const totDeliv = rows.reduce((s,r)=>s+r.delivered,0);
+    const totOffice = rows.reduce((s,r)=>s+r.inOffice,0);
+  %>
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+    <h1>Stock Status</h1>
+    <div style="display:flex;gap:1rem;flex-wrap:wrap">
+      <div class="stat-card" style="padding:.7rem 1.3rem"><div class="stat-label">Purchased</div><div class="stat-value" style="font-size:1.5rem"><%= totPurch %></div></div>
+      <div class="stat-card" style="padding:.7rem 1.3rem"><div class="stat-label">Pulled / Delivered</div><div class="stat-value" style="font-size:1.5rem;color:#16a34a"><%= totDeliv %></div></div>
+      <div class="stat-card" style="padding:.7rem 1.3rem"><div class="stat-label">Still in Office</div><div class="stat-value" style="font-size:1.5rem;color:#7c3aed"><%= totOffice %></div></div>
+    </div>
+  </div>
+
+  <% if (error) { %>
+    <div class="error-msg" style="background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3);color:#b45309">Some schedules couldn't be read: <%= error %></div>
+  <% } %>
+
+  <p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem;max-width:760px">
+    "Pulled / Delivered" counts items marked <strong>Delivered</strong> on a project (they've left the office). "Still in Office" = Purchased − Delivered (what's physically on the shelf). Set an item's per-project status to <strong>Delivered</strong> on the project's Materials tab as you pull it.
+  </p>
+
+  <div class="table-wrap">
+    <table class="inv-table">
+      <thead>
+        <tr>
+          <th>Item</th>
+          <th>Code</th>
+          <th class="num">Purchased</th>
+          <th class="num">Committed</th>
+          <th class="num">Pulled / Delivered</th>
+          <th class="num">Still in Office</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% if (!rows.length) { %><tr><td colspan="6" style="text-align:center;color:var(--muted);padding:2rem">No inventory items yet.</td></tr><% } %>
+        <% rows.forEach(r => {
+          const hasAlloc = r.byProject && r.byProject.length;
+          const officeCls = r.inOffice < 0 ? 'avail-neg' : '';
+        %>
+          <tr data-id="<%= r.id %>">
+            <td>
+              <span class="caret" id="car_<%= r.id %>" onclick="toggleAlloc(<%= r.id %>)"><%= hasAlloc ? '▸' : '' %></span>
+              <strong class="<%= hasAlloc ? 'name-toggle' : '' %>" <% if (hasAlloc) { %>onclick="toggleAlloc(<%= r.id %>)"<% } %>><%= r.name %></strong>
+            </td>
+            <td><% if (r.code) { %><span class="prod-tag"><%= r.code %></span><% } else { %><span style="color:var(--muted)">—</span><% } %></td>
+            <td class="num"><%= r.purchased %></td>
+            <td class="num" style="color:var(--muted)"><%= r.reserved %></td>
+            <td class="num col-deliv"><%= r.delivered %></td>
+            <td class="num col-office" style="<%= r.inOffice < 0 ? 'color:#cc2222' : '' %>"><%= r.inOffice %><% if (r.inOffice < 0) { %> ⚠<% } %></td>
+          </tr>
+          <% if (hasAlloc) { %>
+          <tr id="det_<%= r.id %>" style="display:none">
+            <td class="detail-cell" colspan="6">
+              <table class="alloc">
+                <thead><tr><th>Project</th><th>Status</th><th>Qty</th></tr></thead>
+                <tbody>
+                  <% r.byProject.forEach(p => { %>
+                    <tr>
+                      <td><%= p.address %></td>
+                      <td><span class="status-pill <%= p.status === 'Delivered' ? 'cell-delivered' : 'cell-in_office' %>"><%= p.status %></span></td>
+                      <td>×<%= p.qty %></td>
+                    </tr>
+                  <% }) %>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+          <% } %>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function toggleAlloc(id) {
+  const det = document.getElementById('det_' + id), car = document.getElementById('car_' + id);
+  if (!det) return;
+  const show = det.style.display === 'none';
+  det.style.display = show ? '' : 'none';
+  if (car) car.textContent = show ? '▾' : '▸';
+}
+</script>
+</body>
+</html>

@@ -2257,6 +2257,53 @@ app.get('/inventory', requireAuth, async (req, res) => {
   }
 });
 
+// ── Stock Status: pulled/delivered vs still in the office, per inventory item ──
+app.get('/stock-status', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const items = await getInventoryItems();
+    let usages = [], error = null;
+    try { usages = await computeHeldUsages(); }
+    catch (e) { error = e.message; }
+    const { rows: hsRows } = await pool.query('SELECT project_id, item_key, status FROM held_item_status');
+    const statusMap = {};
+    for (const r of hsRows) statusMap[r.project_id + '|' + r.item_key] = r.status;
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+    const rows = items.map(it => {
+      const term = (it.product || it.name || '').toLowerCase().trim();
+      const nterm = norm(term);
+      const matched = term
+        ? usages.filter(u =>
+            (nterm && (norm(u.model) === nterm || norm(u.prodCode) === nterm)) ||
+            String(u.name || '').toLowerCase().includes(term))
+        : [];
+      let delivered = 0, reserved = 0;
+      const byProject = {};
+      for (const u of matched) {
+        const st = statusMap[u.projectId + '|' + u.itemKey] || 'In Office';
+        if (st === 'Delivered') delivered += u.qty; else reserved += u.qty;
+        if (!byProject[u.project]) byProject[u.project] = { address: u.project, qty: 0, status: st };
+        byProject[u.project].qty += u.qty;
+      }
+      const purchased = it.qty || 0;
+      return {
+        id: it.id, name: it.name, code: it.product || '',
+        purchased,
+        delivered,                         // pulled out of the office & delivered to jobs
+        reserved,                          // committed to jobs but still in the office
+        inOffice: purchased - delivered,   // physically still on the shelf
+        byProject: Object.values(byProject),
+      };
+    });
+    // Only items that are office stock (have a code) — sort by name
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    res.render('stock-status', { rows, error });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
 // Catalog of schedule items (for the Add-item search → auto-fill Model #)
 app.get('/inventory/catalog', requireAuth, async (req, res) => {
   try {
