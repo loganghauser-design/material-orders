@@ -73,6 +73,37 @@ const STAGES = [
 ];
 
 const ALL_ITEMS = STAGES.flatMap(s => s.items);
+// Canonical code -> display name (the master numbering this app uses)
+const CODE_NAME = Object.fromEntries(ALL_ITEMS.map(it => [it.code, it.name]));
+
+// Finish schedules sometimes use a DIFFERENT number for the same bucket
+// (e.g. a sheet labels Hardware as "3d" while our master code for Hardware is 3c,
+// and labels Misc as "3e" while our Shower Doors is 3e). The category NAME the
+// schedule author typed is the reliable signal, so map by name and ignore the
+// possibly-wrong number prefix. Falls back to the literal code if no name matches.
+function canonicalCodeFromCategory(rawCat) {
+  const raw = String(rawCat || '');
+  const t = raw.toLowerCase().replace(/^\s*[123][a-e]\.?\s*/, '').replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (t) {
+    if (/shower door|shower glass|shower enclosure/.test(t)) return '3e';
+    if (/water heater/.test(t)) return '2e';
+    if (/rec light|recessed|can light|down ?light/.test(t)) return '1e';
+    if (/hvac/.test(t)) return '1c';
+    if (/countertop/.test(t)) return '3a';
+    if (/appliance/.test(t)) return '2d';
+    if (/decking|deck board/.test(t)) return '2c';
+    if (/flooring|floor/.test(t)) return '2b';
+    if (/millwork/.test(t)) return '2a';
+    if (/tile/.test(t)) return '1d';
+    if (/hardware/.test(t)) return '3c';
+    if (/\bmisc/.test(t)) return '3d';
+    if (/fs plumb|finish plumb|finished plumb|light|hood/.test(t)) return '3b';
+    if (/r plumb|rough plumb|fan/.test(t)) return '1b';
+    if (/door|window/.test(t)) return '1a';
+  }
+  const m = raw.match(/^\s*([123][a-e])\b/i);
+  return m ? m[1].toLowerCase() : null;
+}
 
 // Keyword aliases for detecting materials mentioned in free-text email replies
 const MATERIAL_ALIASES = {
@@ -414,15 +445,29 @@ function sheetIdFromUrl(url) {
   return m ? m[1] : null;
 }
 // Per-project overrides applied to a schedule row's (category, supplier).
-// recSource='oncall' → move Contractor-procured recessed lighting to 1e / On Call LED.
+// 1) Normalize the category by NAME (schedule numbering is inconsistent with our master codes).
+// 2) Item-name override: shower doors are sometimes filed under finish plumbing → force 3e.
+// 3) recSource='oncall' → move Contractor-procured recessed lighting to 1e / On Call LED.
 function applyRowOverrides(row, opts = {}) {
-  let cat = (row[4] || '').trim();
+  const rawCat = (row[4] || '').trim();
   let supplier = (row[14] || '').trim();
+  const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
+
+  // 1) Trust the category name, not the (possibly-wrong) number prefix.
+  let code = canonicalCodeFromCategory(rawCat);
+
+  // 2) Shower doors are unmistakable by item name; pull them into Shower Doors (3e)
+  //    even when the schedule files them under plumbing.
+  if (/shower door|shower glass|shower enclosure/.test(text)) code = '3e';
+
+  // 3) Recessed lighting supplier toggle (recessed only — never dimmer switches).
   if (opts.recSource === 'oncall' && /contractor to proc/i.test(supplier)) {
-    const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
-    // Recessed lighting only — never flip dimmer switches to On Call LED
-    if (!/dimmer|\bswitch\b/.test(text) && /recess|down ?light|canless|\bled\b|lighting/.test(text)) { cat = '1e. Rec. Light'; supplier = 'On Call LED'; }
+    if (!/dimmer|\bswitch\b/.test(text) && /recess|down ?light|canless|\bled\b|lighting/.test(text)) {
+      code = '1e'; supplier = 'On Call LED';
+    }
   }
+
+  const cat = code ? (code + '. ' + (CODE_NAME[code] || '')) : rawCat;
   return { cat, supplier };
 }
 // Read the "Fin Sched" tab and group orderable items by their Supplier
