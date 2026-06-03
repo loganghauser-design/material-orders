@@ -596,9 +596,10 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
   return byCode;
 }
 
-// Suppliers whose materials we buy and hold ourselves (office/warehouse stock),
-// rather than ordering per-project. Demand for these is pooled across all jobs.
-const HELD_SUPPLIERS = ['Buildoly Stock', 'JEDCO'];
+// Suppliers whose materials count as office/warehouse stock ("in use" against inventory).
+// Only Buildoly Stock counts — a Jedco item is "in use" only once it's toggled to
+// Buildoly Stock (office), which rewrites its supplier to 'Buildoly Stock' in applyRowOverrides.
+const HELD_SUPPLIERS = ['Buildoly Stock'];
 function isHeldSupplier(supplier) {
   const s = String(supplier || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   return HELD_SUPPLIERS.some(h => s === h.toLowerCase().replace(/[^a-z0-9]/g, ''));
