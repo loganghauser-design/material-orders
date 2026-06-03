@@ -94,7 +94,7 @@
               <span class="caret" id="car_<%= it.id %>" onclick="toggleAlloc(<%= it.id %>)"><%= hasAlloc ? '▸' : '' %></span>
               <strong class="<%= hasAlloc ? 'name-toggle' : '' %>" <% if (hasAlloc) { %>onclick="toggleAlloc(<%= it.id %>)"<% } %>><%= it.name %></strong>
             </td>
-            <td><% if (it.product) { %><span class="prod-tag"><%= it.product %></span><% } else { %><span style="color:var(--muted)">—</span><% } %></td>
+            <td><% if (it.product) { %><span class="prod-tag"><%= it.product %></span><% } else { %><span style="color:var(--muted)">—</span><% } %><% if (it.productName) { %><br><span style="color:var(--muted);font-size:.78rem"><%= it.productName %></span><% } %></td>
             <td class="num">
               <div style="display:inline-flex;align-items:center;gap:4px">
                 <button class="qty-step" onclick="stepQty(this,-1)" title="Remove one">−</button>

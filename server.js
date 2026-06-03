@@ -673,7 +673,7 @@ async function computeHeldUsages() {
       const product = (row[6] || '').trim();
       const code = (String(cat).match(/^(1[a-e]|2[a-e]|3[a-e])\b/i) || [])[1];
       usages.push({
-        projectId: proj.id, project: proj.address, name, prodCode, model, supplier,
+        projectId: proj.id, project: proj.address, name, product, prodCode, model, supplier,
         code: code ? code.toLowerCase() : null,
         itemKey: heldItemKey(prodCode, model, name),
         qty: parseFloat((row[9] || '').trim()) || 1,
@@ -2242,8 +2242,12 @@ app.get('/inventory', requireAuth, async (req, res) => {
         byProject[u.project].qty += u.qty;
       }
       const inUse = matched.reduce((s, u) => s + u.qty, 0);
+      // Product name for this code, pulled from the matched schedule line(s)
+      const productName = matched.length
+        ? ((matched.find(u => u.product) || {}).product || (matched.find(u => u.name) || {}).name || '')
+        : '';
       return {
-        ...it, inUse, available: (it.qty || 0) - inUse,
+        ...it, inUse, available: (it.qty || 0) - inUse, productName,
         byProject: Object.values(byProject),
       };
     });
