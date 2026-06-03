@@ -108,7 +108,7 @@ function detectMaterials(text) {
 // (more specific buckets first). The upload review screen lets users fix misses.
 const CATEGORY_KEYWORDS = [
   ['2e', ['water heater', 'tankless', 'wtr htr', 'water htr']],
-  ['2d', ['refrigerator', 'refrig', 'fridge', 'range', 'wall oven', 'oven', 'cooktop', 'cook top', 'dishwasher', 'dishwshr', 'dishwash', 'microwave', 'micro hood', 'washer', 'dryer', 'freezer', 'frzr', 'wine cooler', 'ice maker', 'icemaker']],
+  ['2d', ['refrigerator', 'refrig', 'fridge', 'range', 'rnge', 'stove', 'wall oven', 'oven', 'cooktop', 'cook top', 'dishwasher', 'dishwshr', 'dishwash', ' dw ', 'dw ext', 'microwave', 'micro hood', ' mw ', 'washer', 'wshr', ' wm ', 'wm hose', 'dryer', 'dryr', 'freezer', 'frzr', 'wine cooler', 'ice maker', 'icemaker', 'im conn', 'range cord', 'dryer cord', 'stack kit', 'ldry stack', 'appliance']],
   ['1b', ['rough-in', 'rough in', 'ri vlv', 'rough vlv', 'shower drain', 'shwr flr', 'shower flr', 'shower floor', 'shower pan', 'shower base', 'shr flr', 'vent fan', 'exhaust fan', 'exh fan', 'ceiling fan', 'bath fan']],
   ['1d', ['tile', 'grout', 'thinset']],
   ['1e', ['recessed', 'rec light', 'rec. light', 'can light', 'downlight']],
@@ -152,7 +152,7 @@ async function parseReceiptPdf(buffer) {
   // Line items: rows split on tabs / 2+ spaces, ending in a price, containing a qty
   const lines = [];
   for (const raw of rawLines) {
-    if (/total|tax|freight|page \d|^item\b|description|warranty|warning|notice|payment|p65|lead law|water flow|terms|^\s*$/i.test(raw)) continue;
+    if (/total|tax|freight|page \d|^item\b|description|warranty|warning|notice|payment|assigned|p65|lead law|water flow|terms|\d{1,2}\/\d{1,2}\/\d{2,4}|\b(mc|visa|amex|disc)\s+\d{4}\b|^\s*$/i.test(raw)) continue;
     const parts = raw.split(/\t+|\s{2,}/).map(s => s.trim()).filter(Boolean);
     if (parts.length < 3) continue;
     const last = parts[parts.length - 1].replace(/[$,]/g, '');
