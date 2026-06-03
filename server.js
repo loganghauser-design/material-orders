@@ -451,12 +451,30 @@ function sanitizePastedHtml(html) {
     return out + '>';
   });
 
+  // Column widths from <col> tags (Google Sheets sizing) — keeps the table from smushing
+  const colWidths = [];
+  (t.match(/<col\b[^>]*>/gi) || []).forEach(c => {
+    const w = (c.match(/width\s*=\s*["']?(\d+)/i) || [])[1] || (c.match(/width\s*:\s*(\d+)/i) || [])[1];
+    if (w) colWidths.push(parseInt(w, 10));
+  });
+  const totalW = colWidths.reduce((a, b) => a + b, 0);
+  const haveWidths = colWidths.length > 0 && totalW > 0;
+
+  // Preserve <col> widths; if no widths exist, stop cells from wrapping (so they don't cram)
+  t = t.replace(/<col\b[^>]*>/gi, c => {
+    const w = (c.match(/width\s*=\s*["']?(\d+)/i) || [])[1] || (c.match(/width\s*:\s*(\d+)/i) || [])[1];
+    return w ? `<col style="width:${w}px">` : '<col>';
+  });
+  t = t.replace(/<(\/?)colgroup\b[^>]*>/gi, (mm, slash) => `<${slash}colgroup>`);
+  if (!haveWidths) t = t.replace(/font-size:13px;/g, 'font-size:13px;white-space:nowrap;');
+
   // Strip attributes from the other allowed tags (cells already handled above)
   t = t.replace(/<(\/?)(table|thead|tbody|tr|b|strong|i|em|br|p|span|div)\b[^>]*>/gi, (mm, slash, tag) => `<${slash}${tag.toLowerCase()}>`);
   // Remove any tags not in the allow-list (keep inner text)
-  t = t.replace(/<(?!\/?(?:table|thead|tbody|tr|td|th|b|strong|i|em|br|p|span|div)\b)[^>]*>/gi, '');
-  // Style the table itself
-  t = t.replace(/<table>/gi, '<table style="border-collapse:collapse;margin:12px 0;font-family:Arial,sans-serif">');
+  t = t.replace(/<(?!\/?(?:table|thead|tbody|tr|td|th|colgroup|col|b|strong|i|em|br|p|span|div)\b)[^>]*>/gi, '');
+  // Style the table — fixed layout + total width when the sheet provided column widths
+  const tstyle = 'border-collapse:collapse;margin:12px 0;font-family:Arial,sans-serif' + (haveWidths ? `;table-layout:fixed;width:${totalW}px` : '');
+  t = t.replace(/<table>/gi, `<table style="${tstyle}">`);
   return t;
 }
 
