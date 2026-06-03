@@ -53,8 +53,8 @@
     <button class="btn btn-primary" onclick="openAdd()">+ Add Inventory</button>
   </div>
   <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:780px">
-    Office/warehouse stock you buy and hold. Add an item with its <strong>Model #</strong> and a <strong>Qty</strong>.
-    Each project that uses that model as held stock (<%= heldSuppliers.join(' / ') %> — e.g. a range hood flipped to Buildoly Stock)
+    Office/warehouse stock you buy and hold. Add an item with its <strong>Model #</strong> (or <strong>Prod. Code</strong> for items with no model) and a <strong>Qty</strong>.
+    Each project that uses that exact model/code as held stock (<%= heldSuppliers.join(' / ') %> — e.g. a range hood flipped to Buildoly Stock)
     automatically subtracts one, so <strong>Available</strong> always shows what's still free.
   </p>
 
@@ -73,7 +73,7 @@
       <thead>
         <tr>
           <th>Item</th>
-          <th>Model #</th>
+          <th>Model # / Code</th>
           <th style="text-align:center">Qty</th>
           <th style="text-align:center">In use</th>
           <th style="text-align:center">Available</th>
@@ -136,7 +136,7 @@
 <div class="modal-overlay" id="addModal">
   <div class="modal">
     <h2>Add inventory item</h2>
-    <p class="modal-sub">Stock you keep in the office. The <strong>Model #</strong> is matched against your finish schedules' Model # column to track usage.</p>
+    <p class="modal-sub">Stock you keep in the office. The <strong>Model # or Prod. Code</strong> is matched <em>exactly</em> against your schedules to track usage — so two specs sharing a name (e.g. S-VG01 vs S-VG01B) stay separate.</p>
     <form onsubmit="return submitAdd(event)">
       <div class="form-group" style="position:relative">
         <label>🔍 Search your schedules (auto-fills the model #)</label>
@@ -148,8 +148,8 @@
         <input type="text" id="add_name" placeholder="Range Hood" required>
       </div>
       <div class="form-group">
-        <label>Model # (matches the schedule's Model # column — e.g. HP30IDCHX4)</label>
-        <input type="text" id="add_product" placeholder="HP30IDCHX4">
+        <label>Model # or Prod. Code (exact match — e.g. HP30IDCHX4, or S-VG01B for items with no model)</label>
+        <input type="text" id="add_product" placeholder="HP30IDCHX4 or S-VG01B">
       </div>
       <div class="form-group">
         <label>Qty on hand</label>
@@ -183,12 +183,15 @@ function onSearch() {
     (it.product && it.product.toLowerCase().includes(q))
   ).slice(0, 40);
   if (!hits.length) { box.innerHTML = '<div style="padding:8px 10px;color:var(--muted);font-size:.82rem">No matches in your schedules.</div>'; box.style.display = 'block'; return; }
-  box.innerHTML = hits.map((it, i) =>
-    `<div class="search-hit" data-i="${i}" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:.85rem">
+  box.innerHTML = hits.map((it, i) => {
+    const idText = it.model ? it.model : (it.prodCode ? it.prodCode + ' (code)' : 'no model/code');
+    const idCol = (it.model || it.prodCode) ? 'var(--muted)' : '#cc8800';
+    return `<div class="search-hit" data-i="${i}" style="padding:7px 10px;cursor:pointer;border-bottom:1px solid var(--border);font-size:.85rem">
        <strong>${escapeHtml(it.name)}</strong>
-       ${it.model ? `<span style="font-family:ui-monospace,monospace;color:var(--muted)"> · ${escapeHtml(it.model)}</span>` : '<span style="color:#cc8800"> · no model #</span>'}
+       <span style="font-family:ui-monospace,monospace;color:${idCol}"> · ${escapeHtml(idText)}</span>
+       ${it.product && it.product.toLowerCase() !== it.name.toLowerCase() ? `<span style="color:var(--muted);font-size:.78rem"> · ${escapeHtml(it.product)}</span>` : ''}
        ${it.supplier ? `<span style="color:var(--muted);font-size:.78rem"> · ${escapeHtml(it.supplier)}</span>` : ''}
-     </div>`).join('');
+     </div>`; }).join('');
   box.style.display = 'block';
   Array.from(box.querySelectorAll('.search-hit')).forEach(el => {
     el.addEventListener('click', () => pickHit(hits[parseInt(el.getAttribute('data-i'), 10)]));
@@ -197,8 +200,9 @@ function onSearch() {
   });
 }
 function pickHit(it) {
-  document.getElementById('add_name').value = it.name;
-  document.getElementById('add_product').value = it.model || '';
+  document.getElementById('add_name').value = it.name + (it.product && it.product.toLowerCase() !== it.name.toLowerCase() ? ' (' + it.product + ')' : '');
+  // Prefer Model #; fall back to Prod. Code so same-name specs stay distinct
+  document.getElementById('add_product').value = it.model || it.prodCode || '';
   document.getElementById('searchResults').style.display = 'none';
   document.getElementById('add_search').value = it.name;
   document.getElementById('add_qty').focus();

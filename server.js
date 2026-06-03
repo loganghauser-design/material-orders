@@ -654,10 +654,11 @@ async function readScheduleCatalog() {
       const name = (r[0] || '').replace(/\n/g, ' ').trim() || (r[6] || '').trim();
       if (!name) continue;
       const model = (r[7] || '').trim();
-      const key = (name + '|' + model).toLowerCase();
+      const prodCode = (r[2] || '').trim();
+      const key = (name + '|' + model + '|' + prodCode).toLowerCase();
       if (!seen.has(key)) {
         seen.set(key, {
-          name, model, brand: (r[5] || '').trim(),
+          name, model, prodCode, brand: (r[5] || '').trim(),
           product: (r[6] || '').trim(), supplier: (r[14] || '').trim(),
         });
       }
@@ -2081,8 +2082,12 @@ app.get('/inventory', requireAuth, async (req, res) => {
     const enriched = items.map(it => {
       const term = (it.product || it.name || '').toLowerCase().trim();
       const nterm = norm(term);
+      // Exact match on Model # or Prod. Code (so S-VG01 never matches S-VG01B),
+      // with a name-keyword fallback only when the term isn't a code/model.
       const matched = term
-        ? usages.filter(u => (nterm && norm(u.model) === nterm) || u.text.includes(term))
+        ? usages.filter(u =>
+            (nterm && (norm(u.model) === nterm || norm(u.prodCode) === nterm)) ||
+            String(u.name || '').toLowerCase().includes(term))
         : [];
       const byProject = {};
       for (const u of matched) {
