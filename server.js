@@ -5,6 +5,7 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const { Pool } = require('pg');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 
@@ -1384,6 +1385,16 @@ app.post('/projects/:id/send-email', requireAuth, upload.array('attachments', 10
     const def = await getDefaultAttachment();
     if (def) attachments.push(def);
     (req.files || []).forEach(f => attachments.push({ filename: f.originalname, mimeType: f.mimetype, content: f.buffer }));
+
+    // Closeout procedure: the Appliance Warranty Transfer auto-attaches to the FINAL payment email
+    if (phase.key === 'final') {
+      try {
+        const warrantyPath = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
+        if (fs.existsSync(warrantyPath)) {
+          attachments.push({ filename: 'Appliance Warranty Transfer Document.pdf', mimeType: 'application/pdf', content: fs.readFileSync(warrantyPath) });
+        }
+      } catch (e) { console.error('warranty attach:', e.message); }
+    }
 
     // Render as HTML so the Gmail signature appears; preserve the body's line breaks
     const sig = await getSignature();
