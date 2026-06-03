@@ -456,13 +456,27 @@ function sheetIdFromUrl(url) {
   const m = String(url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
   return m ? m[1] : null;
 }
+// Fix known supplier-name misspellings coming from the schedules (sheets are
+// hand-typed, so e.g. "Freguson" shows up for Ferguson). Keep this list explicit
+// and conservative so we never merge two genuinely different vendors.
+const SUPPLIER_FIXES = [
+  [/^fre?gus?on$/i, 'Ferguson'],   // Freguson / Fregusn / Frguson → Ferguson
+  [/^fergusson$/i, 'Ferguson'],
+  [/^furguson$/i, 'Ferguson'],
+];
+function normalizeSupplier(s) {
+  const t = String(s || '').trim();
+  for (const [re, val] of SUPPLIER_FIXES) if (re.test(t)) return val;
+  return t;
+}
+
 // Per-project overrides applied to a schedule row's (category, supplier).
 // 1) Normalize the category by NAME (schedule numbering is inconsistent with our master codes).
 // 2) Item-name override: shower doors are sometimes filed under finish plumbing → force 3e.
 // 3) recSource='oncall' → move Contractor-procured recessed lighting to 1e / On Call LED.
 function applyRowOverrides(row, opts = {}) {
   const rawCat = (row[4] || '').trim();
-  let supplier = (row[14] || '').trim();
+  let supplier = normalizeSupplier((row[14] || '').trim());
   const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
 
   // 1) Trust the category name, not the (possibly-wrong) number prefix.
@@ -555,7 +569,7 @@ function parseScheduleRows(rows) {
         type: 'item', name: A, planTag: B, prodCode: C, category: (r[4] || '').trim(),
         brand: (r[5] || '').trim(), product: (r[6] || '').trim(), model: (r[7] || '').trim(),
         color: (r[8] || '').trim(), qty: (r[9] || '').trim(), cost: (r[13] || '').trim(),
-        supplier: (r[14] || '').trim(), deliveryDate: (r[16] || '').trim(),
+        supplier: normalizeSupplier((r[14] || '').trim()), deliveryDate: (r[16] || '').trim(),
       });
     } else if (A) {
       out.push({ type: 'section', name: A });
@@ -724,7 +738,7 @@ async function readScheduleCatalog() {
       if (!seen.has(key)) {
         seen.set(key, {
           name, model, prodCode, brand: (r[5] || '').trim(),
-          product: (r[6] || '').trim(), supplier: (r[14] || '').trim(),
+          product: (r[6] || '').trim(), supplier: normalizeSupplier((r[14] || '').trim()),
         });
       }
     }
@@ -2482,7 +2496,7 @@ function startCron() {
 
 // Allow one-off maintenance scripts to reuse the DB + schedule logic
 // (require('./server.js')) without starting the HTTP server.
-module.exports = { pool, computeHeldUsages, initDb, HELD_STATUSES };
+module.exports = { pool, computeHeldUsages, initDb, HELD_STATUSES, fetchScheduleValues };
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
