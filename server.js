@@ -468,8 +468,18 @@ function applyRowOverrides(row, opts = {}) {
     }
   }
 
+  // 4) Range hood supplier toggle: 'buildoly' → supply the hood from Buildoly office stock.
+  if (opts.rangeHoodSource === 'buildoly' && /range hood|\bhood\b/.test(text)) {
+    supplier = 'Buildoly Stock';
+  }
+
   const cat = code ? (code + '. ' + (CODE_NAME[code] || '')) : rawCat;
   return { cat, supplier };
+}
+// True when a schedule row is the range hood (single, unmistakable by name).
+function isRangeHoodRow(row) {
+  const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
+  return /range hood|\bhood\b/.test(text);
 }
 // Read the "Fin Sched" tab and group orderable items by their Supplier
 async function readScheduleVendors(scheduleUrl, opts = {}) {
@@ -555,9 +565,11 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
     const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
     if (!name) continue;
     const code = m[1].toLowerCase();
+    const hood = isRangeHoodRow(row);
     (byCode[code] = byCode[code] || []).push({
       name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
       model: (row[7] || '').trim(), qty: (row[9] || '').trim() || '1', supplier,
+      hood, defaultSupplier: hood ? (row[14] || '').trim() : undefined,
     });
   }
   return byCode;
@@ -788,6 +800,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS finish_schedule_url TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
 
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -1610,9 +1623,9 @@ ${sig ? '<br>' + sig : ''}
 // Vendors (+ their items) from this project's finish schedule, for order auto-fill
 app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source });
     res.json({ ok: true, vendors });
   } catch (err) {
     console.error('schedule-vendors:', err.message);
@@ -1646,10 +1659,10 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
 // Schedule items grouped by material category (for the Materials tab drill-down)
 app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
-    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source });
-    res.json({ ok: true, byCode });
+    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source });
+    res.json({ ok: true, byCode, rangeHoodSource: p.range_hood_source || 'default' });
   } catch (err) {
     res.json({ ok: false, error: err.message });
   }
@@ -1660,6 +1673,17 @@ app.post('/projects/:id/rec-lighting-source', requireAuth, async (req, res) => {
   try {
     const src = req.body.source === 'oncall' ? 'oncall' : 'gc';
     await pool.query('UPDATE projects SET rec_lighting_source=$1 WHERE id=$2', [src, req.params.id]);
+    res.json({ ok: true, source: src });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Toggle who supplies the range hood: 'default' (schedule vendor) or 'buildoly' (Buildoly office stock)
+app.post('/projects/:id/range-hood-source', requireAuth, async (req, res) => {
+  try {
+    const src = req.body.source === 'buildoly' ? 'buildoly' : 'default';
+    await pool.query('UPDATE projects SET range_hood_source=$1 WHERE id=$2', [src, req.params.id]);
     res.json({ ok: true, source: src });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
