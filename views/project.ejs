@@ -247,7 +247,7 @@
         %>
         <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
           <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
-          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span></td>
+          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
           <td>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
@@ -566,6 +566,16 @@ function toggleCategory(code) {
   const show = sub.style.display === 'none';
   sub.style.display = show ? '' : 'none';
   if (car) car.textContent = show ? '▾' : '▸';
+}
+async function setRecSource(source) {
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/rec-lighting-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
+    const data = await r.json();
+    if (data.ok) {
+      showToast(source === 'oncall' ? 'Recessed lighting → On Call LED' : 'Recessed lighting → GC Procure');
+      MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 1e drill-down
+    } else showToast('Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
 }
 document.addEventListener('DOMContentLoaded', () => showTab('materials'));
 

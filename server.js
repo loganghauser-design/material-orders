@@ -413,8 +413,19 @@ function sheetIdFromUrl(url) {
   const m = String(url || '').match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/);
   return m ? m[1] : null;
 }
+// Per-project overrides applied to a schedule row's (category, supplier).
+// recSource='oncall' → move Contractor-procured recessed lighting to 1e / On Call LED.
+function applyRowOverrides(row, opts = {}) {
+  let cat = (row[4] || '').trim();
+  let supplier = (row[14] || '').trim();
+  if (opts.recSource === 'oncall' && /contractor to proc/i.test(supplier)) {
+    const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
+    if (/recess|down ?light|canless|\bled\b|dimmer|lighting/.test(text)) { cat = '1e. Rec. Light'; supplier = 'On Call LED'; }
+  }
+  return { cat, supplier };
+}
 // Read the "Fin Sched" tab and group orderable items by their Supplier
-async function readScheduleVendors(scheduleUrl) {
+async function readScheduleVendors(scheduleUrl, opts = {}) {
   if (!SHEETS_API_KEY) throw new Error('Google Sheets API key not configured.');
   const id = sheetIdFromUrl(scheduleUrl);
   if (!id) throw new Error('Invalid finish-schedule link.');
@@ -430,9 +441,8 @@ async function readScheduleVendors(scheduleUrl) {
   const vendors = {};
   for (let i = 5; i < rows.length; i++) {
     const row = rows[i];
-    const cat = (row[4] || '').trim();
+    const { cat, supplier } = applyRowOverrides(row, opts);
     if (!CATRE.test(cat)) continue;
-    const supplier = (row[14] || '').trim();
     if (!supplier || SKIP.test(supplier)) continue;
     const prodCode = (row[2] || '').trim();
     if (/not in scope/i.test(prodCode)) continue;
@@ -486,20 +496,21 @@ async function readScheduleRows(scheduleUrl) {
   return parseScheduleRows(await fetchScheduleValues(scheduleUrl));
 }
 // Schedule items grouped by material category code (1a..3e) — for the Materials tab drill-down
-async function readScheduleByCategory(scheduleUrl) {
+async function readScheduleByCategory(scheduleUrl, opts = {}) {
   const rows = await fetchScheduleValues(scheduleUrl);
   const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
   const byCode = {};
   for (let i = 5; i < rows.length; i++) {
     const row = rows[i];
-    const m = (row[4] || '').trim().match(CATRE);
+    const { cat, supplier } = applyRowOverrides(row, opts);
+    const m = cat.match(CATRE);
     if (!m) continue;
     const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
     if (!name) continue;
     const code = m[1].toLowerCase();
     (byCode[code] = byCode[code] || []).push({
       name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
-      model: (row[7] || '').trim(), qty: (row[9] || '').trim() || '1', supplier: (row[14] || '').trim(),
+      model: (row[7] || '').trim(), qty: (row[9] || '').trim() || '1', supplier,
     });
   }
   return byCode;
@@ -729,6 +740,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS full_address VARCHAR(500);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS sort_order INTEGER;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS finish_schedule_url TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
 
     CREATE TABLE IF NOT EXISTS app_settings (
       id INTEGER PRIMARY KEY DEFAULT 1,
@@ -1551,9 +1563,9 @@ ${sig ? '<br>' + sig : ''}
 // Vendors (+ their items) from this project's finish schedule, for order auto-fill
 app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const vendors = await readScheduleVendors(p.finish_schedule_url);
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source });
     res.json({ ok: true, vendors });
   } catch (err) {
     console.error('schedule-vendors:', err.message);
@@ -1587,12 +1599,23 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
 // Schedule items grouped by material category (for the Materials tab drill-down)
 app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
-    const byCode = await readScheduleByCategory(p.finish_schedule_url);
+    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source });
     res.json({ ok: true, byCode });
   } catch (err) {
     res.json({ ok: false, error: err.message });
+  }
+});
+
+// Toggle who supplies recessed lighting: 'gc' (contractor procures) or 'oncall' (On Call LED)
+app.post('/projects/:id/rec-lighting-source', requireAuth, async (req, res) => {
+  try {
+    const src = req.body.source === 'oncall' ? 'oncall' : 'gc';
+    await pool.query('UPDATE projects SET rec_lighting_source=$1 WHERE id=$2', [src, req.params.id]);
+    res.json({ ok: true, source: src });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
