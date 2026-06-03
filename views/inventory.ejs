@@ -7,28 +7,22 @@
   <link rel="stylesheet" href="/css/app.css">
   <style>
     .inv-table { width:100%; border-collapse:collapse; font-size:.9rem; }
-    .inv-table th { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:.5rem .7rem; text-align:left; border-bottom:1px solid var(--border); }
-    .inv-row > td { padding:.6rem .7rem; border-bottom:1px solid var(--border); vertical-align:middle; }
-    .inv-row:hover { background:var(--bg); }
-    .caret { cursor:pointer; user-select:none; color:var(--muted); width:1rem; display:inline-block; }
-    .kw-tag { font-family:ui-monospace,Menlo,monospace; font-size:.74rem; color:var(--muted); background:rgba(120,120,160,.13); padding:1px 6px; border-radius:8px; }
+    .inv-table th { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:.55rem .8rem; text-align:left; border-bottom:1px solid var(--border); }
+    .inv-table td { padding:.7rem .8rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .inv-table tbody tr:hover { background:var(--bg); }
     .num { text-align:center; font-weight:600; }
-    .active-pos { color:#4caf7d; }
-    .active-low { color:#e0a106; }
-    .active-neg { color:#cc2222; }
+    .prod-tag { font-family:ui-monospace,Menlo,monospace; font-size:.76rem; color:var(--muted); background:rgba(120,120,160,.12); padding:1px 7px; border-radius:8px; }
     .proj-breakdown { font-size:.75rem; color:var(--muted); margin-top:3px; }
-    .detail-cell { background:var(--bg); padding:0 !important; }
-    .detail-wrap { padding:.7rem 1rem .9rem 2.4rem; }
-    .buys { width:100%; border-collapse:collapse; font-size:.82rem; margin:.3rem 0 .6rem; }
-    .buys th, .buys td { padding:3px 8px; text-align:left; border-bottom:1px solid var(--border); }
-    .buys th { color:var(--muted); font-weight:600; font-size:.72rem; }
-    .mini { font-size:.78rem; padding:3px 6px; border:1px solid var(--border); border-radius:6px; background:var(--card); }
-    .link-danger { color:#cc2222; cursor:pointer; background:none; border:none; font-size:.78rem; }
-    .add-form { display:flex; flex-wrap:wrap; gap:.5rem; align-items:flex-end; }
-    .add-form label { font-size:.74rem; color:var(--muted); display:block; margin-bottom:2px; }
-    .modal-bg { display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:50; align-items:center; justify-content:center; }
-    .modal-bg.show { display:flex; }
-    .modal-box { background:var(--card); border-radius:12px; padding:1.3rem; width:min(440px,92vw); }
+    .avail-pos { color:#4caf7d; } .avail-low { color:#e0a106; } .avail-neg { color:#cc2222; }
+    .qty-input { width:62px; padding:5px 6px; text-align:center; font-size:.95rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+    .qty-step { border:1px solid var(--border); background:var(--surface); width:26px; height:30px; border-radius:6px; cursor:pointer; font-size:1rem; line-height:1; }
+    .qty-step:hover { background:var(--bg); }
+    .saved-tick { color:#4caf7d; font-size:.8rem; opacity:0; transition:opacity .2s; }
+    .saved-tick.show { opacity:1; }
+    .link-danger { color:#cc2222; cursor:pointer; background:none; border:none; font-size:.82rem; }
+    .form-group { margin-bottom:.85rem; }
+    .form-group label { display:block; margin-bottom:.25rem; }
+    .form-group input { width:100%; }
   </style>
 </head>
 <body>
@@ -50,84 +44,55 @@
     <button class="btn btn-primary" onclick="openAdd()">+ Add Inventory</button>
   </div>
   <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:780px">
-    Office/warehouse stock you buy and hold. Add an item, then log each <strong>purchase</strong> (date · qty · price) in its dropdown.
-    The app draws the count down automatically: every project that uses the item as <strong>held stock</strong>
-    (<%= heldSuppliers.join(' / ') %> — e.g. a range hood flipped to Buildoly Stock) subtracts from your <strong>Active</strong> count.
-    Matching is by the <strong>keyword</strong> you set on each item.
+    Office/warehouse stock you buy and hold. Add an item with a <strong>Product</strong> keyword and a <strong>Qty</strong>.
+    Each project that uses it as held stock (<%= heldSuppliers.join(' / ') %> — e.g. a range hood flipped to Buildoly Stock)
+    automatically subtracts one, so <strong>Available</strong> always shows what's still free.
   </p>
 
   <% if (error) { %>
     <div class="error-msg">Couldn't read one or more schedules right now: <%= error %></div>
   <% } %>
 
-  <div class="card" style="padding:0;overflow:hidden">
+  <div class="card" style="padding:0;overflow:hidden;max-width:none">
     <% if (!items.length) { %>
       <div style="padding:1.6rem;color:var(--muted)">
-        No inventory items yet. Click <strong>+ Add Inventory</strong> to add your first one (e.g. <em>Range Hood</em>, keyword <em>hood</em>).
+        No inventory items yet. Click <strong>+ Add Inventory</strong> to add your first one
+        (e.g. name <em>Range Hood</em>, product keyword <em>hood</em>, qty <em>13</em>).
       </div>
     <% } else { %>
     <table class="inv-table">
       <thead>
         <tr>
-          <th style="width:1rem"></th>
           <th>Item</th>
-          <th>Keyword</th>
-          <th style="text-align:center">Purchased</th>
+          <th>Product</th>
+          <th style="text-align:center">Qty</th>
           <th style="text-align:center">In use</th>
-          <th style="text-align:center">Active</th>
+          <th style="text-align:center">Available</th>
           <th style="width:1rem"></th>
         </tr>
       </thead>
       <tbody>
         <% items.forEach(it => {
-             const cls = it.active < 0 ? 'active-neg' : (it.active === 0 ? 'active-low' : 'active-pos'); %>
-          <tr class="inv-row" data-id="<%= it.id %>">
-            <td><span class="caret" onclick="toggleDetail(<%= it.id %>)" id="car_<%= it.id %>">▸</span></td>
+             const cls = it.available < 0 ? 'avail-neg' : (it.available === 0 ? 'avail-low' : 'avail-pos'); %>
+          <tr data-id="<%= it.id %>">
             <td>
               <strong><%= it.name %></strong>
-              <% if (it.notes) { %><div style="font-size:.76rem;color:var(--muted)"><%= it.notes %></div><% } %>
               <% if (it.byProject && it.byProject.length) { %>
                 <div class="proj-breakdown">In use: <%= it.byProject.map(p => `${p.address.split(',')[0]} ×${p.qty}`).join('  ·  ') %></div>
               <% } %>
             </td>
-            <td><span class="kw-tag"><%= it.match_keyword %></span></td>
-            <td class="num"><%= it.purchased %></td>
-            <td class="num"><%= it.inUse %></td>
-            <td class="num <%= cls %>"><%= it.active %><% if (it.active < 0) { %> ⚠<% } %></td>
-            <td><button class="link-danger" title="Delete item" onclick="deleteItem(<%= it.id %>, '<%= it.name.replace(/'/g, "\\'") %>')">✕</button></td>
-          </tr>
-          <tr id="det_<%= it.id %>" style="display:none">
-            <td class="detail-cell" colspan="7">
-              <div class="detail-wrap">
-                <strong style="font-size:.82rem">Purchases</strong>
-                <table class="buys">
-                  <thead><tr><th>Date</th><th>Qty</th><th>Unit price</th><th>Batch total</th><th></th></tr></thead>
-                  <tbody>
-                    <% if (!it.purchases.length) { %>
-                      <tr><td colspan="5" style="color:var(--muted)">No purchases logged yet.</td></tr>
-                    <% } %>
-                    <% it.purchases.forEach(b => {
-                         const price = b.unit_price == null ? null : Number(b.unit_price);
-                         const total = price == null ? null : (b.qty * price); %>
-                      <tr>
-                        <td><%= b.purchased_on ? new Date(b.purchased_on).toISOString().slice(0,10) : '—' %></td>
-                        <td><%= b.qty %></td>
-                        <td><%= price == null ? '—' : '$' + price.toFixed(2) %></td>
-                        <td><%= total == null ? '—' : '$' + total.toFixed(2) %></td>
-                        <td><button class="link-danger" onclick="deletePurchase(<%= b.id %>)">remove</button></td>
-                      </tr>
-                    <% }) %>
-                  </tbody>
-                </table>
-                <form class="add-form" onsubmit="return addPurchase(event, <%= it.id %>)">
-                  <div><label>Date</label><input class="mini" type="date" name="purchased_on"></div>
-                  <div><label>Qty</label><input class="mini" type="number" min="0" name="qty" style="width:70px" required></div>
-                  <div><label>Unit price</label><input class="mini" type="number" min="0" step="0.01" name="unit_price" style="width:100px" placeholder="$"></div>
-                  <div><label>Note</label><input class="mini" type="text" name="note" placeholder="optional" style="width:140px"></div>
-                  <button class="btn btn-primary" type="submit" style="padding:5px 12px">+ Add purchase</button>
-                </form>
+            <td><% if (it.product) { %><span class="prod-tag"><%= it.product %></span><% } else { %><span style="color:var(--muted)">—</span><% } %></td>
+            <td class="num">
+              <div style="display:inline-flex;align-items:center;gap:4px">
+                <button class="qty-step" onclick="stepQty(this,-1)" title="Remove one">−</button>
+                <input class="qty-input" type="number" min="0" value="<%= it.qty %>" data-inuse="<%= it.inUse %>" onchange="saveQty(this)">
+                <button class="qty-step" onclick="stepQty(this,1)" title="Add one">+</button>
+                <span class="saved-tick">✓</span>
               </div>
             </td>
+            <td class="num"><%= it.inUse %></td>
+            <td class="num avail-cell <%= cls %>"><%= it.available %><% if (it.available < 0) { %> ⚠<% } %></td>
+            <td><button class="link-danger" title="Delete" onclick="deleteItem(<%= it.id %>, '<%= it.name.replace(/'/g, "\\'") %>')">✕</button></td>
           </tr>
         <% }) %>
       </tbody>
@@ -135,28 +100,29 @@
     <% } %>
   </div>
   <p style="color:var(--muted);font-size:.78rem;margin-top:.8rem">
-    <strong>Active = Purchased − In use.</strong> A <span class="active-neg">red ⚠</span> means more projects are using it than you've bought — time to order more.
+    <strong>Available = Qty − In use.</strong> A <span class="avail-neg">red ⚠</span> means more projects need it than you have — time to order more.
   </p>
 </div>
 
-<!-- Add item modal -->
-<div class="modal-bg" id="addModal">
-  <div class="modal-box">
-    <h2 style="margin-top:0">Add inventory item</h2>
+<!-- Add item modal (uses the app's standard modal classes) -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <h2>Add inventory item</h2>
+    <p class="modal-sub">Stock you keep in the office. The <strong>Product</strong> keyword is what the app looks for in your finish schedules.</p>
     <form onsubmit="return submitAdd(event)">
-      <div style="margin-bottom:.7rem">
-        <label style="font-size:.8rem;color:var(--muted)">Item name</label>
-        <input class="mini" name="name" id="add_name" placeholder="Range Hood" style="width:100%;padding:7px" required>
+      <div class="form-group">
+        <label>Item name</label>
+        <input type="text" id="add_name" placeholder="Range Hood" required>
       </div>
-      <div style="margin-bottom:.7rem">
-        <label style="font-size:.8rem;color:var(--muted)">Match keyword <span style="opacity:.7">(what to look for in the schedule — e.g. "hood")</span></label>
-        <input class="mini" name="match_keyword" id="add_kw" placeholder="hood" style="width:100%;padding:7px">
+      <div class="form-group">
+        <label>Product (keyword to match in the schedule — e.g. "hood")</label>
+        <input type="text" id="add_product" placeholder="hood">
       </div>
-      <div style="margin-bottom:1rem">
-        <label style="font-size:.8rem;color:var(--muted)">Notes (optional)</label>
-        <input class="mini" name="notes" id="add_notes" placeholder="Fisher &amp; Paykel HP30IDCHX4" style="width:100%;padding:7px">
+      <div class="form-group">
+        <label>Qty on hand</label>
+        <input type="number" id="add_qty" min="0" value="0" placeholder="13">
       </div>
-      <div style="display:flex;gap:.6rem;justify-content:flex-end">
+      <div class="modal-actions">
         <button type="button" class="btn btn-ghost" onclick="closeAdd()">Cancel</button>
         <button type="submit" class="btn btn-primary">Add item</button>
       </div>
@@ -165,13 +131,6 @@
 </div>
 
 <script>
-function toggleDetail(id) {
-  const row = document.getElementById('det_' + id);
-  const car = document.getElementById('car_' + id);
-  const show = row.style.display === 'none';
-  row.style.display = show ? '' : 'none';
-  car.textContent = show ? '▾' : '▸';
-}
 function openAdd() { document.getElementById('addModal').classList.add('show'); document.getElementById('add_name').focus(); }
 function closeAdd() { document.getElementById('addModal').classList.remove('show'); }
 async function post(url, body) {
@@ -181,31 +140,36 @@ async function post(url, body) {
 async function submitAdd(e) {
   e.preventDefault();
   const name = document.getElementById('add_name').value.trim();
-  const kw = document.getElementById('add_kw').value.trim();
-  const notes = document.getElementById('add_notes').value.trim();
+  const product = document.getElementById('add_product').value.trim();
+  const qty = document.getElementById('add_qty').value;
   if (!name) return false;
-  const d = await post('/inventory/item/add', { name, match_keyword: kw, notes });
+  const d = await post('/inventory/item/add', { name, product, qty });
   if (d.ok) location.reload(); else alert('Could not add: ' + (d.error || 'error'));
   return false;
 }
-async function addPurchase(e, id) {
-  e.preventDefault();
-  const f = e.target;
-  const body = {
-    qty: f.qty.value, unit_price: f.unit_price.value,
-    purchased_on: f.purchased_on.value, note: f.note.value
-  };
-  const d = await post('/inventory/item/' + id + '/purchase/add', body);
-  if (d.ok) location.reload(); else alert('Could not add purchase: ' + (d.error || 'error'));
-  return false;
+function stepQty(btn, delta) {
+  const input = btn.parentElement.querySelector('.qty-input');
+  input.value = Math.max(0, (parseInt(input.value, 10) || 0) + delta);
+  saveQty(input);
 }
-async function deletePurchase(pid) {
-  if (!confirm('Remove this purchase batch?')) return;
-  const d = await post('/inventory/purchase/' + pid + '/delete', {});
-  if (d.ok) location.reload(); else alert('Could not remove.');
+async function saveQty(input) {
+  const tr = input.closest('tr');
+  const id = tr.getAttribute('data-id');
+  const qty = Math.max(0, parseInt(input.value, 10) || 0);
+  input.value = qty;
+  const d = await post('/inventory/item/' + id + '/qty', { qty });
+  if (!d.ok) { alert('Could not save: ' + (d.error || 'error')); return; }
+  // recompute available
+  const inUse = parseInt(input.getAttribute('data-inuse'), 10) || 0;
+  const avail = qty - inUse;
+  const cell = tr.querySelector('.avail-cell');
+  cell.textContent = avail + (avail < 0 ? ' ⚠' : '');
+  cell.className = 'num avail-cell ' + (avail < 0 ? 'avail-neg' : (avail === 0 ? 'avail-low' : 'avail-pos'));
+  const tick = tr.querySelector('.saved-tick');
+  tick.classList.add('show'); setTimeout(() => tick.classList.remove('show'), 1200);
 }
 async function deleteItem(id, name) {
-  if (!confirm('Delete "' + name + '" and all its purchases?')) return;
+  if (!confirm('Delete "' + name + '"?')) return;
   const d = await post('/inventory/item/' + id + '/delete', {});
   if (d.ok) location.reload(); else alert('Could not delete.');
 }

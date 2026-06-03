@@ -616,16 +616,10 @@ async function computeHeldUsages() {
   return usages;
 }
 
-// Load manual inventory items with their purchase batches.
+// Load manual inventory items (name · product · qty).
 async function getInventoryItems() {
-  const { rows: items } = await pool.query('SELECT * FROM inventory_items ORDER BY name');
-  const { rows: purchases } = await pool.query('SELECT * FROM inventory_purchases ORDER BY purchased_on DESC NULLS LAST, id DESC');
-  const byItem = {};
-  for (const p of purchases) (byItem[p.item_id] = byItem[p.item_id] || []).push(p);
-  return items.map(it => {
-    const buys = byItem[it.id] || [];
-    return { ...it, purchases: buys, purchased: buys.reduce((s, b) => s + (b.qty || 0), 0) };
-  });
+  const { rows } = await pool.query('SELECT id, name, product, qty, notes FROM inventory_items ORDER BY name');
+  return rows;
 }
 
 function escapeHtml(s) {
@@ -875,6 +869,9 @@ async function initDb() {
       notes TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS product VARCHAR(200);
+    ALTER TABLE inventory_items ADD COLUMN IF NOT EXISTS qty INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE inventory_items ALTER COLUMN match_keyword DROP NOT NULL;
     -- Each purchase batch for an item (date, qty, price) — the dropdown history.
     CREATE TABLE IF NOT EXISTS inventory_purchases (
       id SERIAL PRIMARY KEY,
@@ -1993,19 +1990,16 @@ app.get('/inventory', requireAuth, async (req, res) => {
     let usages = [], error = null;
     try { usages = await computeHeldUsages(); }
     catch (e) { error = e.message; }
-    // Draw each item down by the held-stock schedule lines its keyword matches.
+    // Draw each item down by the held-stock schedule lines its product keyword matches.
     const enriched = items.map(it => {
-      const kw = (it.match_keyword || '').toLowerCase().trim();
-      const matched = kw ? usages.filter(u => u.text.includes(kw)) : [];
+      const term = (it.product || it.name || '').toLowerCase().trim();
+      const matched = term ? usages.filter(u => u.text.includes(term)) : [];
       const byProject = {};
       for (const u of matched) byProject[u.project] = (byProject[u.project] || 0) + u.qty;
       const inUse = matched.reduce((s, u) => s + u.qty, 0);
-      const active = it.purchased - inUse;
-      const spend = it.purchases.reduce((s, b) => s + (b.qty || 0) * (Number(b.unit_price) || 0), 0);
       return {
-        ...it, inUse, active,
+        ...it, inUse, available: (it.qty || 0) - inUse,
         byProject: Object.entries(byProject).map(([address, qty]) => ({ address, qty })),
-        spend,
       };
     });
     res.render('inventory', { items: enriched, heldSuppliers: HELD_SUPPLIERS, error });
@@ -2014,16 +2008,16 @@ app.get('/inventory', requireAuth, async (req, res) => {
   }
 });
 
-// Add an inventory item
+// Add an inventory item (name · product · qty)
 app.post('/inventory/item/add', requireAuth, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
-    const keyword = String(req.body.match_keyword || '').trim() || name;
-    const notes = String(req.body.notes || '').trim() || null;
+    const product = String(req.body.product || '').trim();
+    let qty = parseInt(req.body.qty, 10); if (isNaN(qty) || qty < 0) qty = 0;
     if (!name) return res.status(400).json({ ok: false, error: 'Name is required.' });
     const { rows: [row] } = await pool.query(
-      'INSERT INTO inventory_items (name, match_keyword, notes) VALUES ($1,$2,$3) RETURNING id',
-      [name, keyword, notes]
+      'INSERT INTO inventory_items (name, product, qty) VALUES ($1,$2,$3) RETURNING id',
+      [name, product, qty]
     );
     res.json({ ok: true, id: row.id });
   } catch (err) {
@@ -2031,52 +2025,36 @@ app.post('/inventory/item/add', requireAuth, async (req, res) => {
   }
 });
 
-// Edit an inventory item (name / keyword / notes)
+// Edit an inventory item (name · product · qty)
 app.post('/inventory/item/:id/edit', requireAuth, async (req, res) => {
   try {
     const name = String(req.body.name || '').trim();
-    const keyword = String(req.body.match_keyword || '').trim() || name;
-    const notes = String(req.body.notes || '').trim() || null;
+    const product = String(req.body.product || '').trim();
+    let qty = parseInt(req.body.qty, 10); if (isNaN(qty) || qty < 0) qty = 0;
     if (!name) return res.status(400).json({ ok: false, error: 'Name is required.' });
-    await pool.query('UPDATE inventory_items SET name=$1, match_keyword=$2, notes=$3 WHERE id=$4',
-      [name, keyword, notes, req.params.id]);
+    await pool.query('UPDATE inventory_items SET name=$1, product=$2, qty=$3 WHERE id=$4',
+      [name, product, qty, req.params.id]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
 });
 
-// Delete an inventory item (purchases cascade)
+// Live-save just the qty (from the editable cell)
+app.post('/inventory/item/:id/qty', requireAuth, async (req, res) => {
+  try {
+    let qty = parseInt(req.body.qty, 10); if (isNaN(qty) || qty < 0) qty = 0;
+    await pool.query('UPDATE inventory_items SET qty=$1 WHERE id=$2', [qty, req.params.id]);
+    res.json({ ok: true, qty });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Delete an inventory item
 app.post('/inventory/item/:id/delete', requireAuth, async (req, res) => {
   try {
     await pool.query('DELETE FROM inventory_items WHERE id=$1', [req.params.id]);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// Add a purchase batch to an item
-app.post('/inventory/item/:id/purchase/add', requireAuth, async (req, res) => {
-  try {
-    let qty = parseInt(req.body.qty, 10); if (isNaN(qty) || qty < 0) qty = 0;
-    const price = req.body.unit_price === '' || req.body.unit_price == null ? null : parseFloat(req.body.unit_price);
-    const date = String(req.body.purchased_on || '').trim() || null;
-    const note = String(req.body.note || '').trim() || null;
-    await pool.query(
-      'INSERT INTO inventory_purchases (item_id, qty, unit_price, purchased_on, note) VALUES ($1,$2,$3,$4,$5)',
-      [req.params.id, qty, isNaN(price) ? null : price, date, note]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err.message });
-  }
-});
-
-// Delete a purchase batch
-app.post('/inventory/purchase/:pid/delete', requireAuth, async (req, res) => {
-  try {
-    await pool.query('DELETE FROM inventory_purchases WHERE id=$1', [req.params.pid]);
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
