@@ -51,7 +51,18 @@
     <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">📦 Orders</button>
     <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">✉️ Emails</button>
     <button type="button" class="tab-btn" data-tab="docs" onclick="showTab('docs')">📄 Docs &amp; $</button>
+    <button type="button" class="tab-btn" data-tab="schedule" onclick="showTab('schedule')">📋 Finish Schedule</button>
     <button type="button" class="btn btn-primary" style="margin-left:auto" onclick="openRfqDialog('','','','')">📧 Email Vendor</button>
+  </div>
+
+  <div class="tab-panel" data-tab="schedule">
+    <div class="email-card">
+      <div class="email-header">
+        <div><strong>Finish Schedule</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Read live from your Google Sheet — verify what the app sees.</div></div>
+        <button class="btn btn-ghost btn-sm" onclick="loadFinishSchedule(true)">↻ Refresh</button>
+      </div>
+      <div id="finSchedView" style="margin-top:.5rem;overflow-x:auto"><div style="color:var(--muted);font-size:.85rem">Open this tab to load…</div></div>
+    </div>
   </div>
 
   <div class="tab-panel" data-tab="emails">
@@ -507,8 +518,35 @@ const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + 
 function showTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = (p.dataset.tab === tab) ? 'block' : 'none'; });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  if (tab === 'schedule') loadFinishSchedule();
 }
 document.addEventListener('DOMContentLoaded', () => showTab('materials'));
+
+let FIN_SCHED_LOADED = false;
+async function loadFinishSchedule(force) {
+  if (FIN_SCHED_LOADED && !force) return;
+  const el = document.getElementById('finSchedView');
+  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading from Google Sheet…</div>';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/finish-schedule`);
+    const data = await r.json();
+    if (!data.ok) { el.innerHTML = `<div style="color:var(--danger);font-size:.85rem">${escapeHtmlJs(data.error || 'Could not load')}</div>`; return; }
+    if (!data.items || !data.items.length) { el.innerHTML = `<div style="color:var(--muted);font-size:.85rem">${escapeHtmlJs(data.note || 'No schedule.')}</div>`; FIN_SCHED_LOADED = true; return; }
+    let n = 0;
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:.82rem"><thead><tr>' +
+      ['Item', 'Cat', 'Brand', 'Model #', 'Qty', 'Cost', 'Supplier'].map(h => `<th style="text-align:left;border-bottom:2px solid var(--border);padding:5px 7px">${h}</th>`).join('') + '</tr></thead><tbody>';
+    data.items.forEach(it => {
+      if (it.type === 'section') html += `<tr><td colspan="7" style="background:var(--bg);font-weight:700;padding:6px 7px;border-top:1px solid var(--border)">${escapeHtmlJs(it.name)}</td></tr>`;
+      else if (it.type === 'subtotal') html += `<tr><td colspan="6" style="text-align:right;color:var(--muted);padding:4px 7px;font-size:.78rem">Subtotal</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.total || '')}</td></tr>`;
+      else { n++; html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 7px">${escapeHtmlJs(it.name)}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td><td style="padding:4px 7px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.model || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.qty || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.cost || '')}</td><td style="padding:4px 7px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td></tr>`; }
+    });
+    html += '</tbody></table>';
+    el.innerHTML = `<div style="font-size:.78rem;color:var(--muted);margin-bottom:.4rem">${n} items</div>` + html;
+    FIN_SCHED_LOADED = true;
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--danger);font-size:.85rem">Could not load schedule.</div>';
+  }
+}
 
 function openEmailDialog(phaseKey, label) {
   document.getElementById('emailPhaseKey').value = phaseKey;

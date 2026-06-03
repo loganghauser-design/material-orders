@@ -449,6 +449,40 @@ async function readScheduleVendors(scheduleUrl) {
   return Object.values(vendors).sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Read the whole "Fin Sched" tab as a flat list (sections, items, subtotals) for display
+function parseScheduleRows(rows) {
+  const out = [];
+  for (let i = 5; i < rows.length; i++) {
+    const r = rows[i];
+    const A = (r[0] || '').replace(/\n/g, ' ').trim();
+    const B = (r[1] || '').trim();  // Plan Tag
+    const C = (r[2] || '').trim();  // Prod. Code
+    if (/^subtotal/i.test(A)) { out.push({ type: 'subtotal', total: (r[13] || '').trim() }); continue; }
+    if (B || C) {
+      out.push({
+        type: 'item', name: A, planTag: B, prodCode: C, category: (r[4] || '').trim(),
+        brand: (r[5] || '').trim(), product: (r[6] || '').trim(), model: (r[7] || '').trim(),
+        color: (r[8] || '').trim(), qty: (r[9] || '').trim(), cost: (r[13] || '').trim(),
+        supplier: (r[14] || '').trim(), deliveryDate: (r[16] || '').trim(),
+      });
+    } else if (A) {
+      out.push({ type: 'section', name: A });
+    }
+  }
+  return out;
+}
+async function readScheduleRows(scheduleUrl) {
+  if (!SHEETS_API_KEY) throw new Error('Google Sheets API key not configured.');
+  const id = sheetIdFromUrl(scheduleUrl);
+  if (!id) throw new Error('Invalid finish-schedule link.');
+  const r = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Fin%20Sched!A1:S400?key=${SHEETS_API_KEY}`);
+  if (!r.ok) {
+    if (r.status === 403) throw new Error('Sheet not shared — set it to "Anyone with the link → Viewer".');
+    throw new Error('Could not read the schedule (HTTP ' + r.status + ').');
+  }
+  return parseScheduleRows(((await r.json()).values) || []);
+}
+
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -1512,6 +1546,19 @@ app.post('/vendor-emails/:id/delete', requireAuth, async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Full finish schedule (read live from the sheet) for the verify tab
+app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
+  try {
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
+    if (!p || !p.finish_schedule_url) return res.json({ ok: true, items: [], note: 'No finish schedule linked. Add one via Edit Project.' });
+    const items = await readScheduleRows(p.finish_schedule_url);
+    res.json({ ok: true, items });
+  } catch (err) {
+    console.error('finish-schedule:', err.message);
+    res.json({ ok: false, error: err.message });
   }
 });
 
