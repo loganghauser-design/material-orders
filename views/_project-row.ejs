@@ -1,6 +1,6 @@
 <%
   const im = itemMaps[p.id] || {};
-  const codes = ['1a','1b','1c','1d','1e','2a','2b','2c','3b','2e','3a','2d','3c','3d','3e'];
+  const codes = ['1a','1b','1c','1d','1e','2a','2b','2c','2d','2e','3a','3b','3c','3d','3e'];
 %>
 <tr data-id="<%= p.id %>">
   <td class="col-addr"><span class="drag-handle" title="Drag to reorder">⠿</span><a href="/projects/<%= p.id %>"><strong><%= p.address %></strong><% if (typeof unread !== 'undefined' && unread && unread[p.id]) { %> <span class="reply-dot" title="New vendor reply">●</span><% } %><% if(p.version){%><br><small style="color:var(--muted)"><%= p.version %></small><%}%><% if (typeof deliveredCounts !== 'undefined' && deliveredCounts) { %><br><small style="color:var(--muted)">✓ <%= deliveredCounts[p.id] || 0 %>/15 delivered</small><% } %></a><% var _fs = p.finish_schedule_url && String(p.finish_schedule_url).trim(); %><div class="fs-toggle" data-url="<%= p.finish_schedule_url || '' %>" onclick="editFinishSchedule('<%= p.id %>', this)" title="Click to add or edit the finish-schedule sheet link" style="cursor:pointer;font-size:.78rem;margin-top:2px;color:<%= _fs ? '#16a34a' : '#d97706' %>">Finish schedule: <%= _fs ? 'Yes' : 'No' %> ✎</div></td>

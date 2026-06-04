@@ -56,7 +56,7 @@ const STAGES = [
       { code: '2a', name: 'Millwork' },
       { code: '2b', name: 'Flooring' },
       { code: '2c', name: 'Decking' },
-      { code: '3b', name: 'Fs. Plumb/Light/Hood' },
+      { code: '2d', name: 'Fs. Plumb/Light/Hood' },
       { code: '2e', name: 'Water Heater' },
     ],
   },
@@ -65,7 +65,7 @@ const STAGES = [
     name: '1 Week after Warehouse Outbound',
     items: [
       { code: '3a', name: 'Countertops' },
-      { code: '2d', name: 'Appliances' },
+      { code: '3b', name: 'Appliances' },
       { code: '3c', name: 'Hardware' },
       { code: '3d', name: 'Misc' },
       { code: '3e', name: 'Shower Doors' },
@@ -91,14 +91,14 @@ function canonicalCodeFromCategory(rawCat) {
     if (/rec light|recessed|can light|down ?light/.test(t)) return '1e';
     if (/hvac/.test(t)) return '1c';
     if (/countertop/.test(t)) return '3a';
-    if (/appliance/.test(t)) return '2d';
+    if (/appliance/.test(t)) return '3b';
     if (/decking|deck board/.test(t)) return '2c';
     if (/flooring|floor/.test(t)) return '2b';
     if (/millwork/.test(t)) return '2a';
     if (/tile/.test(t)) return '1d';
     if (/hardware/.test(t)) return '3c';
     if (/\bmisc/.test(t)) return '3d';
-    if (/fs plumb|finish plumb|finished plumb|light|hood/.test(t)) return '3b';
+    if (/fs plumb|finish plumb|finished plumb|light|hood/.test(t)) return '2d';
     if (/r plumb|rough plumb|fan/.test(t)) return '1b';
     if (/door|window/.test(t)) return '1a';
   }
@@ -116,10 +116,10 @@ const MATERIAL_ALIASES = {
   '2a': ['millwork'],
   '2b': ['floor', 'flooring'],
   '2c': ['deck', 'decking'],
-  '2d': ['appliance'],
+  '2d': ['finish plumb', 'finished plumb', 'finish plumbing', 'light fixture', 'hood'],
   '2e': ['water heater'],
   '3a': ['countertop', 'counter top', 'counters'],
-  '3b': ['finish plumb', 'finished plumb', 'finish plumbing', 'light fixture', 'hood'],
+  '3b': ['appliance'],
   '3c': ['hardware'],
   '3d': ['misc'],
   '3e': ['shower door', 'shower glass'],
@@ -140,7 +140,7 @@ function detectMaterials(text) {
 // (more specific buckets first). The upload review screen lets users fix misses.
 const CATEGORY_KEYWORDS = [
   ['2e', ['water heater', 'tankless', 'wtr htr', 'water htr']],
-  ['2d', ['refrigerator', 'refrig', 'fridge', 'range', 'rnge', 'stove', 'wall oven', 'oven', 'cooktop', 'cook top', 'dishwasher', 'dishwshr', 'dishwash', ' dw ', 'dw ext', 'microwave', 'micro hood', ' mw ', 'washer', 'wshr', ' wm ', 'wm hose', 'dryer', 'dryr', 'freezer', 'frzr', 'wine cooler', 'ice maker', 'icemaker', 'im conn', 'range cord', 'dryer cord', 'stack kit', 'ldry stack', 'appliance']],
+  ['3b', ['refrigerator', 'refrig', 'fridge', 'range', 'rnge', 'stove', 'wall oven', 'oven', 'cooktop', 'cook top', 'dishwasher', 'dishwshr', 'dishwash', ' dw ', 'dw ext', 'microwave', 'micro hood', ' mw ', 'washer', 'wshr', ' wm ', 'wm hose', 'dryer', 'dryr', 'freezer', 'frzr', 'wine cooler', 'ice maker', 'icemaker', 'im conn', 'range cord', 'dryer cord', 'stack kit', 'ldry stack', 'appliance']],
   ['1b', ['rough-in', 'rough in', 'ri vlv', 'rough vlv', 'shower drain', 'shwr flr', 'shower flr', 'shower floor', 'shower pan', 'shower base', 'shr flr', 'vent fan', 'exhaust fan', 'exh fan', 'ceiling fan', 'bath fan']],
   ['1d', ['tile', 'grout', 'thinset']],
   ['1e', ['recessed', 'rec light', 'rec. light', 'can light', 'downlight']],
@@ -150,7 +150,7 @@ const CATEGORY_KEYWORDS = [
   ['3a', ['countertop', 'counter top', 'quartz', 'granite slab']],
   ['3c', ['handleset', 'lever', 'strike', 'privacy set', 'deadbolt', 'door knob', 'cabinet pull', 'cabinet knob', 'hinge', 'door hardware']],
   ['3e', ['shower door', 'shower glass', 'shower enclosure']],
-  ['3b', ['faucet', 'fct', 'toilet', 'tlt', 'sink', 'shower trim', 'shower', 'disposal', 'disposer', 'air gap', 'flange', 'sconce', 'wall light', 'vanity light', 'light', 'mirror', 'range hood', 'hood', 'thermostat', 'tstat', 'p-trap', 'supply line', 'tub', 'lav', 'drain', 'valve', 'trim']],
+  ['2d', ['faucet', 'fct', 'toilet', 'tlt', 'sink', 'shower trim', 'shower', 'disposal', 'disposer', 'air gap', 'flange', 'sconce', 'wall light', 'vanity light', 'light', 'mirror', 'range hood', 'hood', 'thermostat', 'tstat', 'p-trap', 'supply line', 'tub', 'lav', 'drain', 'valve', 'trim']],
 ];
 function categorizeItem(desc) {
   const d = ' ' + String(desc || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ') + ' ';
