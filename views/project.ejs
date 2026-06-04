@@ -354,6 +354,11 @@
     </div>
     <div class="form-group" style="margin-top:.85rem">
       <label id="rfqItemsLabel">Items (paste from Google Sheets)</label>
+      <div id="rfqStageWrap" style="display:none;margin:0 0 .45rem;font-size:.8rem">
+        <label>Deliver which stage/category?
+          <select id="rfqStage" onchange="filterByStage()" style="font-size:.8rem;padding:.18rem .4rem;border:1px solid var(--border);border-radius:6px;margin-left:.3rem"></select>
+        </label>
+      </div>
       <div id="rfqItemPick" style="display:none;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0 0 .4rem;font-size:.78rem">
         <strong>Pick items to include:</strong>
         <button type="button" class="btn btn-ghost btn-sm" onclick="setAllItemChecks(true)">Select all</button>
@@ -949,6 +954,7 @@ function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
   document.getElementById('rfqSupplierEmail').value = supplierEmail || '';
   document.getElementById('rfqItems').innerHTML = '';
   document.getElementById('rfqItemPick').style.display = 'none';
+  document.getElementById('rfqStageWrap').style.display = 'none';
   RFQ_COVERED = [];
   document.getElementById('rfqNote').value = '';
   document.getElementById('rfqFiles').value = '';
@@ -991,10 +997,26 @@ function fillFromVendor() {
   rfqSavedSupplierEmail = email || '';
   RFQ_COVERED = [...new Set(v.items.map(it => it.code))];
   const rowsHtml = v.items.map(it =>
-    `<tr><td contenteditable="false" style="text-align:center"><input type="checkbox" class="rfq-itemchk" checked onchange="updateItemCount()"></td><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
+    `<tr data-code="${escapeHtmlJs(it.code || '')}"><td contenteditable="false" style="text-align:center"><input type="checkbox" class="rfq-itemchk" checked onchange="updateItemCount()"></td><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
   document.getElementById('rfqItems').innerHTML =
     `<table><colgroup><col width="34"><col width="150"><col width="220"><col width="110"><col width="150"><col width="45"></colgroup><tr><td contenteditable="false"><b>✓</b></td><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
+  // Build the stage/category filter from this vendor's distinct codes (numeric order).
+  const codeName = {}; ALL_MATERIALS.forEach(m => { codeName[m.code] = m.name; });
+  const codes = [...new Set(v.items.map(it => it.code).filter(Boolean))].sort();
+  const stageSel = document.getElementById('rfqStage');
+  stageSel.innerHTML = '<option value="">All stages</option>' +
+    codes.map(c => `<option value="${escapeHtmlJs(c)}">${escapeHtmlJs(c)} — ${escapeHtmlJs(codeName[c] || '')}</option>`).join('');
+  document.getElementById('rfqStageWrap').style.display = codes.length > 1 ? '' : 'none';
   document.getElementById('rfqItemPick').style.display = 'flex';
+  updateItemCount();
+}
+// Tick only the items in the chosen stage/category (blank = all stages).
+function filterByStage() {
+  const code = document.getElementById('rfqStage').value;
+  getItemChecks().forEach(chk => {
+    const tr = chk.closest('tr');
+    chk.checked = !code || (tr && tr.getAttribute('data-code') === code);
+  });
   updateItemCount();
 }
 // Show/hide the picker controls + live count of how many items are ticked.
