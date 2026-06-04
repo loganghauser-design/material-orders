@@ -930,6 +930,17 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
   return { threadId: null, messageId: data && data.id };
 }
 
+// Superintendents — each project can be assigned a super, who gets @mentioned on
+// that project's delivery alerts. chatId is the Google Chat user ID (numeric) used
+// for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
+const SUPERS = [
+  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '103074035611191657205' },
+];
+function findSuper(email) {
+  const e = String(email || '').trim().toLowerCase();
+  return SUPERS.find(s => s.email.toLowerCase() === e) || null;
+}
+
 // Post a message to a Google Chat space via its incoming webhook URL.
 // The &token=... is stored separately (CHAT_WEBHOOK_TOKEN) to avoid shell-quoting issues.
 let CHAT_WEBHOOK_URL = process.env.CHAT_WEBHOOK_URL;
@@ -1022,6 +1033,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -1357,7 +1369,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData });
+    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -1444,13 +1456,15 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
   }
   // Post to the Delivery Alerts Chat space when a delivery date is newly set/changed
   if (!statusOnly && delivery_date && delivery_date !== oldDate) {
-    const { rows: [proj] } = await pool.query('SELECT address FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [proj] } = await pool.query('SELECT address, super_email FROM projects WHERE id=$1', [req.params.id]);
     const name = ITEM_NAME[req.params.code] || req.params.code;
     const parts = delivery_date.split('-').map(Number);
     const when = parts.length === 3
       ? new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
       : delivery_date;
-    postToChat(`*${shortAddress(proj ? proj.address : '')}*\n${name} scheduled for delivery ${when}`);
+    const sup = proj ? findSuper(proj.super_email) : null;
+    const mention = sup ? `<users/${sup.chatId}> ` : '';
+    postToChat(`*${shortAddress(proj ? proj.address : '')}*\n${mention}${name} scheduled for delivery ${when}`);
   }
   res.json({ ok: true });
 });
@@ -2054,6 +2068,18 @@ app.post('/projects/:id/jedco-source', requireAuth, async (req, res) => {
     const src = req.body.source === 'buildoly' ? 'buildoly' : 'default';
     await pool.query('UPDATE projects SET jedco_source=$1 WHERE id=$2', [src, req.params.id]);
     res.json({ ok: true, source: src });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Assign the superintendent running this project (they get @mentioned on delivery alerts)
+app.post('/projects/:id/super', requireAuth, async (req, res) => {
+  try {
+    const email = String(req.body.email || '').trim();
+    if (email && !findSuper(email)) return res.status(400).json({ ok: false, error: 'Unknown super.' });
+    await pool.query('UPDATE projects SET super_email=$1 WHERE id=$2', [email || null, req.params.id]);
+    res.json({ ok: true, email: email || null });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

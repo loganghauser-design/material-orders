@@ -37,6 +37,16 @@
     </div>
     <span class="badge badge-<%= project.overall_status.toLowerCase().replace(/[\s-]+/g,'_') %>" style="font-size:.95rem;padding:.4rem 1rem"><%= project.overall_status %></span>
     <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:.45rem;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:.35rem .6rem">
+      <span style="font-size:.85rem;font-weight:600">👷 Super:</span>
+      <select id="superSelect" onchange="saveSuper(this.value)" style="font-size:.88rem;padding:.28rem .5rem;border:1px solid var(--border);border-radius:7px;background:var(--surface)">
+        <option value="">— none —</option>
+        <% supers.forEach(s => { %>
+          <option value="<%= s.email %>" <%= project.super_email === s.email ? 'selected' : '' %>><%= s.name %></option>
+        <% }) %>
+      </select>
+      <span style="font-size:.72rem;color:var(--muted)">tagged on delivery alerts</span>
+    </div>
   </div>
 
   <style>
@@ -1150,6 +1160,21 @@ async function previewRfq() {
   } finally {
     btn.disabled = false; btn.textContent = orig;
   }
+}
+
+// Assign the super running this project (gets @mentioned on delivery alerts).
+async function saveSuper(email) {
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/super`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      const sel = document.getElementById('superSelect');
+      const label = email ? sel.options[sel.selectedIndex].textContent : 'no one';
+      showToast('Super set to ' + label + ' — they\'ll be tagged on delivery alerts');
+    } else showToast(data.error || 'Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
 }
 
 async function saveItem(el) {
