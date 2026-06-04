@@ -225,6 +225,12 @@
 
   </div><!-- /orders -->
   <div class="tab-panel" data-tab="materials">
+  <div id="bulkStockBar" style="display:none;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0 0 1rem;padding:.6rem .8rem;background:var(--bg);border:1px solid var(--border);border-radius:10px">
+    <strong style="font-size:.85rem">Office stock (Jedco + hoods):</strong>
+    <button type="button" class="btn btn-primary btn-sm" onclick="markAllStock('Delivered','office')">✓ Mark all delivered</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="markAllStock('In Office','office')">↩ Mark all in office</button>
+    <span id="bulkStockNote" style="font-size:.78rem;color:var(--muted)"></span>
+  </div>
   <% STAGES.forEach(stage => { %>
   <div class="stage-card">
     <div class="stage-header"><%= stage.name %></div>
@@ -578,7 +584,7 @@ async function loadMaterialsSchedule() {
       }).join('');
       const cls = cur === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory';
       const tag = it.location === 'warehouse' ? 'Warehouse-stock status' : 'Office-stock status';
-      return `<td style="padding:3px 6px"><select class="status-select ${cls}" data-itemkey="${escapeHtmlJs(it.itemKey)}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="${tag}" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
+      return `<td style="padding:3px 6px"><select class="status-select ${cls}" data-itemkey="${escapeHtmlJs(it.itemKey)}" data-loc="${it.location === 'warehouse' ? 'warehouse' : 'office'}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="${tag}" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
     }
     Object.keys(data.byCode).forEach(code => {
       const items = data.byCode[code] || [];
@@ -596,8 +602,42 @@ async function loadMaterialsSchedule() {
           : '<div style="color:var(--muted);font-size:.8rem">No schedule items in this category.</div>';
       }
     });
+    // Reveal the top "Mark all office stock delivered" bar with a live count.
+    let officeHeld = 0, officeDelivered = 0;
+    Object.keys(data.byCode).forEach(code => {
+      (data.byCode[code] || []).forEach(i => {
+        if (i.held && i.location !== 'warehouse') {
+          officeHeld++;
+          if ((i.officeStatus || 'In Office') === 'Delivered') officeDelivered++;
+        }
+      });
+    });
+    const bar = document.getElementById('bulkStockBar');
+    const note = document.getElementById('bulkStockNote');
+    if (bar) {
+      bar.style.display = officeHeld ? 'flex' : 'none';
+      if (note) note.textContent = officeHeld ? `${officeDelivered}/${officeHeld} delivered` : '';
+    }
     MAT_SCHED_LOADED = true;
   } catch (e) { /* schedule unavailable — leave the materials list plain */ }
+}
+// Bulk-flip every held stock item in the project (optionally only office or warehouse).
+async function markAllStock(status, locFilter) {
+  let selects = Array.from(document.querySelectorAll('.tab-panel[data-tab="materials"] .status-select[data-itemkey]'));
+  if (locFilter) selects = selects.filter(sel => (sel.dataset.loc || 'office') === locFilter);
+  if (!selects.length) { showToast('Nothing to update (schedule still loading?)', true); return; }
+  if (status === 'Delivered' && !confirm('Mark all ' + selects.length + ' office-stock item' + (selects.length > 1 ? 's' : '') + ' in this project as Delivered?')) return;
+  showToast('Saving ' + selects.length + '…');
+  try {
+    await Promise.all(selects.map(sel => {
+      sel.value = status;
+      return fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: sel.dataset.itemkey, status }) })
+        .then(r => r.json())
+        .then(d => { if (!d.ok) throw new Error('fail'); });
+    }));
+    showToast('Marked ' + selects.length + ' item' + (selects.length > 1 ? 's' : '') + ' → ' + status);
+    MAT_SCHED_LOADED = false; loadMaterialsSchedule();
+  } catch (e) { showToast('Some items could not be saved — please retry', true); }
 }
 function toggleCategory(code) {
   const sub = document.getElementById('sub_' + code), car = document.getElementById('car_' + code);
