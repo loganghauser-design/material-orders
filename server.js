@@ -936,6 +936,12 @@ let CHAT_WEBHOOK_URL = process.env.CHAT_WEBHOOK_URL;
 if (CHAT_WEBHOOK_URL && process.env.CHAT_WEBHOOK_TOKEN && !/[?&]token=/.test(CHAT_WEBHOOK_URL)) {
   CHAT_WEBHOOK_URL += (CHAT_WEBHOOK_URL.includes('?') ? '&' : '?') + 'token=' + process.env.CHAT_WEBHOOK_TOKEN;
 }
+// Short street address for chat headers: "4137 Milton Ave, Culver City, CA" -> "4137 Milton"
+function shortAddress(addr) {
+  let s = String(addr || '').split(',')[0].trim();
+  s = s.replace(/\s+(ave|avenue|st|street|blvd|boulevard|dr|drive|ln|lane|rd|road|way|ct|court|pl|place|ter|terrace|cir|circle|hwy|highway|pkwy|parkway|sq|square|trl|trail)\.?$/i, '');
+  return s.trim();
+}
 async function postToChat(text) {
   if (!CHAT_WEBHOOK_URL) { console.log('postToChat: no CHAT_WEBHOOK_URL set'); return; }
   try {
@@ -1444,7 +1450,7 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
     const when = parts.length === 3
       ? new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
       : delivery_date;
-    postToChat(`📦 *${name}* scheduled for delivery *${when}* — ${proj ? proj.address : ''}`);
+    postToChat(`*${shortAddress(proj ? proj.address : '')}*\n${name} scheduled for delivery ${when}`);
   }
   res.json({ ok: true });
 });
