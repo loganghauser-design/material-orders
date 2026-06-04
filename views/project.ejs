@@ -578,7 +578,7 @@ async function loadMaterialsSchedule() {
       }).join('');
       const cls = cur === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory';
       const tag = it.location === 'warehouse' ? 'Warehouse-stock status' : 'Office-stock status';
-      return `<td style="padding:3px 6px"><select class="status-select ${cls}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="${tag}" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
+      return `<td style="padding:3px 6px"><select class="status-select ${cls}" data-itemkey="${escapeHtmlJs(it.itemKey)}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="${tag}" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
     }
     Object.keys(data.byCode).forEach(code => {
       const items = data.byCode[code] || [];
@@ -586,8 +586,13 @@ async function loadMaterialsSchedule() {
       if (cnt) cnt.textContent = items.length ? '(' + items.length + ')' : '';
       const sub = document.getElementById('sub_' + code);
       if (sub) {
+        const held = items.filter(i => i.held);
+        const allDelivered = held.length > 0 && held.every(i => (i.officeStatus || 'In Office') === 'Delivered');
+        const bulkBtn = held.length
+          ? `<div style="margin:0 0 .5rem"><button type="button" class="btn btn-ghost btn-sm" onclick="markCategoryStock('${code}', '${allDelivered ? 'In Office' : 'Delivered'}')">${allDelivered ? '↩ Mark all stock back to in stock' : '✓ Mark all ' + held.length + ' stock item' + (held.length > 1 ? 's' : '') + ' delivered'}</button></div>`
+          : '';
         sub.querySelector('.sched-items').innerHTML = items.length
-          ? '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Stock status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
+          ? bulkBtn + '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Stock status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
           : '<div style="color:var(--muted);font-size:.8rem">No schedule items in this category.</div>';
       }
     });
@@ -639,9 +644,33 @@ async function saveHeldStatus(itemKey, sel) {
     if (data.ok) {
       sel.classList.remove('cell-in_inventory', 'cell-delivered');
       sel.classList.add(status === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory');
-      showToast('Office status → ' + status);
+      showToast('Stock status → ' + status);
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
+}
+// Bulk-flip every held item in a category (e.g. all Jedco grilles under HVAC Trim).
+async function markCategoryStock(code, status) {
+  const sub = document.getElementById('sub_' + code);
+  if (!sub) return;
+  const selects = Array.from(sub.querySelectorAll('.status-select[data-itemkey]'));
+  if (!selects.length) return;
+  showToast('Saving ' + selects.length + ' item' + (selects.length > 1 ? 's' : '') + '…');
+  try {
+    await Promise.all(selects.map(sel => {
+      sel.value = status;
+      return fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: sel.dataset.itemkey, status }) })
+        .then(r => r.json())
+        .then(d => {
+          if (d.ok) {
+            sel.classList.remove('cell-in_inventory', 'cell-delivered');
+            sel.classList.add(status === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory');
+          } else throw new Error('save failed');
+        });
+    }));
+    showToast('Marked ' + selects.length + ' item' + (selects.length > 1 ? 's' : '') + ' → ' + status);
+    // Re-render so the button flips to its opposite (Mark all delivered ⇄ revert).
+    MAT_SCHED_LOADED = false; loadMaterialsSchedule();
+  } catch (e) { showToast('Some items could not be saved — please retry', true); }
 }
 document.addEventListener('DOMContentLoaded', () => showTab('materials'));
 
