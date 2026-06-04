@@ -366,8 +366,23 @@
       <input type="file" id="rfqFiles" multiple>
       <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">You can select multiple files.</small>
     </div>
+    <!-- Live preview of the exact email that will be sent -->
+    <div id="rfqPreview" style="display:none;margin-top:1rem;border:1px solid var(--border);border-radius:10px;overflow:hidden">
+      <div style="background:var(--bg);padding:.5rem .8rem;font-size:.8rem;font-weight:600;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+        <span>📧 Email preview — this is exactly what the vendor will receive</span>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('rfqPreview').style.display='none'">Hide</button>
+      </div>
+      <div style="padding:.7rem .9rem;font-size:.82rem">
+        <div><strong>To:</strong> <span id="pvTo"></span></div>
+        <div id="pvCcRow" style="display:none"><strong>Cc:</strong> <span id="pvCc"></span></div>
+        <div><strong>Subject:</strong> <span id="pvSubject"></span></div>
+        <div id="pvAttachRow" style="display:none;margin-top:.2rem"><strong>Attachments:</strong> <span id="pvAttach"></span></div>
+      </div>
+      <div id="pvBody" style="padding:.4rem 1rem 1rem;border-top:1px solid var(--border);max-height:340px;overflow:auto;background:#fff;color:#222"></div>
+    </div>
     <div class="modal-actions">
       <button class="btn btn-primary" id="rfqSendBtn" onclick="sendRfq(false)">Send</button>
+      <button class="btn btn-ghost" id="rfqPreviewBtn" onclick="previewRfq()">👁 Preview email</button>
       <button class="btn btn-ghost" id="rfqDraftBtn" onclick="sendRfq(true)">Save as Draft</button>
       <button class="btn btn-ghost" onclick="document.getElementById('rfqModal').classList.remove('show')">Cancel</button>
     </div>
@@ -1031,6 +1046,46 @@ async function sendRfq(asDraft) {
     }
   } catch(e) {
     showToast('Failed', true);
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+// Show the exact email (built server-side) for review before sending.
+async function previewRfq() {
+  const supplierEmail = document.getElementById('rfqSupplierEmail').value.trim();
+  const btn = document.getElementById('rfqPreviewBtn');
+  const fd = new FormData();
+  fd.append('emailType', document.getElementById('rfqType').value);
+  fd.append('supplierName', document.getElementById('rfqSupplierName').value.trim());
+  fd.append('supplierEmail', supplierEmail);
+  fd.append('cc', document.getElementById('rfqCc').value.trim());
+  fd.append('outboundDate', document.getElementById('rfqOutboundDate').value);
+  const itemsEl = document.getElementById('rfqItems');
+  fd.append('itemsHtml', itemsEl.innerHTML);
+  fd.append('items', itemsEl.innerText);
+  fd.append('note', document.getElementById('rfqNote').value.trim());
+  for (const f of document.getElementById('rfqFiles').files) fd.append('attachments', f);
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Building…';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/rfq/preview`, { method: 'POST', body: fd });
+    const data = await r.json();
+    if (!data.ok) { showToast(data.error || 'Could not build preview', true); return; }
+    document.getElementById('pvTo').textContent = data.to || '(no recipient yet)';
+    document.getElementById('pvSubject').textContent = data.subject || '';
+    const ccRow = document.getElementById('pvCcRow');
+    if (data.cc) { document.getElementById('pvCc').textContent = data.cc; ccRow.style.display = ''; }
+    else ccRow.style.display = 'none';
+    const atRow = document.getElementById('pvAttachRow');
+    if (data.attachments && data.attachments.length) { document.getElementById('pvAttach').textContent = data.attachments.join(', '); atRow.style.display = ''; }
+    else atRow.style.display = 'none';
+    document.getElementById('pvBody').innerHTML = data.html || '';
+    const pv = document.getElementById('rfqPreview');
+    pv.style.display = 'block';
+    pv.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (e) {
+    showToast('Could not build preview', true);
   } finally {
     btn.disabled = false; btn.textContent = orig;
   }

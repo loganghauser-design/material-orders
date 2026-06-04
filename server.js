@@ -1516,6 +1516,69 @@ app.post('/projects/:id/send-email', requireAuth, upload.array('attachments', 10
 
 // ── Send RFQ to supplier ──────────────────────────────────────────────────────
 
+// Build the exact RFQ / outbound email (subject + html) — shared by send, draft,
+// and preview so the preview matches byte-for-byte what actually goes out.
+async function buildRfqEmail({ project, emailType, itemsHtml, items, note, supplierName, cc, outboundDate }) {
+  const fullAddress = project.full_address || project.address;
+  const addr = escapeHtml(fullAddress);
+  const table = (itemsHtml && /<table/i.test(itemsHtml)) ? sanitizePastedHtml(itemsHtml) : pastedDataToTable(items);
+  const sig = await getSignature();
+  const signoff = sig ? `<br>${sig}` : '<p>Thank you,<br>Logan<br>Buildoly</p>';
+  let subject, html, sendCc = null;
+
+  if (emailType === 'warehouse') {
+    subject = `${project.address}_Outbound Request`;
+    sendCc = cc || null;
+    const whenTxt = outboundDate ? formatOutboundDate(outboundDate) : '[date]';
+    html =
+`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+<p>Hi Grace and Brian,</p>
+<p>We need an outbound for <strong>${escapeHtml(whenTxt)}</strong>. Please see below for outbound slip.</p>
+<p>Grace, Please include this job BOL in this email thread once its ready, so Brian can use it for pickup.</p>
+${table || '<p><em>(slip goes here)</em></p>'}
+${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
+<p>Thank you,</p>
+${signoff}
+</div>`;
+  } else {
+    const subjectLine = `${fullAddress} RFQ`;
+    const TYPES = {
+      order: { subject: subjectLine, intro: `I'd like to place an order for delivery to <strong>${addr}</strong>. Please see the items below:`, closing: 'Please confirm pricing, availability, and lead time.' },
+      delivery: { subject: subjectLine, intro: `We're ready for delivery to <strong>${addr}</strong> on the following items:`, closing: 'Please confirm the delivery date.' },
+      quote: { subject: subjectLine, intro: `I'd like to request an RFQ for delivery to <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time at your earliest convenience.' },
+    };
+    const t = TYPES[emailType] || TYPES.order;
+    const greeting = supplierName ? `Hi ${escapeHtml(supplierName)},` : 'Hi,';
+    subject = t.subject;
+    html =
+`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
+<p>${greeting}</p>
+<p>${t.intro}</p>
+${table || '<p><em>(items below)</em></p>'}
+${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
+<p>${t.closing}</p>
+${signoff}
+</div>`;
+  }
+  return { subject, html, cc: sendCc };
+}
+
+// Preview the RFQ email without sending — returns the composed subject/body so the
+// UI can show it for review.
+app.post('/projects/:id/rfq/preview', requireAuth, upload.array('attachments', 10), async (req, res) => {
+  try {
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
+    const { supplierEmail, supplierName, note, items, itemsHtml, emailType, cc, outboundDate } = req.body;
+    const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
+    if (!project) return res.status(404).json({ ok: false, error: 'Project not found.' });
+    const { subject, html, cc: sendCc } = await buildRfqEmail({ project, emailType, itemsHtml, items, note, supplierName, cc, outboundDate });
+    const attachments = (req.files || []).map(f => f.originalname);
+    res.json({ ok: true, to: supplierEmail || '', cc: sendCc || '', subject, html, attachments });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), async (req, res) => {
   try {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
@@ -1526,49 +1589,7 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
     const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.status(404).json({ ok: false, error: 'Project not found.' });
 
-    const fullAddress = project.full_address || project.address;
-    const addr = escapeHtml(fullAddress);
-    const table = (itemsHtml && /<table/i.test(itemsHtml)) ? sanitizePastedHtml(itemsHtml) : pastedDataToTable(items);
-    const sig = await getSignature();
-    const signoff = sig ? `<br>${sig}` : '<p>Thank you,<br>Logan<br>Buildoly</p>';
-    let subject, html;
-    let sendCc = null;
-
-    if (emailType === 'warehouse') {
-      // Warehouse Outbound Request template
-      subject = `${project.address}_Outbound Request`;
-      sendCc = cc || null;
-      const whenTxt = outboundDate ? formatOutboundDate(outboundDate) : '[date]';
-      html =
-`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p>Hi Grace and Brian,</p>
-<p>We need an outbound for <strong>${escapeHtml(whenTxt)}</strong>. Please see below for outbound slip.</p>
-<p>Grace, Please include this job BOL in this email thread once its ready, so Brian can use it for pickup.</p>
-${table || '<p><em>(slip goes here)</em></p>'}
-${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
-<p>Thank you,</p>
-${signoff}
-</div>`;
-    } else {
-      const subjectLine = `${fullAddress} RFQ`;
-      const TYPES = {
-        order: { subject: subjectLine, intro: `I'd like to place an order for delivery to <strong>${addr}</strong>. Please see the items below:`, closing: 'Please confirm pricing, availability, and lead time.' },
-        delivery: { subject: subjectLine, intro: `We're ready for delivery to <strong>${addr}</strong> on the following items:`, closing: 'Please confirm the delivery date.' },
-        quote: { subject: subjectLine, intro: `I'd like to request an RFQ for delivery to <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time at your earliest convenience.' },
-      };
-      const t = TYPES[emailType] || TYPES.order;
-      const greeting = supplierName ? `Hi ${escapeHtml(supplierName)},` : 'Hi,';
-      subject = t.subject;
-      html =
-`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">
-<p>${greeting}</p>
-<p>${t.intro}</p>
-${table || '<p><em>(items below)</em></p>'}
-${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
-<p>${t.closing}</p>
-${signoff}
-</div>`;
-    }
+    const { subject, html, cc: sendCc } = await buildRfqEmail({ project, emailType, itemsHtml, items, note, supplierName, cc, outboundDate });
 
     const attachments = [];
     (req.files || []).forEach(f => attachments.push({ filename: f.originalname, mimeType: f.mimetype, content: f.buffer }));
