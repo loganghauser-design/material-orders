@@ -316,7 +316,7 @@
 
 <!-- RFQ dialog -->
 <div id="rfqModal" class="modal-overlay">
-  <div class="modal">
+  <div class="modal" style="max-width:920px;width:94vw;max-height:92vh;overflow-y:auto">
     <h2 id="rfqModalTitle">Email Vendor</h2>
     <p class="modal-sub">Drafts an email to the supplier. Paste your item list straight from Google Sheets.</p>
     <input type="hidden" id="rfqItemCode">
@@ -378,7 +378,7 @@
         <div><strong>Subject:</strong> <span id="pvSubject"></span></div>
         <div id="pvAttachRow" style="display:none;margin-top:.2rem"><strong>Attachments:</strong> <span id="pvAttach"></span></div>
       </div>
-      <div id="pvBody" style="padding:.4rem 1rem 1rem;border-top:1px solid var(--border);max-height:340px;overflow:auto;background:#fff;color:#222"></div>
+      <div id="pvBody" style="padding:.4rem 1rem 1rem;border-top:1px solid var(--border);max-height:55vh;overflow:auto;background:#fff;color:#222"></div>
     </div>
     <div class="modal-actions">
       <button class="btn btn-primary" id="rfqSendBtn" onclick="sendRfq(false)">Send</button>
