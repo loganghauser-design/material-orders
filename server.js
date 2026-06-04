@@ -934,7 +934,7 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
 // that project's delivery alerts. chatId is the Google Chat user ID (numeric) used
 // for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
 const SUPERS = [
-  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '103074035611191657205' },
+  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893' },
 ];
 function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
