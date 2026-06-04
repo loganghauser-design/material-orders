@@ -62,18 +62,6 @@
         <div><strong>Finish Schedule</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Read live from your Google Sheet — verify what the app sees.</div></div>
         <button class="btn btn-ghost btn-sm" onclick="loadFinishSchedule(true)">↻ Refresh</button>
       </div>
-      <% if (packages && packages.length) { %>
-      <div style="display:flex;align-items:center;gap:.5rem;flex-wrap:wrap;margin-top:.6rem;padding:.5rem .7rem;background:var(--bg);border:1px solid var(--border);border-radius:8px">
-        <span style="font-size:.8rem;font-weight:600">Spec packages:</span>
-        <% packages.forEach(pk => { const on = activePackages.includes(pk.key); %>
-          <button type="button" id="pkgBtn_<%= pk.key %>" class="btn btn-sm <%= on ? 'btn-primary' : 'btn-ghost' %>"
-            data-key="<%= pk.key %>" data-on="<%= on ? '1' : '0' %>" onclick="togglePackage('<%= pk.key %>')">
-            <%= on ? '✓ ' : '' %><%= pk.name %> package
-          </button>
-        <% }) %>
-        <span style="font-size:.75rem;color:var(--muted)">Override matching fixtures (e.g. faucets, sinks, shower trim) to that brand — applies here, on Materials, and in Email Vendor.</span>
-      </div>
-      <% } %>
       <div id="finSchedView" style="margin-top:.5rem;overflow-x:auto"><div style="color:var(--muted);font-size:.85rem">Open this tab to load…</div></div>
     </div>
   </div>
@@ -776,33 +764,6 @@ async function loadFinishSchedule(force) {
   } catch (e) {
     el.innerHTML = '<div style="color:var(--danger);font-size:.85rem">Could not load schedule.</div>';
   }
-}
-
-// Toggle a spec package (e.g. Moen) for this project, then refresh the views it affects.
-async function togglePackage(key) {
-  const btn = document.getElementById('pkgBtn_' + key);
-  const turnOn = btn.dataset.on !== '1';
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = 'Saving…';
-  try {
-    const r = await fetch(`/projects/${PROJECT_ID}/package`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: key, on: turnOn }),
-    });
-    const data = await r.json();
-    if (!data.ok) { showToast(data.error || 'Could not save', true); btn.textContent = orig; btn.disabled = false; return; }
-    const on = data.active.includes(key);
-    btn.dataset.on = on ? '1' : '0';
-    btn.classList.toggle('btn-primary', on);
-    btn.classList.toggle('btn-ghost', !on);
-    btn.disabled = false;
-    btn.textContent = (on ? '✓ ' : '') + key.charAt(0).toUpperCase() + key.slice(1) + ' package';
-    showToast(on ? 'Package on — matching items now spec that brand' : 'Package off');
-    // Refresh the views that read the schedule so the override shows immediately.
-    FIN_SCHED_LOADED = false; loadFinishSchedule(true);
-    MAT_SCHED_LOADED = false; if (typeof loadMaterialsSchedule === 'function') loadMaterialsSchedule();
-    SCHEDULE_VENDORS = [];   // force Email Vendor to re-pull vendor items next open
-  } catch (e) { showToast('Could not save', true); btn.textContent = orig; btn.disabled = false; }
 }
 
 function openEmailDialog(phaseKey, label) {
