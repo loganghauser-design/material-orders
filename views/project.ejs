@@ -354,8 +354,14 @@
     </div>
     <div class="form-group" style="margin-top:.85rem">
       <label id="rfqItemsLabel">Items (paste from Google Sheets)</label>
+      <div id="rfqItemPick" style="display:none;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0 0 .4rem;font-size:.78rem">
+        <strong>Pick items to include:</strong>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setAllItemChecks(true)">Select all</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="setAllItemChecks(false)">Clear all</button>
+        <span id="rfqItemCount" style="color:var(--muted)"></span>
+      </div>
       <div id="rfqItems" class="paste-box" contenteditable="true" data-placeholder="Select cells in your sheet, copy, and paste here — the table appears exactly as it looks."></div>
-      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">The pasted table shows here before you send. Use the ✕ to clear.</small>
+      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">Pick a vendor above to auto-fill its items (each gets a checkbox — untick the ones you're not requesting), or paste from Google Sheets.</small>
     </div>
     <div class="form-group" style="margin-top:.85rem">
       <label>Extra note (optional)</label>
@@ -942,6 +948,7 @@ function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
   document.getElementById('rfqSupplierName').value = supplierName || '';
   document.getElementById('rfqSupplierEmail').value = supplierEmail || '';
   document.getElementById('rfqItems').innerHTML = '';
+  document.getElementById('rfqItemPick').style.display = 'none';
   RFQ_COVERED = [];
   document.getElementById('rfqNote').value = '';
   document.getElementById('rfqFiles').value = '';
@@ -984,9 +991,41 @@ function fillFromVendor() {
   rfqSavedSupplierEmail = email || '';
   RFQ_COVERED = [...new Set(v.items.map(it => it.code))];
   const rowsHtml = v.items.map(it =>
-    `<tr><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
+    `<tr><td contenteditable="false" style="text-align:center"><input type="checkbox" class="rfq-itemchk" checked onchange="updateItemCount()"></td><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
   document.getElementById('rfqItems').innerHTML =
-    `<table><colgroup><col width="150"><col width="220"><col width="110"><col width="150"><col width="45"></colgroup><tr><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
+    `<table><colgroup><col width="34"><col width="150"><col width="220"><col width="110"><col width="150"><col width="45"></colgroup><tr><td contenteditable="false"><b>✓</b></td><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
+  document.getElementById('rfqItemPick').style.display = 'flex';
+  updateItemCount();
+}
+// Show/hide the picker controls + live count of how many items are ticked.
+function getItemChecks() { return Array.from(document.querySelectorAll('#rfqItems input.rfq-itemchk')); }
+function updateItemCount() {
+  const chks = getItemChecks();
+  const pick = document.getElementById('rfqItemPick');
+  pick.style.display = chks.length ? 'flex' : 'none';
+  const n = chks.filter(c => c.checked).length;
+  document.getElementById('rfqItemCount').textContent = chks.length ? `${n} of ${chks.length} selected` : '';
+}
+function setAllItemChecks(on) { getItemChecks().forEach(c => { c.checked = on; }); updateItemCount(); }
+// Build the items table that actually gets sent: only ticked rows, checkbox column removed.
+// If the table has no checkboxes (manual paste), send it as-is.
+function getCleanItemsHtml() {
+  const box = document.getElementById('rfqItems');
+  const table = box.querySelector('table');
+  if (!table || !table.querySelector('input.rfq-itemchk')) {
+    return { html: box.innerHTML, text: box.innerText };
+  }
+  const newTable = document.createElement('table');
+  Array.from(table.rows).forEach(tr => {
+    const chk = tr.querySelector('input.rfq-itemchk');
+    if (chk && !chk.checked) return;                 // skip unticked data rows
+    const ntr = newTable.insertRow();
+    Array.from(tr.cells).forEach((cell, idx) => {
+      if (idx === 0) return;                          // drop the checkbox column
+      ntr.insertCell().innerHTML = cell.innerHTML;
+    });
+  });
+  return { html: newTable.outerHTML, text: newTable.innerText };
 }
 
 function onRfqTypeChange() {
@@ -1015,9 +1054,9 @@ async function sendRfq(asDraft) {
   fd.append('cc', document.getElementById('rfqCc').value.trim());
   fd.append('outboundDate', document.getElementById('rfqOutboundDate').value);
   if (asDraft) fd.append('asDraft', 'true');
-  const itemsEl = document.getElementById('rfqItems');
-  fd.append('itemsHtml', itemsEl.innerHTML);
-  fd.append('items', itemsEl.innerText);
+  const clean = getCleanItemsHtml();
+  fd.append('itemsHtml', clean.html);
+  fd.append('items', clean.text);
   fd.append('note', document.getElementById('rfqNote').value.trim());
   for (const f of document.getElementById('rfqFiles').files) fd.append('attachments', f);
   const orig = btn.textContent;
@@ -1061,9 +1100,9 @@ async function previewRfq() {
   fd.append('supplierEmail', supplierEmail);
   fd.append('cc', document.getElementById('rfqCc').value.trim());
   fd.append('outboundDate', document.getElementById('rfqOutboundDate').value);
-  const itemsEl = document.getElementById('rfqItems');
-  fd.append('itemsHtml', itemsEl.innerHTML);
-  fd.append('items', itemsEl.innerText);
+  const clean = getCleanItemsHtml();
+  fd.append('itemsHtml', clean.html);
+  fd.append('items', clean.text);
   fd.append('note', document.getElementById('rfqNote').value.trim());
   for (const f of document.getElementById('rfqFiles').files) fd.append('attachments', f);
   const orig = btn.textContent;
