@@ -470,6 +470,45 @@ function normalizeSupplier(s) {
   return t;
 }
 
+// ── Spec packages ─────────────────────────────────────────────────────────────
+// A package is a reusable override you can toggle per project (a button in the
+// Finish Schedule tab). When ON, any schedule item whose name/product matches the
+// package keywords gets its Brand (and optionally Supplier) overridden — e.g. spec
+// Moen on all the plumbing fixtures that would otherwise just be ordered via Ferguson.
+const PACKAGES = {
+  moen: {
+    name: 'Moen',
+    brand: 'Moen',
+    supplier: null, // keep the existing supplier (e.g. Ferguson); only relabel the brand
+    keywords: [
+      'faucet', 'kitchen faucet', 'bathroom faucet', 'bar faucet', 'pot filler',
+      'sink', 'lavatory', 'lav ', 'bidet', 'toilet',
+      'shower trim', 'shower head', 'showerhead', 'hand shower', 'handshower', 'shower system',
+      'tub filler', 'tub spout', 'diverter', 'volume control', 'valve trim', 'trim kit', 'rough-in valve',
+      'disposal', 'garbage disposal', 'soap dispenser', 'widespread', 'centerset',
+    ],
+  },
+};
+function parsePackages(str) {
+  return String(str || '').split(',').map(s => s.trim().toLowerCase()).filter(k => PACKAGES[k]);
+}
+// Apply active packages to a row's brand/supplier. Returns possibly-overridden values.
+function applyPackages(activePackages, text, brand, supplier) {
+  let b = brand, sup = supplier;
+  if (activePackages && activePackages.length) {
+    const lc = String(text || '').toLowerCase();
+    for (const key of activePackages) {
+      const pkg = PACKAGES[key];
+      if (pkg && pkg.keywords.some(k => lc.includes(k))) {
+        if (pkg.brand) b = pkg.brand;
+        if (pkg.supplier) sup = pkg.supplier;
+        break;
+      }
+    }
+  }
+  return { brand: b, supplier: sup };
+}
+
 // Per-project overrides applied to a schedule row's (category, supplier).
 // 1) Normalize the category by NAME (schedule numbering is inconsistent with our master codes).
 // 2) Item-name override: shower doors are sometimes filed under finish plumbing → force 3e.
@@ -544,19 +583,21 @@ async function readScheduleVendors(scheduleUrl, opts = {}) {
     if (/not in scope/i.test(prodCode)) continue;
     const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
     if (!name) continue;
+    const pk = applyPackages(opts.packages, name + ' ' + (row[6] || ''), (row[5] || '').trim(), supplier);
     const item = {
-      name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(), model: (row[7] || '').trim(),
+      name, product: (row[6] || '').trim(), brand: pk.brand, model: (row[7] || '').trim(),
       qty: (row[9] || '').trim() || '1', code: (cat.match(CATRE) || [])[1].toLowerCase(),
       planTag: (row[1] || '').trim(), prodCode,
     };
-    if (!vendors[supplier]) vendors[supplier] = { name: supplier, items: [] };
-    vendors[supplier].items.push(item);
+    const vkey = pk.supplier || supplier;
+    if (!vendors[vkey]) vendors[vkey] = { name: vkey, items: [] };
+    vendors[vkey].items.push(item);
   }
   return Object.values(vendors).sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // Read the whole "Fin Sched" tab as a flat list (sections, items, subtotals) for display
-function parseScheduleRows(rows) {
+function parseScheduleRows(rows, opts = {}) {
   const out = [];
   for (let i = 5; i < rows.length; i++) {
     const r = rows[i];
@@ -565,11 +606,12 @@ function parseScheduleRows(rows) {
     const C = (r[2] || '').trim();  // Prod. Code
     if (/^subtotal/i.test(A)) { out.push({ type: 'subtotal', total: (r[13] || '').trim() }); continue; }
     if (B || C) {
+      const pk = applyPackages(opts.packages, A + ' ' + (r[6] || ''), (r[5] || '').trim(), normalizeSupplier((r[14] || '').trim()));
       out.push({
         type: 'item', name: A, planTag: B, prodCode: C, category: (r[4] || '').trim(),
-        brand: (r[5] || '').trim(), product: (r[6] || '').trim(), model: (r[7] || '').trim(),
+        brand: pk.brand, product: (r[6] || '').trim(), model: (r[7] || '').trim(),
         color: (r[8] || '').trim(), qty: (r[9] || '').trim(), cost: (r[13] || '').trim(),
-        supplier: normalizeSupplier((r[14] || '').trim()), deliveryDate: (r[16] || '').trim(),
+        supplier: pk.supplier, deliveryDate: (r[16] || '').trim(),
       });
     } else if (A) {
       out.push({ type: 'section', name: A });
@@ -634,8 +676,8 @@ async function _fetchScheduleValuesUncached(id) {
   _sheetCache.set(id, { at: Date.now(), values });
   return values;
 }
-async function readScheduleRows(scheduleUrl) {
-  return parseScheduleRows(await fetchScheduleValues(scheduleUrl));
+async function readScheduleRows(scheduleUrl, opts = {}) {
+  return parseScheduleRows(await fetchScheduleValues(scheduleUrl), opts);
 }
 // Schedule items grouped by material category code (1a..3e) — for the Materials tab drill-down
 async function readScheduleByCategory(scheduleUrl, opts = {}) {
@@ -656,9 +698,10 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
     const prodCode = (row[2] || '').trim();
     const model = (row[7] || '').trim();
     const held = isHeldSupplier(supplier);
+    const pk = applyPackages(opts.packages, name + ' ' + (row[6] || ''), (row[5] || '').trim(), supplier);
     (byCode[code] = byCode[code] || []).push({
-      name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
-      model, qty: (row[9] || '').trim() || '1', supplier,
+      name, product: (row[6] || '').trim(), brand: pk.brand,
+      model, qty: (row[9] || '').trim() || '1', supplier: pk.supplier,
       hood, jedco, defaultSupplier: (hood || jedco) ? origSupplier : undefined,
       held, itemKey: held ? heldItemKey(prodCode, model, name) : undefined,
       location: held ? ((hood || jedco) ? 'office' : 'warehouse') : undefined,
@@ -1016,6 +1059,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_packages TEXT;
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -1351,7 +1395,8 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData });
+    const packages = Object.entries(PACKAGES).map(([key, v]) => ({ key, name: v.name }));
+    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, packages, activePackages: parsePackages(project.active_packages) });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -1939,9 +1984,9 @@ ${sig ? '<br>' + sig : ''}
 // Vendors (+ their items) from this project's finish schedule, for order auto-fill
 app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, active_packages FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, packages: parsePackages(p.active_packages) });
     res.json({ ok: true, vendors });
   } catch (err) {
     console.error('schedule-vendors:', err.message);
@@ -1962,10 +2007,10 @@ app.post('/vendor-emails/:id/delete', requireAuth, async (req, res) => {
 // Full finish schedule (read live from the sheet) for the verify tab
 app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, active_packages FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, items: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const items = await readScheduleRows(p.finish_schedule_url);
-    res.json({ ok: true, items });
+    const items = await readScheduleRows(p.finish_schedule_url, { packages: parsePackages(p.active_packages) });
+    res.json({ ok: true, items, activePackages: parsePackages(p.active_packages) });
   } catch (err) {
     console.error('finish-schedule:', err.message);
     res.json({ ok: false, error: err.message });
@@ -1975,9 +2020,9 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
 // Schedule items grouped by material category (for the Materials tab drill-down)
 app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, active_packages FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
-    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source });
+    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, packages: parsePackages(p.active_packages) });
     // Attach saved office-stock status to held items
     const { rows: hs } = await pool.query('SELECT item_key, status FROM held_item_status WHERE project_id=$1', [req.params.id]);
     const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r.status]));
@@ -2048,6 +2093,23 @@ app.post('/projects/:id/jedco-source', requireAuth, async (req, res) => {
     const src = req.body.source === 'buildoly' ? 'buildoly' : 'default';
     await pool.query('UPDATE projects SET jedco_source=$1 WHERE id=$2', [src, req.params.id]);
     res.json({ ok: true, source: src });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Toggle a spec package (e.g. Moen) on/off for a project. Stored as a comma list.
+app.post('/projects/:id/package', requireAuth, async (req, res) => {
+  try {
+    const key = String(req.body.name || '').trim().toLowerCase();
+    if (!PACKAGES[key]) return res.status(400).json({ ok: false, error: 'Unknown package.' });
+    const on = req.body.on === true || req.body.on === 'true';
+    const { rows: [p] } = await pool.query('SELECT active_packages FROM projects WHERE id=$1', [req.params.id]);
+    const cur = new Set(parsePackages(p && p.active_packages));
+    if (on) cur.add(key); else cur.delete(key);
+    const val = [...cur].join(',');
+    await pool.query('UPDATE projects SET active_packages=$1 WHERE id=$2', [val, req.params.id]);
+    res.json({ ok: true, active: [...cur] });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
