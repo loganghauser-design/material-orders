@@ -935,6 +935,8 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
 // for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
 const SUPERS = [
   { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893' },
+  { email: 'kevin@buildoly.com', name: 'Kevin Leon', chatId: '114651669878031315273' },
+  { email: 'eddie@buildoly.com', name: 'Eddie Solorzano', chatId: '105599791425178916274' },
 ];
 function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
