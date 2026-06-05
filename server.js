@@ -947,9 +947,9 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
 // that project's delivery alerts. chatId is the Google Chat user ID (numeric) used
 // for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
 const SUPERS = [
-  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893', passwordHash: '$2b$10$OxvBf8ldRhKsFc9pZBWdduvFGWh.PFD4y2QvqofxZMjPeiHBDF4ci' },
-  { email: 'kevin@buildoly.com', name: 'Kevin Leon', chatId: '114651669878031315273', passwordHash: '$2b$10$wXh/rfxIf6jqYIMTCiuAuuhajdcnpy3tb2iY/x8b.wcECNvfaVUMO' },
-  { email: 'eddie@buildoly.com', name: 'Eddie Solorzano', chatId: '105599791425178916274', passwordHash: '$2b$10$kiY420Fs7ySHug0inDQ4PeiS9gt4ejHv.xHbE8sdFFne6kN8kR/Mu' },
+  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
+  { email: 'kevin@buildoly.com', name: 'Kevin Leon', chatId: '114651669878031315273', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
+  { email: 'eddie@buildoly.com', name: 'Eddie Solorzano', chatId: '105599791425178916274', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
 ];
 function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
