@@ -942,6 +942,11 @@ function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
   return SUPERS.find(s => s.email.toLowerCase() === e) || null;
 }
+// A project's super_email holds a comma-separated list (multiple supers per project).
+function parseSuperEmails(str) {
+  const set = String(str || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+  return SUPERS.filter(s => set.includes(s.email.toLowerCase()));
+}
 
 // Post a message to a Google Chat space via its incoming webhook URL.
 // The &token=... is stored separately (CHAT_WEBHOOK_TOKEN) to avoid shell-quoting issues.
@@ -1464,8 +1469,8 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
     const when = parts.length === 3
       ? new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
       : delivery_date;
-    const sup = proj ? findSuper(proj.super_email) : null;
-    const mention = sup ? `<users/${sup.chatId}> ` : '';
+    const sups = proj ? parseSuperEmails(proj.super_email) : [];
+    const mention = sups.length ? sups.map(s => `<users/${s.chatId}>`).join(' ') + ' ' : '';
     postToChat(`*${shortAddress(proj ? proj.address : '')}*\n${mention}${name} scheduled for delivery ${when}`);
   }
   res.json({ ok: true });
@@ -2075,13 +2080,16 @@ app.post('/projects/:id/jedco-source', requireAuth, async (req, res) => {
   }
 });
 
-// Assign the superintendent running this project (they get @mentioned on delivery alerts)
+// Assign the superintendent(s) running this project — one or more, comma-separated.
+// They each get @mentioned on this project's delivery alerts.
 app.post('/projects/:id/super', requireAuth, async (req, res) => {
   try {
-    const email = String(req.body.email || '').trim();
-    if (email && !findSuper(email)) return res.status(400).json({ ok: false, error: 'Unknown super.' });
-    await pool.query('UPDATE projects SET super_email=$1 WHERE id=$2', [email || null, req.params.id]);
-    res.json({ ok: true, email: email || null });
+    let emails = req.body.emails;
+    if (!Array.isArray(emails)) emails = req.body.email ? [req.body.email] : [];
+    const valid = emails.map(e => String(e).trim().toLowerCase()).filter(e => findSuper(e));
+    const val = [...new Set(valid)].join(',');
+    await pool.query('UPDATE projects SET super_email=$1 WHERE id=$2', [val || null, req.params.id]);
+    res.json({ ok: true, emails: valid });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }

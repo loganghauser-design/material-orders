@@ -37,15 +37,13 @@
     </div>
     <span class="badge badge-<%= project.overall_status.toLowerCase().replace(/[\s-]+/g,'_') %>" style="font-size:.95rem;padding:.4rem 1rem"><%= project.overall_status %></span>
     <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:.45rem;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:.35rem .6rem">
-      <span style="font-size:.85rem;font-weight:600">👷 Super:</span>
-      <select id="superSelect" onchange="saveSuper(this.value)" style="font-size:.88rem;padding:.28rem .5rem;border:1px solid var(--border);border-radius:7px;background:var(--surface)">
-        <option value="">— none —</option>
-        <% supers.forEach(s => { %>
-          <option value="<%= s.email %>" <%= project.super_email === s.email ? 'selected' : '' %>><%= s.name %></option>
-        <% }) %>
-      </select>
-      <span style="font-size:.72rem;color:var(--muted)">tagged on delivery alerts</span>
+    <% const _assigned = (project.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean); %>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:.4rem .65rem">
+      <span style="font-size:.85rem;font-weight:600">👷 Supers:</span>
+      <% supers.forEach(s => { const on = _assigned.includes(s.email.toLowerCase()); %>
+        <button type="button" class="super-chip<%= on ? ' on' : '' %>" data-email="<%= s.email %>" onclick="toggleSuper(this)"><%= on ? '✓ ' : '' %><%= s.name %></button>
+      <% }) %>
+      <span style="font-size:.72rem;color:var(--muted)">click any working this job — they get tagged on delivery alerts</span>
     </div>
   </div>
 
@@ -53,6 +51,10 @@
     .tabs{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin:.25rem 0 1.1rem;border-bottom:1px solid var(--border);padding-bottom:.55rem}
     .tab-btn{background:none;border:1px solid var(--border);border-radius:7px;padding:.45rem 1rem;cursor:pointer;font-size:.92rem;color:var(--muted)}
     .tab-btn.active{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
+    .super-chip{font-size:.82rem;padding:.25rem .7rem;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text);cursor:pointer}
+    .super-chip:hover{border-color:#4f8ef7}
+    .super-chip.on{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
+    .super-chip:disabled{opacity:.55;cursor:default}
     .tab-panel{display:none}
     .modal{max-height:90vh;overflow-y:auto}
     .modal-overlay{padding:2vh 0}
@@ -1162,19 +1164,28 @@ async function previewRfq() {
   }
 }
 
-// Assign the super running this project (gets @mentioned on delivery alerts).
-async function saveSuper(email) {
+// Toggle a super on/off for this project. Multiple can be selected — all get tagged
+// on delivery alerts. Saves the full current selection each click.
+async function toggleSuper(btn) {
+  btn.classList.toggle('on');
+  const chips = Array.from(document.querySelectorAll('.super-chip'));
+  // Update the ✓ prefix to reflect each chip's state.
+  chips.forEach(c => {
+    const clean = c.textContent.replace(/^✓\s*/, '');
+    c.textContent = (c.classList.contains('on') ? '✓ ' : '') + clean;
+  });
+  const emails = chips.filter(c => c.classList.contains('on')).map(c => c.dataset.email);
+  chips.forEach(c => c.disabled = true);
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/super`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails }),
     });
     const data = await r.json();
     if (data.ok) {
-      const sel = document.getElementById('superSelect');
-      const label = email ? sel.options[sel.selectedIndex].textContent : 'no one';
-      showToast('Super set to ' + label + ' — they\'ll be tagged on delivery alerts');
-    } else showToast(data.error || 'Could not save', true);
-  } catch (e) { showToast('Could not save', true); }
+      showToast(emails.length ? 'Supers updated — ' + emails.length + ' tagged on delivery alerts' : 'No supers assigned');
+    } else { showToast(data.error || 'Could not save', true); btn.classList.toggle('on'); }
+  } catch (e) { showToast('Could not save', true); btn.classList.toggle('on'); }
+  finally { chips.forEach(c => c.disabled = false); }
 }
 
 async function saveItem(el) {
