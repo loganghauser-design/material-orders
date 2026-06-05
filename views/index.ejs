@@ -196,6 +196,25 @@ async function editFinishSchedule(id, el) {
     }
   } catch (e) { showToast('Could not save', true); }
 }
+
+// Assign/unassign a super for a project right from the home grid (multiple allowed).
+async function toggleRowSuper(event, el) {
+  event.stopPropagation();
+  el.classList.toggle('on');
+  const pid = el.dataset.pid;
+  const chips = Array.from(document.querySelectorAll('.rsuper[data-pid="' + pid + '"]'));
+  const emails = chips.filter(c => c.classList.contains('on')).map(c => c.dataset.email);
+  chips.forEach(c => c.style.pointerEvents = 'none');
+  try {
+    const r = await fetch('/projects/' + pid + '/super', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails }),
+    });
+    const data = await r.json();
+    if (data.ok) showToast(emails.length ? 'Supers updated (' + emails.length + ')' : 'No supers assigned');
+    else { el.classList.toggle('on'); showToast(data.error || 'Could not save', true); }
+  } catch (e) { el.classList.toggle('on'); showToast('Could not save', true); }
+  finally { chips.forEach(c => c.style.pointerEvents = ''); }
+}
 </script>
 </body>
 </html>

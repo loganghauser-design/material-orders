@@ -1279,7 +1279,7 @@ app.get('/', requireAuth, async (req, res) => {
       projects.sort((a, b) => (deliveredCounts[b.id] || 0) - (deliveredCounts[a.id] || 0));
     }
 
-    res.render('index', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort });
+    res.render('index', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

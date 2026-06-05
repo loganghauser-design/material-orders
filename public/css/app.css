@@ -225,3 +225,9 @@ textarea { resize: vertical; min-height: 80px; }
   .stage-table th:nth-child(4), .stage-table td:nth-child(4),
   .stage-table th:nth-child(5), .stage-table td:nth-child(5) { display: none; }
 }
+
+/* Home-grid super chips (assign supers inline from the project list) */
+.row-supers { margin-top: 3px; display: flex; gap: 3px; flex-wrap: wrap; align-items: center; font-size: .72rem; color: var(--muted); }
+.rsuper { font-size: .68rem; padding: 1px 7px; border: 1px solid var(--border); border-radius: 9px; cursor: pointer; color: var(--muted); background: var(--surface); user-select: none; }
+.rsuper:hover { border-color: #4f8ef7; color: var(--text); }
+.rsuper.on { background: #4f8ef7; color: #fff; border-color: #4f8ef7; font-weight: 600; }
