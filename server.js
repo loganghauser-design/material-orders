@@ -406,7 +406,10 @@ const _geocodeCache = {};
 
 async function geocodeAddress(text) {
   if (_geocodeCache[text]) return _geocodeCache[text];
-  const url = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_KEY}&text=${encodeURIComponent(text)}&boundary.country=US&size=1`;
+  // Bias results toward the LA / Southern California area so a vague address that's
+  // missing a city/state (e.g. "10111 Topeka Dr") resolves locally instead of jumping
+  // to the literal city match (Topeka, KS). focus.point only ranks — it never excludes.
+  const url = `https://api.openrouteservice.org/geocode/search?api_key=${ORS_KEY}&text=${encodeURIComponent(text)}&boundary.country=US&focus.point.lon=-118.2437&focus.point.lat=34.0522&size=1`;
   const r = await fetch(url);
   if (!r.ok) throw new Error('Geocoding failed for: ' + text);
   const data = await r.json();
