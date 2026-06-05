@@ -55,6 +55,9 @@
     .super-chip:hover{border-color:#4f8ef7}
     .super-chip.on{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
     .super-chip:disabled{opacity:.55;cursor:default}
+    .held-qty.qty-done{background:#6aa84f;color:#fff;border-color:#6aa84f;font-weight:600}
+    .held-qty.qty-partial{background:#fde6c8;color:#8a4b00;border-color:#e0a106}
+    .held-qty.qty-none{background:#ede0fb;color:#5b2a86}
     .tab-panel{display:none}
     .modal{max-height:90vh;overflow-y:auto}
     .modal-overlay{padding:2vh 0}
@@ -239,8 +242,8 @@
   <div class="tab-panel" data-tab="materials">
   <div id="bulkStockBar" style="display:none;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0 0 1rem;padding:.6rem .8rem;background:var(--bg);border:1px solid var(--border);border-radius:10px">
     <strong style="font-size:.85rem">Office stock (Jedco + hoods):</strong>
-    <button type="button" class="btn btn-primary btn-sm" onclick="markAllStock('Delivered','office')">✓ Mark all delivered</button>
-    <button type="button" class="btn btn-ghost btn-sm" onclick="markAllStock('In Office','office')">↩ Mark all in office</button>
+    <button type="button" class="btn btn-primary btn-sm" onclick="markAllStock('all','office')">✓ Mark all delivered</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="markAllStock('none','office')">↩ Mark all in office</button>
     <span id="bulkStockNote" style="font-size:.78rem;color:var(--muted)"></span>
   </div>
   <% STAGES.forEach(stage => { %>
@@ -614,15 +617,11 @@ async function loadMaterialsSchedule() {
     }
     function officeCell(it) {
       if (!it.held) return '<td style="padding:3px 6px;color:var(--muted)">—</td>';
-      const cur = it.officeStatus || 'In Office';
-      const heldLabel = it.location === 'warehouse' ? 'In Warehouse' : 'In Office';
-      const opts = heldStatuses.map(s => {
-        const label = s === 'In Office' ? heldLabel : s;
-        return `<option value="${escapeHtmlJs(s)}"${s === cur ? ' selected' : ''}>${escapeHtmlJs(label)}</option>`;
-      }).join('');
-      const cls = cur === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory';
-      const tag = it.location === 'warehouse' ? 'Warehouse-stock status' : 'Office-stock status';
-      return `<td style="padding:3px 6px"><select class="status-select ${cls}" data-itemkey="${escapeHtmlJs(it.itemKey)}" data-loc="${it.location === 'warehouse' ? 'warehouse' : 'office'}" onchange="saveHeldStatus('${escapeHtmlJs(it.itemKey)}', this)" title="${tag}" style="font-size:.78rem;padding:1px 4px">${opts}</select></td>`;
+      const max = Number(it.allocQty) || 1;
+      const cur = Number(it.deliveredQty) || 0;
+      const loc = it.location === 'warehouse' ? 'warehouse' : 'office';
+      const cls = cur >= max ? 'qty-done' : (cur > 0 ? 'qty-partial' : 'qty-none');
+      return `<td style="padding:3px 6px;white-space:nowrap"><input type="number" class="held-qty ${cls}" min="0" max="${max}" value="${cur}" data-itemkey="${escapeHtmlJs(it.itemKey)}" data-max="${max}" data-prev="${cur}" data-loc="${loc}" onchange="saveHeldQty(this)" title="How many delivered (of ${max})" style="width:46px;text-align:center;font-size:.8rem;padding:2px 3px;border:1px solid var(--border);border-radius:5px"> <span style="color:var(--muted);font-size:.74rem">/ ${max} delivered</span></td>`;
     }
     Object.keys(data.byCode).forEach(code => {
       const items = data.byCode[code] || [];
@@ -631,9 +630,9 @@ async function loadMaterialsSchedule() {
       const sub = document.getElementById('sub_' + code);
       if (sub) {
         const held = items.filter(i => i.held);
-        const allDelivered = held.length > 0 && held.every(i => (i.officeStatus || 'In Office') === 'Delivered');
+        const allDelivered = held.length > 0 && held.every(i => (Number(i.deliveredQty) || 0) >= (Number(i.allocQty) || 1));
         const bulkBtn = held.length
-          ? `<div style="margin:0 0 .5rem"><button type="button" class="btn btn-ghost btn-sm" onclick="markCategoryStock('${code}', '${allDelivered ? 'In Office' : 'Delivered'}')">${allDelivered ? '↩ Mark all stock back to in stock' : '✓ Mark all ' + held.length + ' stock item' + (held.length > 1 ? 's' : '') + ' delivered'}</button></div>`
+          ? `<div style="margin:0 0 .5rem"><button type="button" class="btn btn-ghost btn-sm" onclick="markCategoryStock('${code}', '${allDelivered ? 'none' : 'all'}')">${allDelivered ? '↩ Mark all stock back to in stock' : '✓ Mark all ' + held.length + ' stock item' + (held.length > 1 ? 's' : '') + ' delivered'}</button></div>`
           : '';
         sub.querySelector('.sched-items').innerHTML = items.length
           ? bulkBtn + '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Stock status</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">${escapeHtmlJs(it.name)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}</tr>`).join('') + '</table>'
@@ -646,7 +645,7 @@ async function loadMaterialsSchedule() {
       (data.byCode[code] || []).forEach(i => {
         if (i.held && i.location !== 'warehouse') {
           officeHeld++;
-          if ((i.officeStatus || 'In Office') === 'Delivered') officeDelivered++;
+          if ((Number(i.deliveredQty) || 0) >= (Number(i.allocQty) || 1)) officeDelivered++;
         }
       });
     });
@@ -659,21 +658,30 @@ async function loadMaterialsSchedule() {
     MAT_SCHED_LOADED = true;
   } catch (e) { /* schedule unavailable — leave the materials list plain */ }
 }
-// Bulk-flip every held stock item in the project (optionally only office or warehouse).
-async function markAllStock(status, locFilter) {
-  let selects = Array.from(document.querySelectorAll('.tab-panel[data-tab="materials"] .status-select[data-itemkey]'));
-  if (locFilter) selects = selects.filter(sel => (sel.dataset.loc || 'office') === locFilter);
-  if (!selects.length) { showToast('Nothing to update (schedule still loading?)', true); return; }
-  if (status === 'Delivered' && !confirm('Mark all ' + selects.length + ' office-stock item' + (selects.length > 1 ? 's' : '') + ' in this project as Delivered?')) return;
-  showToast('Saving ' + selects.length + '…');
+function applyHeldQtyClass(inp, val, max) {
+  inp.classList.remove('qty-done', 'qty-partial', 'qty-none');
+  inp.classList.add(val >= max ? 'qty-done' : (val > 0 ? 'qty-partial' : 'qty-none'));
+}
+// Set a list of held-qty inputs fully delivered ('all') or back to zero ('none').
+async function setHeldQtyInputs(inputs, mode) {
+  await Promise.all(inputs.map(inp => {
+    const max = parseInt(inp.dataset.max, 10) || 0;
+    const val = mode === 'all' ? max : 0;
+    inp.value = val; inp.dataset.prev = val; applyHeldQtyClass(inp, val, max);
+    return fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: inp.dataset.itemkey, delivered_qty: val }) })
+      .then(r => r.json()).then(d => { if (!d.ok) throw new Error('fail'); });
+  }));
+}
+// Bulk-set every held stock item in the project (optionally only office or warehouse).
+async function markAllStock(mode, locFilter) {
+  let inputs = Array.from(document.querySelectorAll('.tab-panel[data-tab="materials"] .held-qty'));
+  if (locFilter) inputs = inputs.filter(i => (i.dataset.loc || 'office') === locFilter);
+  if (!inputs.length) { showToast('Nothing to update (schedule still loading?)', true); return; }
+  if (mode === 'all' && !confirm('Mark all ' + inputs.length + ' office-stock item' + (inputs.length > 1 ? 's' : '') + ' fully delivered?')) return;
+  showToast('Saving ' + inputs.length + '…');
   try {
-    await Promise.all(selects.map(sel => {
-      sel.value = status;
-      return fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: sel.dataset.itemkey, status }) })
-        .then(r => r.json())
-        .then(d => { if (!d.ok) throw new Error('fail'); });
-    }));
-    showToast('Marked ' + selects.length + ' item' + (selects.length > 1 ? 's' : '') + ' → ' + status);
+    await setHeldQtyInputs(inputs, mode);
+    showToast('Updated ' + inputs.length + ' item' + (inputs.length > 1 ? 's' : ''));
     MAT_SCHED_LOADED = false; loadMaterialsSchedule();
   } catch (e) { showToast('Some items could not be saved — please retry', true); }
 }
@@ -714,39 +722,33 @@ async function setJedcoSource(source) {
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }
-async function saveHeldStatus(itemKey, sel) {
-  const status = sel.value;
+// Save how many of a single held item are delivered (partial allowed).
+async function saveHeldQty(input) {
+  const max = parseInt(input.dataset.max, 10) || 0;
+  let val = Math.max(0, Math.min(parseInt(input.value, 10) || 0, max));
+  input.value = val;
+  const prev = parseInt(input.dataset.prev, 10) || 0;
+  if (val === prev) return;
+  input.disabled = true;
   try {
-    const r = await fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: itemKey, status }) });
-    const data = await r.json();
-    if (data.ok) {
-      sel.classList.remove('cell-in_inventory', 'cell-delivered');
-      sel.classList.add(status === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory');
-      showToast('Stock status → ' + status);
-    } else showToast('Could not save', true);
-  } catch (e) { showToast('Could not save', true); }
+    const r = await fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: input.dataset.itemkey, delivered_qty: val }) });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'fail');
+    input.dataset.prev = val; applyHeldQtyClass(input, val, max);
+    showToast('Delivered ' + val + ' of ' + max);
+  } catch (e) { input.value = prev; showToast('Could not save', true); }
+  finally { input.disabled = false; }
 }
-// Bulk-flip every held item in a category (e.g. all Jedco grilles under HVAC Trim).
-async function markCategoryStock(code, status) {
+// Bulk-set every held item in a category (e.g. all Jedco grilles under HVAC Trim).
+async function markCategoryStock(code, mode) {
   const sub = document.getElementById('sub_' + code);
   if (!sub) return;
-  const selects = Array.from(sub.querySelectorAll('.status-select[data-itemkey]'));
-  if (!selects.length) return;
-  showToast('Saving ' + selects.length + ' item' + (selects.length > 1 ? 's' : '') + '…');
+  const inputs = Array.from(sub.querySelectorAll('.held-qty'));
+  if (!inputs.length) return;
+  showToast('Saving ' + inputs.length + ' item' + (inputs.length > 1 ? 's' : '') + '…');
   try {
-    await Promise.all(selects.map(sel => {
-      sel.value = status;
-      return fetch(`/projects/${PROJECT_ID}/held-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ item_key: sel.dataset.itemkey, status }) })
-        .then(r => r.json())
-        .then(d => {
-          if (d.ok) {
-            sel.classList.remove('cell-in_inventory', 'cell-delivered');
-            sel.classList.add(status === 'Delivered' ? 'cell-delivered' : 'cell-in_inventory');
-          } else throw new Error('save failed');
-        });
-    }));
-    showToast('Marked ' + selects.length + ' item' + (selects.length > 1 ? 's' : '') + ' → ' + status);
-    // Re-render so the button flips to its opposite (Mark all delivered ⇄ revert).
+    await setHeldQtyInputs(inputs, mode);
+    showToast('Updated ' + inputs.length + ' item' + (inputs.length > 1 ? 's' : ''));
     MAT_SCHED_LOADED = false; loadMaterialsSchedule();
   } catch (e) { showToast('Some items could not be saved — please retry', true); }
 }

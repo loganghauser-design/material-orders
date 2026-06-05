@@ -44,6 +44,11 @@
     .sec-totals .col-ware b { color:#c2710c; }
     .spinner { width:30px; height:30px; border:3px solid var(--border); border-top-color:#4361ee; border-radius:50%; animation:invspin .8s linear infinite; }
     @keyframes invspin { to { transform:rotate(360deg); } }
+    .deliv-qty { width:50px; text-align:center; font-size:.9rem; padding:3px 4px; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+    .qstep { border:1px solid var(--border); background:var(--surface); width:24px; height:28px; border-radius:6px; cursor:pointer; font-size:1rem; line-height:1; }
+    .qstep:hover { background:var(--bg); }
+    .mini-btn { border:1px solid var(--border); background:var(--surface); border-radius:6px; padding:2px 8px; font-size:.74rem; cursor:pointer; margin-left:.3rem; }
+    .mini-btn:hover { background:#4f8ef7; color:#fff; border-color:#4f8ef7; }
     .toggle-btn { border:none; cursor:pointer; font-family:inherit; }
     .toggle-btn:hover { filter:brightness(.96); box-shadow:0 0 0 2px rgba(0,0,0,.07); }
     .toggle-btn:disabled { opacity:.6; cursor:default; }
@@ -259,47 +264,54 @@ function bump(id, delta) {
   const el = document.getElementById(id);
   if (el) el.textContent = (parseInt(el.textContent, 10) || 0) + delta;
 }
-async function toggleDelivered(btn) {
-  const pid = btn.dataset.pid;
-  const keys = (btn.dataset.keys || '').split('||').filter(Boolean);
-  const toDelivered = btn.dataset.status !== 'Delivered';
-  const newStatus = toDelivered ? 'Delivered' : 'In Office';
-  const prevText = btn.textContent;
-  if (!keys.length) { alert('This item has no tracking key — cannot mark delivered.'); return; }
-  btn.disabled = true; btn.textContent = 'Saving…';
+// Stepper / quick-set helpers around the delivered-qty input.
+function bumpDeliv(btn, delta) {
+  const input = btn.parentElement.querySelector('.deliv-qty');
+  const max = parseInt(input.dataset.max, 10) || 0;
+  input.value = Math.max(0, Math.min((parseInt(input.value, 10) || 0) + delta, max));
+  saveDeliveredQty(input);
+}
+function setDeliv(btn, which) {
+  const input = btn.parentElement.querySelector('.deliv-qty');
+  const max = parseInt(input.dataset.max, 10) || 0;
+  input.value = which === 'all' ? max : 0;
+  saveDeliveredQty(input);
+}
+// Save how many units are delivered for this project, and update the item totals live.
+async function saveDeliveredQty(input) {
+  const pid = input.dataset.pid;
+  const keys = (input.dataset.keys || '').split('||').filter(Boolean);
+  const max = parseInt(input.dataset.max, 10) || 0;
+  let val = Math.max(0, Math.min(parseInt(input.value, 10) || 0, max));
+  input.value = val;
+  const prev = parseInt(input.dataset.prev, 10) || 0;
+  if (val === prev) return;
+  if (!keys.length) { alert('This item has no tracking key.'); input.value = prev; return; }
+  input.disabled = true;
   try {
-    for (const key of keys) {
-      const r = await fetch('/projects/' + pid + '/held-status', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'item_key=' + encodeURIComponent(key) + '&status=' + encodeURIComponent(newStatus),
-      });
-      if (!r.ok) throw new Error('save failed (' + r.status + ')');
-    }
-    // Update the button in place — no reload, so the expanded row stays open.
-    const ware = btn.dataset.loc === 'ware';
-    btn.dataset.status = newStatus;
-    btn.classList.toggle('cell-delivered', toDelivered);
-    btn.classList.toggle(ware ? 'cell-in_ware' : 'cell-in_office', !toDelivered);
-    btn.textContent = toDelivered ? '✓ Delivered' : (ware ? 'In warehouse — mark delivered' : 'In office — mark delivered');
-    btn.disabled = false;
-    // Update this item's Delivered / In-office(warehouse) counts and the section totals.
-    const qty = parseInt(btn.dataset.qty, 10) || 0;
-    const sign = toDelivered ? 1 : -1;
-    const row = document.querySelector('tr.item-row[data-id="' + btn.dataset.itemid + '"]');
+    // Put the delivered count on the project's (single) item key.
+    const r = await fetch('/projects/' + pid + '/held-status', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item_key: keys[0], delivered_qty: val }),
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || 'save failed');
+    const delta = val - prev;
+    input.dataset.prev = val;
+    const ware = input.dataset.loc === 'ware';
+    const row = document.querySelector('tr.item-row[data-id="' + input.dataset.itemid + '"]');
     if (row) {
-      const d = row.querySelector('.deliv-cell');
-      const o = row.querySelector(ware ? '.ware-cell' : '.office-cell');
-      if (d) d.textContent = (parseInt(d.textContent, 10) || 0) + sign * qty;
-      if (o) o.textContent = (parseInt(o.textContent, 10) || 0) - sign * qty;
+      const dc = row.querySelector('.deliv-cell');
+      const oc = row.querySelector(ware ? '.ware-cell' : '.office-cell');
+      if (dc) dc.textContent = (parseInt(dc.textContent, 10) || 0) + delta;
+      if (oc) oc.textContent = (parseInt(oc.textContent, 10) || 0) - delta;
     }
-    bump(ware ? 'tot-wdeliv' : 'tot-odeliv', sign * qty);
-    bump(ware ? 'tot-wware' : 'tot-ooffice', -sign * qty);
+    bump(ware ? 'tot-wdeliv' : 'tot-odeliv', delta);
+    bump(ware ? 'tot-wware' : 'tot-ooffice', -delta);
   } catch (e) {
-    btn.disabled = false;
-    btn.textContent = prevText;
-    alert('Could not save: ' + e.message + '. Please try again.');
-  }
+    input.value = prev;
+    alert('Could not save: ' + e.message);
+  } finally { input.disabled = false; }
 }
 document.getElementById('addModal').addEventListener('click', e => { if (e.target.id === 'addModal') closeAdd(); });
 </script>

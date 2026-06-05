@@ -219,6 +219,16 @@ const PROJECT_STATUSES = ['Not Yet', 'In Progress', 'All Delivered', 'Draft - Co
 // Office-stock lifecycle for held items (no RFQ/order — you already own them).
 const HELD_STATUSES = ['In Office', 'Delivered'];
 
+// How many of an item's `allocated` units are delivered for a project, given its
+// held_item_status row. Supports partial delivery (delivered_qty) with a fallback to
+// the old binary status for rows saved before partial tracking existed.
+function deliveredQtyOf(hs, allocated) {
+  const alloc = Math.max(0, Number(allocated) || 0);
+  if (hs && hs.delivered_qty != null) return Math.max(0, Math.min(Number(hs.delivered_qty) || 0, alloc));
+  if (hs && hs.status === 'Delivered') return alloc;   // legacy fully-delivered
+  return 0;
+}
+
 // ── Email (Resend) ──────────────────────────────────────────────────────────
 
 const { Resend } = require('resend');
@@ -1044,6 +1054,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
+    ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -2008,12 +2019,17 @@ app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
     const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
     const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source });
-    // Attach saved office-stock status to held items
-    const { rows: hs } = await pool.query('SELECT item_key, status FROM held_item_status WHERE project_id=$1', [req.params.id]);
-    const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r.status]));
+    // Attach saved delivery progress to held items (allocated qty + how many delivered)
+    const { rows: hs } = await pool.query('SELECT item_key, status, delivered_qty FROM held_item_status WHERE project_id=$1', [req.params.id]);
+    const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r]));
     for (const code of Object.keys(byCode)) {
       for (const it of byCode[code]) {
-        if (it.held) it.officeStatus = hsMap[it.itemKey] || 'In Office';
+        if (it.held) {
+          const alloc = parseFloat(it.qty) || 1;
+          it.allocQty = alloc;
+          it.deliveredQty = deliveredQtyOf(hsMap[it.itemKey], alloc);
+          it.officeStatus = it.deliveredQty >= alloc ? 'Delivered' : 'In Office';
+        }
       }
     }
     res.json({ ok: true, byCode, rangeHoodSource: p.range_hood_source || 'default', jedcoSource: p.jedco_source || 'default', heldStatuses: HELD_STATUSES });
@@ -2022,15 +2038,30 @@ app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   }
 });
 
-// Save an office-stock status for a held item in this project
+// Save a held item's delivery progress for this project. Two modes:
+//  • { item_key, delivered_qty }  → partial: N of the allocated units delivered
+//  • { item_key, status }         → legacy binary toggle (In Office / Delivered)
 app.post('/projects/:id/held-status', requireAuth, async (req, res) => {
   try {
     const itemKey = String(req.body.item_key || '').trim();
-    const status = HELD_STATUSES.includes(req.body.status) ? req.body.status : 'In Office';
     if (!itemKey) return res.status(400).json({ ok: false, error: 'Missing item key.' });
+
+    if (req.body.delivered_qty !== undefined && req.body.delivered_qty !== null && req.body.delivered_qty !== '') {
+      const dq = Math.max(0, Math.floor(Number(req.body.delivered_qty) || 0));
+      const status = dq > 0 ? 'Delivered' : 'In Office';
+      await pool.query(
+        `INSERT INTO held_item_status (project_id, item_key, status, delivered_qty, updated_at) VALUES ($1,$2,$3,$4,NOW())
+         ON CONFLICT (project_id, item_key) DO UPDATE SET status=EXCLUDED.status, delivered_qty=EXCLUDED.delivered_qty, updated_at=NOW()`,
+        [req.params.id, itemKey, status, dq]
+      );
+      return res.json({ ok: true, delivered_qty: dq, status });
+    }
+
+    // Legacy binary toggle — clear delivered_qty so the status drives it.
+    const status = HELD_STATUSES.includes(req.body.status) ? req.body.status : 'In Office';
     await pool.query(
-      `INSERT INTO held_item_status (project_id, item_key, status, updated_at) VALUES ($1,$2,$3,NOW())
-       ON CONFLICT (project_id, item_key) DO UPDATE SET status=EXCLUDED.status, updated_at=NOW()`,
+      `INSERT INTO held_item_status (project_id, item_key, status, delivered_qty, updated_at) VALUES ($1,$2,$3,NULL,NOW())
+       ON CONFLICT (project_id, item_key) DO UPDATE SET status=EXCLUDED.status, delivered_qty=NULL, updated_at=NOW()`,
       [req.params.id, itemKey, status]
     );
     res.json({ ok: true, status });
@@ -2324,10 +2355,10 @@ app.get('/inventory/data', requireAuth, async (req, res) => {
     // Draw each item down by the held-stock schedule lines that match its Model #
     // (exact match on the schedule's Model # column), with a text fallback so a
     // plain keyword still works.
-    // Office-stock status per held item per project (In Office / Delivered).
-    const { rows: hsRows } = await pool.query('SELECT project_id, item_key, status FROM held_item_status');
-    const statusMap = {};
-    for (const r of hsRows) statusMap[r.project_id + '|' + r.item_key] = r.status;
+    // Held status + partial delivered_qty per held item per project.
+    const { rows: hsRows } = await pool.query('SELECT project_id, item_key, status, delivered_qty FROM held_item_status');
+    const hsMap = {};
+    for (const r of hsRows) hsMap[r.project_id + '|' + r.item_key] = r;
 
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const enriched = items.map(it => {
@@ -2343,23 +2374,22 @@ app.get('/inventory/data', requireAuth, async (req, res) => {
       const byProject = {};
       let delivered = 0;
       for (const u of matched) {
-        const st = statusMap[u.projectId + '|' + u.itemKey] || 'In Office';
-        if (st === 'Delivered') delivered += u.qty;
+        const d = deliveredQtyOf(hsMap[u.projectId + '|' + u.itemKey], u.qty);
+        delivered += d;
         if (!byProject[u.projectId]) {
           byProject[u.projectId] = {
             address: u.project, projectId: u.projectId, code: u.code,
-            qty: 0, itemKeys: [], deliveredAll: true,
+            qty: 0, delivered: 0, itemKeys: [],
           };
         }
         const bp = byProject[u.projectId];
         bp.qty += u.qty;
+        bp.delivered += d;
         if (!bp.itemKeys.includes(u.itemKey)) bp.itemKeys.push(u.itemKey);
-        if (st !== 'Delivered') bp.deliveredAll = false;
       }
       const projects = Object.values(byProject).map(bp => ({
         address: bp.address, projectId: bp.projectId, code: bp.code,
-        qty: bp.qty, itemKeys: bp.itemKeys,
-        status: bp.deliveredAll ? 'Delivered' : 'In Office',
+        qty: bp.qty, delivered: bp.delivered, itemKeys: bp.itemKeys,
       }));
       const inUse = matched.reduce((s, u) => s + u.qty, 0);
       // Product name for this code, pulled from the matched schedule line(s)
@@ -2390,19 +2420,18 @@ app.get('/inventory/data', requireAuth, async (req, res) => {
       if (!whMap[key]) whMap[key] = { name: u.product || u.name || key, code: u.prodCode || '', held: 0, delivered: 0, byProject: {} };
       const w = whMap[key];
       w.held += u.qty;
-      const st = statusMap[u.projectId + '|' + u.itemKey] || 'In Office';
-      if (st === 'Delivered') w.delivered += u.qty;
-      if (!w.byProject[u.projectId]) w.byProject[u.projectId] = { address: u.project, projectId: u.projectId, qty: 0, itemKeys: [], deliveredAll: true };
+      const d = deliveredQtyOf(hsMap[u.projectId + '|' + u.itemKey], u.qty);
+      w.delivered += d;
+      if (!w.byProject[u.projectId]) w.byProject[u.projectId] = { address: u.project, projectId: u.projectId, qty: 0, delivered: 0, itemKeys: [] };
       const bp = w.byProject[u.projectId];
       bp.qty += u.qty;
+      bp.delivered += d;
       if (!bp.itemKeys.includes(u.itemKey)) bp.itemKeys.push(u.itemKey);
-      if (st !== 'Delivered') bp.deliveredAll = false;
     }
     const warehouseItems = Object.values(whMap).map(w => ({
       name: w.name, code: w.code, held: w.held, delivered: w.delivered, inWarehouse: w.held - w.delivered,
       byProject: Object.values(w.byProject).map(bp => ({
-        address: bp.address, projectId: bp.projectId, qty: bp.qty, itemKeys: bp.itemKeys,
-        status: bp.deliveredAll ? 'Delivered' : 'In Office',
+        address: bp.address, projectId: bp.projectId, qty: bp.qty, delivered: bp.delivered, itemKeys: bp.itemKeys,
       })),
     })).sort((a, b) => a.name.localeCompare(b.name));
 

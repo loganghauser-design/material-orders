@@ -70,22 +70,21 @@
         <tr id="det_<%= it.id %>" style="display:none">
           <td class="detail-cell" colspan="8">
             <table class="alloc">
-              <thead><tr><th>Project (allocated to)</th><th>Qty</th><th>Status — click to change</th></tr></thead>
+              <thead><tr><th>Project (allocated to)</th><th>Allocated</th><th>Delivered (type a number)</th></tr></thead>
               <tbody>
                 <% it.byProject.forEach(p => { %>
                   <tr>
                     <td><%= p.address %></td>
                     <td>×<%= p.qty %></td>
                     <td>
-                      <button type="button"
-                        class="status-pill toggle-btn <%= p.status === 'Delivered' ? 'cell-delivered' : 'cell-in_office' %>"
-                        data-pid="<%= p.projectId %>"
-                        data-keys="<%= p.itemKeys.join('||') %>"
-                        data-status="<%= p.status %>"
-                        data-loc="office" data-itemid="<%= it.id %>" data-qty="<%= p.qty %>"
-                        onclick="toggleDelivered(this)">
-                        <%= p.status === 'Delivered' ? '✓ Delivered' : 'In office — mark delivered' %>
-                      </button>
+                      <button type="button" class="qstep" onclick="bumpDeliv(this,-1)">−</button>
+                      <input type="number" class="deliv-qty" min="0" max="<%= p.qty %>" value="<%= p.delivered %>"
+                        data-pid="<%= p.projectId %>" data-keys="<%= p.itemKeys.join('||') %>" data-max="<%= p.qty %>"
+                        data-prev="<%= p.delivered %>" data-loc="office" data-itemid="<%= it.id %>"
+                        onchange="saveDeliveredQty(this)">
+                      <button type="button" class="qstep" onclick="bumpDeliv(this,1)">+</button>
+                      <span style="color:var(--muted)">of <%= p.qty %></span>
+                      <button type="button" class="mini-btn" onclick="setDeliv(this,'all')">All</button>
                     </td>
                   </tr>
                 <% }) %>
@@ -149,22 +148,21 @@
         <tr id="det_<%= wid %>" style="display:none">
           <td class="detail-cell" colspan="5">
             <table class="alloc">
-              <thead><tr><th>Project (allocated to)</th><th>Qty</th><th>Status — click to change</th></tr></thead>
+              <thead><tr><th>Project (allocated to)</th><th>Allocated</th><th>Delivered (type a number)</th></tr></thead>
               <tbody>
                 <% it.byProject.forEach(p => { %>
                   <tr>
                     <td><%= p.address %></td>
                     <td>×<%= p.qty %></td>
                     <td>
-                      <button type="button"
-                        class="status-pill toggle-btn <%= p.status === 'Delivered' ? 'cell-delivered' : 'cell-in_ware' %>"
-                        data-pid="<%= p.projectId %>"
-                        data-keys="<%= p.itemKeys.join('||') %>"
-                        data-status="<%= p.status %>"
-                        data-loc="ware" data-itemid="<%= wid %>" data-qty="<%= p.qty %>"
-                        onclick="toggleDelivered(this)">
-                        <%= p.status === 'Delivered' ? '✓ Delivered' : 'In warehouse — mark delivered' %>
-                      </button>
+                      <button type="button" class="qstep" onclick="bumpDeliv(this,-1)">−</button>
+                      <input type="number" class="deliv-qty" min="0" max="<%= p.qty %>" value="<%= p.delivered %>"
+                        data-pid="<%= p.projectId %>" data-keys="<%= p.itemKeys.join('||') %>" data-max="<%= p.qty %>"
+                        data-prev="<%= p.delivered %>" data-loc="ware" data-itemid="<%= wid %>"
+                        onchange="saveDeliveredQty(this)">
+                      <button type="button" class="qstep" onclick="bumpDeliv(this,1)">+</button>
+                      <span style="color:var(--muted)">of <%= p.qty %></span>
+                      <button type="button" class="mini-btn" onclick="setDeliv(this,'all')">All</button>
                     </td>
                   </tr>
                 <% }) %>
