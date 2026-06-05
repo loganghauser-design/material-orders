@@ -947,9 +947,9 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
 // that project's delivery alerts. chatId is the Google Chat user ID (numeric) used
 // for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
 const SUPERS = [
-  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893' },
-  { email: 'kevin@buildoly.com', name: 'Kevin Leon', chatId: '114651669878031315273' },
-  { email: 'eddie@buildoly.com', name: 'Eddie Solorzano', chatId: '105599791425178916274' },
+  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893', passwordHash: '$2b$10$OxvBf8ldRhKsFc9pZBWdduvFGWh.PFD4y2QvqofxZMjPeiHBDF4ci' },
+  { email: 'kevin@buildoly.com', name: 'Kevin Leon', chatId: '114651669878031315273', passwordHash: '$2b$10$wXh/rfxIf6jqYIMTCiuAuuhajdcnpy3tb2iY/x8b.wcECNvfaVUMO' },
+  { email: 'eddie@buildoly.com', name: 'Eddie Solorzano', chatId: '105599791425178916274', passwordHash: '$2b$10$kiY420Fs7ySHug0inDQ4PeiS9gt4ejHv.xHbE8sdFFne6kN8kR/Mu' },
 ];
 function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
@@ -1224,22 +1224,93 @@ function requireAuth(req, res, next) {
   if (req.session && req.session.authenticated) return next();
   res.redirect('/login');
 }
+// Admin-only: blocks logged-in supers from the full app.
+function requireAdmin(req, res, next) {
+  if (req.session && req.session.authenticated && req.session.role !== 'super') return next();
+  if (req.session && req.session.role === 'super') return res.redirect('/my');
+  res.redirect('/login');
+}
+// Super portal access.
+function requireSuper(req, res, next) {
+  if (req.session && req.session.authenticated && req.session.role === 'super') return next();
+  if (req.session && req.session.authenticated) return res.redirect('/');
+  res.redirect('/login');
+}
+// Global gate: a logged-in super may only reach their portal + logout (+ static is
+// already served above). Everything else bounces to /my so they never see admin pages.
+app.use((req, res, next) => {
+  if (req.session && req.session.role === 'super') {
+    const p = req.path;
+    const ok = p === '/my' || p.startsWith('/my/') || p === '/logout' || p === '/login';
+    if (!ok) return res.redirect('/my');
+  }
+  next();
+});
 
 app.get('/login', (req, res) => {
-  if (req.session.authenticated) return res.redirect('/');
+  if (req.session.authenticated) return res.redirect(req.session.role === 'super' ? '/my' : '/');
   res.render('login', { error: null });
 });
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  const validUser = username === process.env.ADMIN_USERNAME;
-  const validPass = validUser && await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH || '');
-  if (!validUser || !validPass) return res.render('login', { error: 'Invalid username or password.' });
-  req.session.authenticated = true;
-  res.redirect('/');
+  // Admin
+  if (username === process.env.ADMIN_USERNAME && await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH || '')) {
+    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null;
+    return res.redirect('/');
+  }
+  // Superintendent (logs in with their email)
+  const sup = findSuper(username);
+  if (sup && sup.passwordHash && await bcrypt.compare(password || '', sup.passwordHash)) {
+    req.session.authenticated = true; req.session.role = 'super'; req.session.superEmail = sup.email;
+    return res.redirect('/my');
+  }
+  return res.render('login', { error: 'Invalid username or password.' });
 });
 
 app.post('/logout', (req, res) => req.session.destroy(() => res.redirect('/login')));
+
+// ── Superintendent portal (read-only: their projects + delivery status) ────────
+app.get('/my', requireSuper, async (req, res) => {
+  try {
+    await initDb();
+    const email = req.session.superEmail;
+    const sup = findSuper(email) || { name: 'Super', email };
+    const { rows: allProjects } = await pool.query(
+      "SELECT id, address, full_address, overall_status, super_email FROM projects WHERE super_email IS NOT NULL AND super_email <> '' ORDER BY address"
+    );
+    const mine = allProjects.filter(p => parseSuperEmails(p.super_email).some(s => s.email.toLowerCase() === String(email).toLowerCase()));
+    const DELIV = new Set(['Delivered', 'Delivered from Inv.']);
+    const ids = mine.map(p => p.id);
+    const itemsByProject = {};
+    if (ids.length) {
+      const { rows: items } = await pool.query(
+        'SELECT project_id, item_code, status, delivery_date FROM project_items WHERE project_id = ANY($1::int[])', [ids]
+      );
+      for (const it of items) {
+        const delivered = DELIV.has(it.status);
+        const scheduled = !delivered && it.delivery_date;
+        if (!delivered && !scheduled) continue;   // only show delivered or scheduled items
+        (itemsByProject[it.project_id] = itemsByProject[it.project_id] || []).push({
+          name: CODE_NAME[it.item_code] || it.item_code,
+          status: it.status, delivered: !!delivered,
+          deliveryDate: it.delivery_date ? new Date(it.delivery_date) : null,
+        });
+      }
+      for (const k of Object.keys(itemsByProject)) {
+        itemsByProject[k].sort((a, b) => {
+          if (a.delivered !== b.delivered) return a.delivered ? 1 : -1;   // scheduled first
+          const ad = a.deliveryDate ? a.deliveryDate.getTime() : Infinity;
+          const bd = b.deliveryDate ? b.deliveryDate.getTime() : Infinity;
+          return ad - bd;
+        });
+      }
+    }
+    res.render('my-projects', { sup, projects: mine, itemsByProject });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
 
 // ── Projects list ─────────────────────────────────────────────────────────────
 

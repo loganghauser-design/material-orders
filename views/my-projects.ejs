@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Projects — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .myhead { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; }
+    .pcard { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
+    .pcard h2 { font-size:1.05rem; font-weight:700; margin:0 0 .1rem; }
+    .pcard .addr2 { color:var(--muted); font-size:.82rem; margin-bottom:.7rem; }
+    .group-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:.6rem 0 .3rem; font-weight:700; }
+    .ditem { display:flex; align-items:center; justify-content:space-between; gap:.6rem; padding:.4rem 0; border-bottom:1px solid var(--border); font-size:.9rem; }
+    .ditem:last-child { border-bottom:none; }
+    .pill { padding:2px 10px; border-radius:11px; font-size:.76rem; font-weight:600; white-space:nowrap; }
+    .pill-deliv { background:#6aa84f; color:#fff; }
+    .pill-sched { background:#dbe9ff; color:#1d4ed8; }
+    .empty { color:var(--muted); font-size:.85rem; padding:.3rem 0; }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1rem">
+    <span class="nav-brand">Material Orders</span>
+  </div>
+  <div class="nav-actions">
+    <form method="POST" action="/logout" style="margin:0"><button type="submit" class="btn btn-ghost">Log out</button></form>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="myhead">
+    <div>
+      <h1 style="margin:0">My Projects</h1>
+      <div style="color:var(--muted);font-size:.9rem">👷 <%= sup.name %> · <%= projects.length %> project<%= projects.length === 1 ? '' : 's' %></div>
+    </div>
+  </div>
+
+  <% if (!projects.length) { %>
+    <div class="pcard"><div class="empty">You don't have any projects assigned yet. Ask the office to assign you to a job.</div></div>
+  <% } %>
+
+  <% projects.forEach(p => {
+       const items = itemsByProject[p.id] || [];
+       const scheduled = items.filter(i => !i.delivered);
+       const delivered = items.filter(i => i.delivered);
+  %>
+    <div class="pcard">
+      <h2><%= p.address %></h2>
+      <div class="addr2"><%= p.full_address && p.full_address !== p.address ? p.full_address : '' %><span style="margin-left:.4rem">· <%= p.overall_status %></span></div>
+
+      <div class="group-label">📅 Scheduled for delivery</div>
+      <% if (!scheduled.length) { %>
+        <div class="empty">Nothing scheduled right now.</div>
+      <% } else { scheduled.forEach(i => { %>
+        <div class="ditem">
+          <span><%= i.name %></span>
+          <span class="pill pill-sched"><%= i.deliveryDate ? i.deliveryDate.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : 'TBD' %></span>
+        </div>
+      <% }) } %>
+
+      <div class="group-label">✅ Delivered</div>
+      <% if (!delivered.length) { %>
+        <div class="empty">Nothing delivered yet.</div>
+      <% } else { delivered.forEach(i => { %>
+        <div class="ditem">
+          <span><%= i.name %></span>
+          <span class="pill pill-deliv"><%= i.deliveryDate ? i.deliveryDate.toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '✓' %></span>
+        </div>
+      <% }) } %>
+    </div>
+  <% }) %>
+
+  <p style="color:var(--muted);font-size:.78rem;text-align:center;margin-top:1.5rem">Read-only view · updated by the Buildoly office</p>
+</div>
+</body>
+</html>
