@@ -56,6 +56,26 @@
     </form>
   </div>
 
+  <div class="card" style="margin-top:1.5rem" id="supers">
+    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">👷 Superintendents</h2>
+    <p style="color:var(--muted);font-size:.875rem;margin-bottom:1rem">
+      Add each super's phone number. When a super is assigned to a project, their name &amp; number are
+      automatically included as the <strong>on-site delivery contact</strong> on every RFQ / delivery / outbound email for that project.
+    </p>
+    <% if (typeof savedSupers !== 'undefined' && savedSupers) { %>
+      <div class="error-msg" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a">✓ Phone numbers saved.</div>
+    <% } %>
+    <form method="POST" action="/settings/supers">
+      <% (supers || []).forEach(s => { %>
+        <div class="form-group" style="display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin-bottom:.7rem">
+          <div style="min-width:200px"><strong><%= s.name %></strong><br><span style="color:var(--muted);font-size:.8rem"><%= s.email %></span></div>
+          <input type="tel" name="phone_<%= s.email %>" value="<%= s.phone %>" placeholder="(555) 123-4567" style="flex:1;min-width:180px;max-width:280px">
+        </div>
+      <% }) %>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save phone numbers</button></div>
+    </form>
+  </div>
+
   <div class="card" style="margin-top:1.5rem">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">Suppliers</h2>
     <p style="color:var(--muted);font-size:.875rem">

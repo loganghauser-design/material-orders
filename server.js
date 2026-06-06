@@ -960,6 +960,26 @@ function parseSuperEmails(str) {
   const set = String(str || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
   return SUPERS.filter(s => set.includes(s.email.toLowerCase()));
 }
+// Editable super phone numbers (stored in DB, managed on the Settings page).
+async function getSuperPhones() {
+  try {
+    const { rows } = await pool.query('SELECT email, phone FROM super_contacts');
+    const m = {};
+    for (const r of rows) m[String(r.email).toLowerCase()] = r.phone || '';
+    return m;
+  } catch (e) { return {}; }
+}
+// "On-site delivery contact" block for a project's assigned super(s), for outgoing emails.
+async function deliveryContactHtml(project) {
+  const sups = project ? parseSuperEmails(project.super_email) : [];
+  if (!sups.length) return '';
+  const phones = await getSuperPhones();
+  const lines = sups.map(s => {
+    const ph = phones[s.email.toLowerCase()];
+    return escapeHtml(s.name) + (ph ? ' — ' + escapeHtml(ph) : '');
+  });
+  return `<p style="margin-top:14px"><strong>On-site delivery contact:</strong><br>${lines.join('<br>')}</p>`;
+}
 
 // Post a message to a Google Chat space via its incoming webhook URL.
 // The &token=... is stored separately (CHAT_WEBHOOK_TOKEN) to avoid shell-quoting issues.
@@ -1055,6 +1075,10 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
     ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
+    CREATE TABLE IF NOT EXISTS super_contacts (
+      email TEXT PRIMARY KEY,
+      phone TEXT
+    );
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -1636,6 +1660,7 @@ async function buildRfqEmail({ project, emailType, itemsHtml, items, note, suppl
   const table = (itemsHtml && /<table/i.test(itemsHtml)) ? sanitizePastedHtml(itemsHtml) : pastedDataToTable(items);
   const sig = await getSignature();
   const signoff = sig ? `<br>${sig}` : '<p>Thank you,<br>Logan<br>Buildoly</p>';
+  const contact = await deliveryContactHtml(project);
   let subject, html, sendCc = null;
 
   if (emailType === 'warehouse') {
@@ -1649,6 +1674,7 @@ async function buildRfqEmail({ project, emailType, itemsHtml, items, note, suppl
 <p>Grace, Please include this job BOL in this email thread once its ready, so Brian can use it for pickup.</p>
 ${table || '<p><em>(slip goes here)</em></p>'}
 ${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
+${contact}
 <p>Thank you,</p>
 ${signoff}
 </div>`;
@@ -1669,6 +1695,7 @@ ${signoff}
 ${table || '<p><em>(items below)</em></p>'}
 ${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
 <p>${t.closing}</p>
+${contact}
 ${signoff}
 </div>`;
   }
@@ -1747,7 +1774,27 @@ app.get('/settings', requireAuth, async (req, res) => {
     await initDb();
     const { rows: [r] } = await pool.query('SELECT attachment_name, updated_at FROM app_settings WHERE id=1');
     const suppliers = await getSuppliers();
-    res.render('settings', { attachmentName: r ? r.attachment_name : null, updatedAt: r ? r.updated_at : null, STAGES, suppliers });
+    const phones = await getSuperPhones();
+    const supers = SUPERS.map(s => ({ email: s.email, name: s.name, phone: phones[s.email.toLowerCase()] || '' }));
+    res.render('settings', { attachmentName: r ? r.attachment_name : null, updatedAt: r ? r.updated_at : null, STAGES, suppliers, supers, savedSupers: req.query.savedSupers === '1' });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Save superintendent phone numbers (used as the delivery contact on outgoing emails).
+app.post('/settings/supers', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    for (const s of SUPERS) {
+      const phone = String(req.body['phone_' + s.email] || '').trim();
+      await pool.query(
+        `INSERT INTO super_contacts (email, phone) VALUES ($1, $2)
+         ON CONFLICT (email) DO UPDATE SET phone = EXCLUDED.phone`,
+        [s.email, phone || null]
+      );
+    }
+    res.redirect('/settings?savedSupers=1#supers');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
