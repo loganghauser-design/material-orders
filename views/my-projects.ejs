@@ -37,6 +37,10 @@
     </div>
   </div>
 
+  <% if (typeof requested !== 'undefined' && requested) { %>
+    <div class="pcard" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600">✓ Request sent to the office.</div>
+  <% } %>
+
   <% if (!projects.length) { %>
     <div class="pcard"><div class="empty">You don't have any projects assigned yet. Ask the office to assign you to a job.</div></div>
   <% } %>
@@ -49,6 +53,7 @@
     <div class="pcard">
       <h2><%= p.address %></h2>
       <div class="addr2"><%= p.full_address && p.full_address !== p.address ? p.full_address : '' %><span style="margin-left:.4rem">· <%= p.overall_status %></span></div>
+      <a href="/my/request/<%= p.id %>" style="display:block;text-align:center;background:#4f8ef7;color:#fff;font-weight:700;text-decoration:none;padding:.7rem;border-radius:10px;margin:.2rem 0 .8rem">📦 Request Material</a>
 
       <div class="group-label">📅 Scheduled for delivery</div>
       <% if (!scheduled.length) { %>

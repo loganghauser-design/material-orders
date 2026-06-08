@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request Material — <%= project.address %></title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .wrap { max-width:640px; margin:0 auto; padding:0 0 7rem; }
+    .rhead { position:sticky; top:0; background:var(--bg); padding:.8rem 1rem; border-bottom:1px solid var(--border); z-index:5; }
+    .rhead a { text-decoration:none; color:var(--muted); font-size:.9rem; }
+    .rhead h1 { font-size:1.15rem; margin:.3rem 0 0; }
+    .stage { background:var(--surface); border:1px solid var(--border); border-radius:12px; margin:1rem; overflow:hidden; }
+    .stage-h { display:flex; align-items:center; justify-content:space-between; padding:.7rem .9rem; background:var(--bg); border-bottom:1px solid var(--border); font-weight:700; font-size:.95rem; }
+    .stage-h button { background:none; border:none; color:#4f8ef7; font-size:.82rem; font-weight:600; cursor:pointer; }
+    .opt { display:flex; align-items:center; gap:.8rem; padding:.85rem .9rem; border-bottom:1px solid var(--border); cursor:pointer; font-size:1rem; }
+    .opt:last-child { border-bottom:none; }
+    .opt input { width:24px; height:24px; flex:none; accent-color:#4f8ef7; }
+    .opt.on { background:#eaf2ff; }
+    .fld { margin:1rem; }
+    .fld label { display:block; font-weight:600; font-size:.9rem; margin-bottom:.35rem; }
+    .fld input, .fld textarea { width:100%; font-size:1rem; padding:.6rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
+    .submitbar { position:fixed; left:0; right:0; bottom:0; padding:.8rem 1rem calc(.8rem + env(safe-area-inset-bottom)); background:var(--bg); border-top:1px solid var(--border); }
+    .submitbar button { width:100%; font-size:1.05rem; padding:.9rem; border:none; border-radius:11px; background:#4f8ef7; color:#fff; font-weight:700; cursor:pointer; }
+    .submitbar button:disabled { opacity:.5; }
+    .errbox { margin:1rem; padding:.7rem .9rem; border-radius:9px; background:rgba(204,34,34,.1); color:#cc2222; font-size:.9rem; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="rhead">
+    <a href="/my">← My projects</a>
+    <h1>📦 Request material</h1>
+    <div style="color:var(--muted);font-size:.88rem;margin-top:.15rem"><%= project.address %></div>
+  </div>
+
+  <% if (err) { %><div class="errbox">Pick at least one item to request.</div><% } %>
+
+  <form method="POST" action="/my/request/<%= project.id %>" id="reqForm">
+    <% STAGES.forEach(stage => { %>
+      <div class="stage">
+        <div class="stage-h"><span><%= stage.name %></span><button type="button" onclick="toggleStage(this)">Select all</button></div>
+        <% stage.items.forEach(it => { %>
+          <label class="opt"><input type="checkbox" name="codes" value="<%= it.code %>" onchange="syncRow(this)"><span><%= it.name %></span></label>
+        <% }) %>
+      </div>
+    <% }) %>
+
+    <div class="fld">
+      <label>Needed by <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <input type="date" name="needed_by">
+    </div>
+    <div class="fld">
+      <label>Note <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+      <textarea name="note" rows="2" placeholder="Anything the office should know (e.g. need it on site Friday AM)"></textarea>
+    </div>
+  </form>
+</div>
+
+<div class="submitbar">
+  <button type="submit" form="reqForm" id="sendBtn" disabled>Send Request (<span id="cnt">0</span>)</button>
+</div>
+
+<script>
+function syncRow(cb) { cb.closest('.opt').classList.toggle('on', cb.checked); updateCount(); }
+function toggleStage(btn) {
+  const stage = btn.closest('.stage');
+  const boxes = Array.from(stage.querySelectorAll('input[type=checkbox]'));
+  const allOn = boxes.every(b => b.checked);
+  boxes.forEach(b => { b.checked = !allOn; syncRow(b); });
+}
+function updateCount() {
+  const n = document.querySelectorAll('#reqForm input[type=checkbox]:checked').length;
+  document.getElementById('cnt').textContent = n;
+  document.getElementById('sendBtn').disabled = n === 0;
+}
+updateCount();
+</script>
+</body>
+</html>

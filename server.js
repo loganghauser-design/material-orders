@@ -1080,6 +1080,16 @@ async function initDb() {
       email TEXT PRIMARY KEY,
       phone TEXT
     );
+    CREATE TABLE IF NOT EXISTS material_requests (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      super_email TEXT,
+      codes TEXT,
+      note TEXT,
+      needed_by DATE,
+      fulfilled BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -1331,7 +1341,54 @@ app.get('/my', requireSuper, async (req, res) => {
         });
       }
     }
-    res.render('my-projects', { sup, projects: mine, itemsByProject });
+    res.render('my-projects', { sup, projects: mine, itemsByProject, requested: req.query.requested === '1' });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Helper: is this super assigned to this project?
+function superOwnsProject(email, project) {
+  return project && parseSuperEmails(project.super_email).some(s => s.email.toLowerCase() === String(email).toLowerCase());
+}
+
+// Super: the "Request Material" form for one of their projects
+app.get('/my/request/:id', requireSuper, async (req, res) => {
+  try {
+    await initDb();
+    const email = req.session.superEmail;
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email FROM projects WHERE id=$1', [req.params.id]);
+    if (!superOwnsProject(email, project)) return res.redirect('/my');
+    res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1' });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Super: submit a material request → store + ping the office in chat
+app.post('/my/request/:id', requireSuper, async (req, res) => {
+  try {
+    await initDb();
+    const email = req.session.superEmail;
+    const { rows: [project] } = await pool.query('SELECT id, address, super_email FROM projects WHERE id=$1', [req.params.id]);
+    if (!superOwnsProject(email, project)) return res.redirect('/my');
+    const valid = new Set(ALL_ITEMS.map(i => i.code));
+    const codes = [].concat(req.body.codes || []).filter(c => valid.has(c));
+    if (!codes.length) return res.redirect('/my/request/' + project.id + '?err=1');
+    const note = String(req.body.note || '').trim().slice(0, 500);
+    const neededBy = String(req.body.needed_by || '').trim() || null;
+    await pool.query(
+      'INSERT INTO material_requests (project_id, super_email, codes, note, needed_by) VALUES ($1,$2,$3,$4,$5)',
+      [project.id, email, codes.join(','), note || null, neededBy]
+    );
+    const sup = findSuper(email) || { name: email };
+    const names = codes.map(c => CODE_NAME[c] || c);
+    const LOGAN = '106404376271648731086';
+    const lines = [`📥 *Material request* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${sup.name}`, `Needs: ${names.join(', ')}`];
+    if (neededBy) { const d = neededBy.split('-').map(Number); lines.push('Needed by: ' + (d.length === 3 ? new Date(d[0], d[1] - 1, d[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : neededBy)); }
+    if (note) lines.push('Note: ' + note);
+    postToChat(lines.join('\n'));
+    res.redirect('/my?requested=1');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
