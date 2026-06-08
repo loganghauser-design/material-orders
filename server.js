@@ -920,6 +920,37 @@ async function fetchThread(threadId) {
   return messages;
 }
 
+// Vendors sometimes reply in a NEW Gmail thread (their mail client drops the
+// In-Reply-To headers), so the reply has the same subject but a different thread id.
+// Find every thread that belongs to the same conversation by subject + participant.
+async function relatedThreadIds(subject, supplierEmail) {
+  if (!gmailClient) return [];
+  const cleanSubj = String(subject || '').replace(/["\\]/g, '').replace(/^\s*(re|fwd):\s*/i, '').trim();
+  const parts = [];
+  if (cleanSubj) parts.push(`subject:"${cleanSubj}"`);
+  if (supplierEmail) parts.push(`(from:${supplierEmail} OR to:${supplierEmail})`);
+  if (!parts.length) return [];
+  try {
+    const { data } = await gmailClient.users.threads.list({ userId: 'me', q: parts.join(' '), maxResults: 15 });
+    return (data.threads || []).map(t => t.id);
+  } catch (e) { return []; }
+}
+// Full vendor conversation for a stored thread — merges the original thread with any
+// split-off reply threads (same subject + vendor), deduped and sorted by date.
+async function fetchConversation(threadId) {
+  const ids = new Set([threadId]);
+  try {
+    const { rows: [ve] } = await pool.query('SELECT subject, supplier_email FROM vendor_emails WHERE gmail_thread_id=$1 LIMIT 1', [threadId]);
+    if (ve) (await relatedThreadIds(ve.subject, ve.supplier_email)).forEach(id => ids.add(id));
+  } catch (e) { /* fall back to just the one thread */ }
+  const all = [];
+  for (const id of ids) { try { all.push(...await fetchThread(id)); } catch (e) { /* skip */ } }
+  const seen = new Set();
+  const merged = all.filter(m => (seen.has(m.id) ? false : (seen.add(m.id), true)));
+  merged.sort((a, b) => new Date(a.date) - new Date(b.date));
+  return merged;
+}
+
 // Accepts one address or several separated by comma/semicolon → array of clean addresses
 function parseRecipients(to) {
   return String(to || '').split(/[,;]+/).map(s => s.trim()).filter(Boolean);
@@ -1895,7 +1926,7 @@ app.get('/projects/:id/threads', requireAuth, async (req, res) => {
 app.get('/threads/:threadId', requireAuth, async (req, res) => {
   try {
     if (!useGmail) return res.status(400).json({ ok: false, error: 'Gmail not configured.' });
-    const messages = await fetchThread(req.params.threadId);
+    const messages = await fetchConversation(req.params.threadId);
     // For each vendor (inbound) message, pre-detect which materials it mentions
     const withDetected = messages.map(m => ({ ...m, detected: m.fromMe ? [] : detectMaterials(m.body) }));
     // Mark this thread as read
@@ -2714,15 +2745,17 @@ const NOTIFY_TO = process.env.NOTIFY_EMAIL || gmailUser || 'logan@buildoly.com';
 async function checkUnreadThreads() {
   if (!useGmail) return;
   try {
-    const { rows } = await pool.query('SELECT DISTINCT gmail_thread_id FROM vendor_emails WHERE gmail_thread_id IS NOT NULL');
+    const { rows } = await pool.query('SELECT gmail_thread_id, subject, supplier_email, last_viewed_at FROM vendor_emails WHERE gmail_thread_id IS NOT NULL');
     for (const r of rows) {
       try {
-        const msgs = await fetchThread(r.gmail_thread_id);
-        const inbound = msgs.filter(m => !m.fromMe);
+        // Include reply threads that split off from the original (same subject + vendor).
+        const ids = new Set([r.gmail_thread_id]);
+        (await relatedThreadIds(r.subject, r.supplier_email)).forEach(id => ids.add(id));
+        const inbound = [];
+        for (const id of ids) { try { inbound.push(...(await fetchThread(id)).filter(m => !m.fromMe)); } catch (e) { /* skip */ } }
         if (!inbound.length) continue;
-        const latestDate = new Date(inbound[inbound.length - 1].date);
-        const { rows: [ve] } = await pool.query('SELECT last_viewed_at FROM vendor_emails WHERE gmail_thread_id=$1 LIMIT 1', [r.gmail_thread_id]);
-        const lastViewed = ve && ve.last_viewed_at ? new Date(ve.last_viewed_at) : new Date(0);
+        const latestDate = new Date(Math.max(...inbound.map(m => new Date(m.date).getTime())));
+        const lastViewed = r.last_viewed_at ? new Date(r.last_viewed_at) : new Date(0);
         await pool.query('UPDATE vendor_emails SET has_unread=$1, last_inbound_at=$2 WHERE gmail_thread_id=$3',
           [latestDate > lastViewed, latestDate, r.gmail_thread_id]);
       } catch (e) { /* skip individual thread errors */ }
