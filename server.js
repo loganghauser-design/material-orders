@@ -1750,6 +1750,7 @@ async function buildRfqEmail({ project, emailType, itemsHtml, items, note, suppl
   const sig = await getSignature();
   const signoff = sig ? `<br>${sig}` : '<p>Thank you,<br>Logan<br>Buildoly</p>';
   const contact = await deliveryContactHtml(project);
+  const replyNote = '<p style="margin-top:14px"><strong>Please reply to this email thread directly</strong> so everything stays in one place.</p>';
   let subject, html, sendCc = null;
 
   if (emailType === 'warehouse') {
@@ -1764,6 +1765,7 @@ async function buildRfqEmail({ project, emailType, itemsHtml, items, note, suppl
 ${table || '<p><em>(slip goes here)</em></p>'}
 ${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
 ${contact}
+${replyNote}
 <p>Thank you,</p>
 ${signoff}
 </div>`;
@@ -1785,6 +1787,7 @@ ${table || '<p><em>(items below)</em></p>'}
 ${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
 <p>${t.closing}</p>
 ${contact}
+${replyNote}
 ${signoff}
 </div>`;
   }
