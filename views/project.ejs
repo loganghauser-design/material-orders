@@ -58,6 +58,11 @@
     .held-qty.qty-done{background:#6aa84f;color:#fff;border-color:#6aa84f;font-weight:600}
     .held-qty.qty-partial{background:#fde6c8;color:#8a4b00;border-color:#e0a106}
     .held-qty.qty-none{background:#ede0fb;color:#5b2a86}
+    .item-date,.item-date-end{width:122px;font-size:.8rem}
+    .item-date-end{opacity:.9}
+    .notify-btn{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 7px;cursor:pointer;font-size:.85rem;margin-left:3px;vertical-align:middle}
+    .notify-btn:hover{background:#4f8ef7;border-color:#4f8ef7}
+    .notify-btn:disabled{opacity:.6;cursor:default}
     .tab-panel{display:none}
     .modal{max-height:90vh;overflow-y:auto}
     .modal-overlay{padding:2vh 0}
@@ -280,8 +285,11 @@
           <td>
             <input type="date" class="item-order-date" value="<%= row.order_date ? new Date(row.order_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)">
           </td>
-          <td>
-            <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)">
+          <td style="white-space:nowrap">
+            <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Delivery date — leave the 'to' box blank for a single day">
+            <span style="color:var(--muted);font-size:.72rem">to</span>
+            <input type="date" class="item-date-end" value="<%= row.delivery_date_end ? new Date(row.delivery_date_end).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Optional window end (for an estimated delivery window)">
+            <button type="button" class="notify-btn" onclick="notifyDelivery(this)" title="Send the delivery alert to chat">📢</button>
           </td>
           <td>
             <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)">
@@ -1200,13 +1208,15 @@ async function saveItem(el) {
   STATUS_CLASSES.forEach(c => statusSel.classList.remove(c));
   statusSel.classList.add(statusToClass(status));
   const delivery_date = row.querySelector('.item-date').value;
+  const endEl = row.querySelector('.item-date-end');
+  const delivery_date_end = endEl ? endEl.value : '';
   const order_date = row.querySelector('.item-order-date').value;
   const notes = row.querySelector('.item-notes').value;
   try {
     const r = await fetch(`/projects/${projectId}/items/${code}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, delivery_date, order_date, notes }),
+      body: JSON.stringify({ status, delivery_date, delivery_date_end, order_date, notes }),
     });
     if (r.redirected && /\/login/.test(r.url)) throw new Error('LOGGED_OUT');
     let data = null;
@@ -1221,6 +1231,25 @@ async function saveItem(el) {
       showToast('Not saved — please try again', true);
     }
   }
+}
+
+// Send the delivery alert for this item to chat (single date or window).
+async function notifyDelivery(btn) {
+  const row = btn.closest('tr');
+  const dateEl = row.querySelector('.item-date');
+  if (!dateEl.value) { showToast('Set a delivery date first', true); return; }
+  const projectId = row.dataset.project, code = row.dataset.code;
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = '…';
+  try {
+    await saveItem(dateEl);   // persist the latest date(s) before alerting
+    const r = await fetch(`/projects/${projectId}/items/${code}/notify`, { method: 'POST' });
+    const data = await r.json();
+    if (data.ok) {
+      btn.textContent = '✓'; showToast('Delivery alert sent to chat');
+      setTimeout(() => { btn.textContent = orig; btn.disabled = false; }, 1600);
+    } else { showToast(data.error || 'Could not send', true); btn.textContent = orig; btn.disabled = false; }
+  } catch (e) { showToast('Could not send', true); btn.textContent = orig; btn.disabled = false; }
 }
 
 // ── Log order confirmation ────────────────────────────────────────────────

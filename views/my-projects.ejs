@@ -61,7 +61,7 @@
       <% } else { scheduled.forEach(i => { %>
         <div class="ditem">
           <span><%= i.name %></span>
-          <span class="pill pill-sched"><%= i.deliveryDate ? i.deliveryDate.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) : 'TBD' %></span>
+          <span class="pill pill-sched"><%= i.deliveryDate ? i.deliveryDate.toLocaleDateString('en-US', i.deliveryDateEnd ? {month:'short',day:'numeric'} : {weekday:'short',month:'short',day:'numeric'}) : 'TBD' %><% if (i.deliveryDateEnd) { %> – <%= i.deliveryDateEnd.toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></span>
         </div>
       <% }) } %>
 

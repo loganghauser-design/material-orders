@@ -1147,6 +1147,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
     ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
+    ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_date_end DATE;
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
@@ -1391,7 +1392,7 @@ app.get('/my', requireSuper, async (req, res) => {
     const itemsByProject = {};
     if (ids.length) {
       const { rows: items } = await pool.query(
-        'SELECT project_id, item_code, status, delivery_date FROM project_items WHERE project_id = ANY($1::int[])', [ids]
+        'SELECT project_id, item_code, status, delivery_date, delivery_date_end FROM project_items WHERE project_id = ANY($1::int[])', [ids]
       );
       for (const it of items) {
         const delivered = DELIV.has(it.status);
@@ -1401,6 +1402,7 @@ app.get('/my', requireSuper, async (req, res) => {
           name: CODE_NAME[it.item_code] || it.item_code,
           status: it.status, delivered: !!delivered,
           deliveryDate: it.delivery_date ? new Date(it.delivery_date) : null,
+          deliveryDateEnd: it.delivery_date_end ? new Date(it.delivery_date_end) : null,
         });
       }
       for (const k of Object.keys(itemsByProject)) {
@@ -1674,18 +1676,12 @@ app.post('/projects/:id/status', requireAuth, async (req, res) => {
 // ── Update single item status (AJAX) ──────────────────────────────────────────
 
 app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
-  const { status, delivery_date, notes, order_date, statusOnly } = req.body;
+  const { status, delivery_date, delivery_date_end, notes, order_date, statusOnly } = req.body;
   // Ensure the row exists first
   await pool.query(
     `INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING`,
     [req.params.id, req.params.code]
   );
-  // Capture the prior delivery date so we only alert when it actually changes
-  let oldDate = null;
-  if (!statusOnly && delivery_date) {
-    const { rows: [cur] } = await pool.query('SELECT delivery_date FROM project_items WHERE project_id=$1 AND item_code=$2', [req.params.id, req.params.code]);
-    oldDate = cur && cur.delivery_date ? new Date(cur.delivery_date).toISOString().slice(0, 10) : null;
-  }
   if (statusOnly) {
     // Grid edit: only change status, preserve date/notes
     await pool.query(
@@ -1693,25 +1689,48 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
       [status, req.params.id, req.params.code]
     );
   } else {
+    // Window: keep an end date only if it's after the start; ignore otherwise.
+    const end = (delivery_date && delivery_date_end && delivery_date_end > delivery_date) ? delivery_date_end : null;
     await pool.query(
-      `UPDATE project_items SET status=$1, delivery_date=$2, notes=$3, order_date=$4
-       WHERE project_id=$5 AND item_code=$6`,
-      [status, delivery_date||null, notes||null, order_date||null, req.params.id, req.params.code]
+      `UPDATE project_items SET status=$1, delivery_date=$2, delivery_date_end=$3, notes=$4, order_date=$5
+       WHERE project_id=$6 AND item_code=$7`,
+      [status, delivery_date || null, end, notes || null, order_date || null, req.params.id, req.params.code]
     );
   }
-  // Post to the Delivery Alerts Chat space when a delivery date is newly set/changed
-  if (!statusOnly && delivery_date && delivery_date !== oldDate) {
+  // Chat alert is no longer automatic — it's sent on demand via the 📢 button (/notify).
+  res.json({ ok: true });
+});
+
+// Format a YYYY-MM-DD as a friendly chat date (Tue, Jun 9). Short form omits the weekday.
+function chatDate(ymd, short) {
+  const p = String(ymd || '').split('-').map(Number);
+  if (p.length !== 3) return String(ymd || '');
+  const opts = short ? { month: 'short', day: 'numeric' } : { weekday: 'short', month: 'short', day: 'numeric' };
+  return new Date(p[0], p[1] - 1, p[2]).toLocaleDateString('en-US', opts);
+}
+
+// Send the delivery alert for one item to chat (single date or window). On demand.
+app.post('/projects/:id/items/:code/notify', requireAuth, async (req, res) => {
+  try {
+    const { rows: [it] } = await pool.query(
+      'SELECT delivery_date, delivery_date_end FROM project_items WHERE project_id=$1 AND item_code=$2',
+      [req.params.id, req.params.code]
+    );
+    if (!it || !it.delivery_date) return res.status(400).json({ ok: false, error: 'Set a delivery date first.' });
+    const start = new Date(it.delivery_date).toISOString().slice(0, 10);
+    const end = it.delivery_date_end ? new Date(it.delivery_date_end).toISOString().slice(0, 10) : null;
     const { rows: [proj] } = await pool.query('SELECT address, super_email FROM projects WHERE id=$1', [req.params.id]);
     const name = ITEM_NAME[req.params.code] || req.params.code;
-    const parts = delivery_date.split('-').map(Number);
-    const when = parts.length === 3
-      ? new Date(parts[0], parts[1] - 1, parts[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-      : delivery_date;
     const sups = proj ? parseSuperEmails(proj.super_email) : [];
     const mention = sups.length ? sups.map(s => `<users/${s.chatId}>`).join(' ') + ' ' : '';
-    postToChat(`*${shortAddress(proj ? proj.address : '')}*\n${mention}${name} scheduled for delivery ${when}`);
+    const when = end
+      ? `Delivery window ${chatDate(start, true)} – ${chatDate(end, true)}`
+      : `scheduled for delivery ${chatDate(start)}`;
+    postToChat(`*${shortAddress(proj ? proj.address : '')}*\n${mention}${name} ${when}`);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
-  res.json({ ok: true });
 });
 
 // ── Send milestone email ──────────────────────────────────────────────────────
@@ -2477,7 +2496,7 @@ app.get('/deliveries', requireAuth, async (req, res) => {
   try {
     await initDb();
     const { rows } = await pool.query(`
-      SELECT pi.item_code, pi.status, pi.delivery_date, p.id AS project_id, p.address
+      SELECT pi.item_code, pi.status, pi.delivery_date, pi.delivery_date_end, p.id AS project_id, p.address
       FROM project_items pi JOIN projects p ON p.id = pi.project_id
       WHERE pi.delivery_date IS NOT NULL AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A')
       ORDER BY pi.delivery_date ASC
@@ -2833,7 +2852,7 @@ async function sendWeeklyDigest() {
       COUNT(*) FILTER (WHERE overall_status='Not Yet') AS not_yet,
       COUNT(*) AS total FROM projects`);
     const { rows: deliv } = await pool.query(`SELECT COUNT(*) c FROM project_items WHERE delivery_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days' AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`);
-    const { rows: overdue } = await pool.query(`SELECT COUNT(*) c FROM project_items WHERE delivery_date < CURRENT_DATE AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`);
+    const { rows: overdue } = await pool.query(`SELECT COUNT(*) c FROM project_items WHERE COALESCE(delivery_date_end, delivery_date) < CURRENT_DATE AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`);
     const { rows: [pay] } = await pool.query(`SELECT COALESCE(SUM(amount) FILTER (WHERE NOT paid),0) outstanding FROM milestone_payments`);
     const { rows: [unr] } = await pool.query(`SELECT COUNT(DISTINCT project_id) c FROM vendor_emails WHERE has_unread=true`);
     const html = `<div style="font-family:Arial,sans-serif;font-size:14px">

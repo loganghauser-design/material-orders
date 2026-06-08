@@ -26,9 +26,12 @@
   <%
     const today = new Date(); today.setHours(0,0,0,0);
     const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate() + 7);
-    const overdue = items.filter(i => new Date(i.delivery_date) < today);
-    const thisWeek = items.filter(i => { const d = new Date(i.delivery_date); return d >= today && d <= weekEnd; });
-    const later = items.filter(i => new Date(i.delivery_date) > weekEnd);
+    // Windows: bucket by the END of the window for overdue, the START for upcoming.
+    const dStart = i => new Date(i.delivery_date);
+    const dEnd = i => i.delivery_date_end ? new Date(i.delivery_date_end) : new Date(i.delivery_date);
+    const overdue = items.filter(i => dEnd(i) < today);
+    const thisWeek = items.filter(i => dEnd(i) >= today && dStart(i) <= weekEnd);
+    const later = items.filter(i => dStart(i) > weekEnd);
   %>
 
   <% [['⚠ Overdue', overdue, 'var(--danger)'], ['This Week', thisWeek, 'var(--accent)'], ['Upcoming', later, 'var(--muted)']].forEach(([title, list, color]) => { %>
@@ -42,7 +45,8 @@
           <tbody>
             <% list.forEach(i => { %>
               <tr>
-                <td><strong><%= new Date(i.delivery_date).toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) %></strong></td>
+                <% var _s = new Date(i.delivery_date); var _e = i.delivery_date_end ? new Date(i.delivery_date_end) : null; %>
+                <td><strong><%= _s.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}) %><% if (_e) { %> – <%= _e.toLocaleDateString(undefined,{month:'short',day:'numeric'}) %><% } %></strong><% if (_e) { %> <span style="color:var(--muted);font-size:.7rem">window</span><% } %></td>
                 <td><a href="/projects/<%= i.project_id %>"><%= i.address %></a></td>
                 <td><%= i.item_name %> <span style="color:var(--muted);font-size:.75rem">(<%= i.item_code %>)</span></td>
                 <td><span class="badge badge-in_progress"><%= i.status %></span></td>
