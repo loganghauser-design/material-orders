@@ -869,7 +869,7 @@ async function toggleThread(threadId, headEl) {
     const msgs = data.messages.map((m, idx) => `
       <div class="msg ${m.fromMe ? 'msg-me':'msg-them'}">
         <div class="msg-meta"><strong>${escapeHtmlJs(m.from)}</strong> · ${escapeHtmlJs(m.date)}</div>
-        <div class="msg-body">${m.isHtml ? m.body : escapeHtmlJs(m.body).replace(/\\n/g,'<br>')}</div>
+        <div class="msg-body" style="line-height:1.5;word-break:break-word;overflow-wrap:anywhere">${m.bodyHtml || (m.isHtml ? m.body : escapeHtmlJs(m.body).replace(/\n/g,'<br>'))}</div>
         ${m.fromMe ? '' : `<div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" onclick="openOrderDialog('${threadId}', ${idx})">📦 Log Order Confirmation</button></div>`}
       </div>
     `).join('');

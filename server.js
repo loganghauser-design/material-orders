@@ -882,6 +882,43 @@ function headerVal(headers, name) {
   return h ? h.value : '';
 }
 
+// Phrases from OUR own RFQ/outbound templates — when a vendor reply quotes our
+// original inline (no "On … wrote:" marker), the quote starts at one of these.
+const OUR_QUOTE_MARKERS = [
+  /i'?d like to place an order for delivery to/i,
+  /we'?re ready for delivery to/i,
+  /i'?d like to request an rfq/i,
+  /please see the items below/i,
+  /we need an outbound for/i,
+  /please reply to this email thread directly/i,
+];
+// Trim the quoted reply history from a plain-text body (keep just the latest message,
+// like Gmail collapses). For inbound mail we also cut where our own quoted email begins.
+function stripQuotedPlain(text, fromMe) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n');
+  const stdMarker = /^(on .+ wrote:|>+\s?|-{2,}\s*original message|from:\s.+|sent from my |________+|_{5,})/i;
+  const out = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (stdMarker.test(t)) break;
+    if (!fromMe && OUR_QUOTE_MARKERS.some(re => re.test(t))) break;   // start of our quoted original
+    out.push(line);
+  }
+  const s = out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return s || String(text || '').trim();
+}
+// Turn a cleaned plain-text body into safe display HTML (line breaks preserved).
+function plainToDisplayHtml(text, fromMe) {
+  return escapeHtml(stripQuotedPlain(text, fromMe)).replace(/\n/g, '<br>');
+}
+// Clean an HTML body: drop the Gmail/Outlook quoted history, then sanitize.
+function htmlToDisplayHtml(html) {
+  let s = String(html || '');
+  s = s.replace(/<div[^>]*class="[^"]*gmail_quote[^"]*"[\s\S]*$/i, '');
+  s = s.replace(/<blockquote[\s\S]*?<\/blockquote>/gi, '');
+  return sanitizePastedHtml(s);
+}
+
 // List file attachments (filename + Gmail attachmentId) in a message payload
 function extractAttachments(payload) {
   const out = [];
@@ -901,7 +938,9 @@ async function fetchThread(threadId) {
   const { data } = await gmailClient.users.threads.get({ userId: 'me', id: threadId, format: 'full' });
   const messages = (data.messages || []).map(m => {
     const headers = m.payload.headers;
+    const fromMe = headerVal(headers, 'From').includes(gmailUser);
     const body = extractBody(m.payload);
+    const bodyHtml = body.isHtml ? htmlToDisplayHtml(body.text) : plainToDisplayHtml(body.text, fromMe);
     return {
       id: m.id,
       from: headerVal(headers, 'From'),
@@ -911,10 +950,11 @@ async function fetchThread(threadId) {
       messageIdHeader: headerVal(headers, 'Message-ID'),
       references: headerVal(headers, 'References'),
       snippet: m.snippet,
-      body: body.text,
+      body: body.text,           // raw text (used for material detection)
+      bodyHtml,                  // cleaned, quote-stripped HTML for display
       isHtml: body.isHtml,
       attachments: extractAttachments(m.payload),
-      fromMe: headerVal(headers, 'From').includes(gmailUser),
+      fromMe,
     };
   });
   return messages;
