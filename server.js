@@ -1085,7 +1085,8 @@ async function createDraft({ to, cc, subject, text, html, attachments }) {
   const recipients = parseRecipients(to);
   const ccList = parseRecipients(cc);
   const raw = buildRawMessage({ from: gmailUser, to: recipients.join(', '), cc: ccList.join(', ') || undefined, subject, text, html, attachments });
-  await gmailClient.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+  const { data } = await gmailClient.users.drafts.create({ userId: 'me', requestBody: { message: { raw } } });
+  return { draftId: data.id, threadId: data.message && data.message.threadId, messageId: data.message && data.message.id };
 }
 
 // Construction milestone payment-request email templates
@@ -1886,7 +1887,14 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
     (req.files || []).forEach(f => attachments.push({ filename: f.originalname, mimeType: f.mimetype, content: f.buffer }));
 
     if (asDraft === 'true' || asDraft === true) {
-      await createDraft({ to: supplierEmail, cc: sendCc, subject, html, attachments });
+      const draft = await createDraft({ to: supplierEmail, cc: sendCc, subject, html, attachments });
+      // Record the draft so it appears in the project's Emails tab and replies get
+      // tracked once you send it from Gmail (it keeps the same thread id).
+      await pool.query(
+        `INSERT INTO vendor_emails (project_id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [req.params.id, itemCode, supplierName || null, supplierEmail, subject, emailType || 'order', draft.threadId || null, draft.messageId || null]
+      );
       return res.json({ ok: true, draft: true });
     }
 
