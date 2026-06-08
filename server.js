@@ -559,6 +559,7 @@ async function readScheduleVendors(scheduleUrl, opts = {}) {
     if (!name) continue;
     const item = {
       name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(), model: (row[7] || '').trim(),
+      finishColor: (row[8] || '').trim(),
       qty: (row[9] || '').trim() || '1', code: (cat.match(CATRE) || [])[1].toLowerCase(),
       planTag: (row[1] || '').trim(), prodCode,
     };

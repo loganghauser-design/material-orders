@@ -1019,9 +1019,9 @@ function fillFromVendor() {
   rfqSavedSupplierEmail = email || '';
   RFQ_COVERED = [...new Set(v.items.map(it => it.code))];
   const rowsHtml = v.items.map(it =>
-    `<tr data-code="${escapeHtmlJs(it.code || '')}"><td contenteditable="false" style="text-align:center"><input type="checkbox" class="rfq-itemchk" checked onchange="updateItemCount()"></td><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
+    `<tr data-code="${escapeHtmlJs(it.code || '')}"><td contenteditable="false" style="text-align:center"><input type="checkbox" class="rfq-itemchk" checked onchange="updateItemCount()"></td><td>${escapeHtmlJs(it.name)}</td><td>${escapeHtmlJs(it.product || '')}</td><td>${escapeHtmlJs(it.brand || '')}</td><td>${escapeHtmlJs(it.model || '')}</td><td>${escapeHtmlJs(it.finishColor || '')}</td><td>${escapeHtmlJs(String(it.qty || '1'))}</td></tr>`).join('');
   document.getElementById('rfqItems').innerHTML =
-    `<table><colgroup><col width="34"><col width="150"><col width="220"><col width="110"><col width="150"><col width="45"></colgroup><tr><td contenteditable="false"><b>✓</b></td><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
+    `<table><colgroup><col width="34"><col width="150"><col width="200"><col width="100"><col width="140"><col width="100"><col width="45"></colgroup><tr><td contenteditable="false"><b>✓</b></td><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Finish/Color</b></td><td><b>Qty</b></td></tr>${rowsHtml}</table>`;
   // Build the stage/category filter from this vendor's distinct codes (numeric order).
   const codeName = {}; ALL_MATERIALS.forEach(m => { codeName[m.code] = m.name; });
   const codes = [...new Set(v.items.map(it => it.code).filter(Boolean))].sort();
