@@ -671,6 +671,7 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
     const held = isHeldSupplier(supplier);
     (byCode[code] = byCode[code] || []).push({
       name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
+      finishColor: (row[8] || '').trim(),
       model, qty: (row[9] || '').trim() || '1', supplier,
       hood, jedco, defaultSupplier: (hood || jedco) ? origSupplier : undefined,
       held, itemKey: held ? heldItemKey(prodCode, model, name) : undefined,
