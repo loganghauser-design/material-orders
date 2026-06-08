@@ -66,7 +66,7 @@ const STAGES = [
     items: [
       { code: '3a', name: 'Countertops' },
       { code: '3b', name: 'Appliances' },
-      { code: '3c', name: 'Hardware' },
+      { code: '3c', name: 'Cabinet Hardware' },
       { code: '3d', name: 'Misc' },
       { code: '3e', name: 'Shower Doors' },
     ],
