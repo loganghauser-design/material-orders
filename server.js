@@ -1208,6 +1208,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
     ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_date_end DATE;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS sort_order INTEGER;
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
@@ -2713,7 +2714,7 @@ async function readSubsSheet() {
       owner: (r[5] || '').trim(), email: (r[6] || '').trim(), phone: (r[7] || '').trim(),
       projects: (r[8] || '').trim(),
       notes: [(r[9] || '').trim(), (r[10] || '').trim()].filter(Boolean).join(' · '),
-      group_label: group,
+      group_label: group, sort_order: i,   // i = sheet row index → preserves sheet order
     });
   }
   return out;
@@ -2722,7 +2723,7 @@ async function readSubsSheet() {
 app.get('/subs', requireAuth, async (req, res) => {
   try {
     await initDb();
-    const { rows: subs } = await pool.query('SELECT * FROM subcontractors ORDER BY type NULLS LAST, company');
+    const { rows: subs } = await pool.query('SELECT * FROM subcontractors ORDER BY sort_order NULLS LAST, id');
     const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
     const photosBySub = {};
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
@@ -2798,10 +2799,10 @@ app.post('/subs/import', requireAuth, async (req, res) => {
     for (const s of sheetSubs) {
       if (have.has(s.company.toLowerCase())) continue;
       await pool.query(
-        `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, sort_order)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [s.company, s.location || null, s.type || null, s.status || null, s.owner || null,
-         s.email || null, s.phone || null, s.projects || null, s.notes || null, s.group_label || null]
+         s.email || null, s.phone || null, s.projects || null, s.notes || null, s.group_label || null, s.sort_order]
       );
       have.add(s.company.toLowerCase());
       added++;

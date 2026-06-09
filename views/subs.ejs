@@ -77,7 +77,8 @@
   <% } %>
 
   <div class="sub-grid" id="subGrid">
-    <% subs.forEach(s => { %>
+    <% let curGroup = null; subs.forEach(s => { %>
+      <% const g = s.group_label || ''; if (g !== curGroup) { curGroup = g; if (g) { %><div class="grouphdr" data-grouphdr><%= g %></div><% } } %>
       <div class="sub-card" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
         <h3><%= s.company || s.owner || 'Unnamed' %></h3>
         <% if (s.type) { %><span class="sub-type"><%= s.type %></span><% } %><% if (s.status) { %><span class="sub-status"><%= s.status %></span><% } %>
@@ -157,6 +158,17 @@ function filterSubs() {
     const okQ = !q || c.dataset.search.includes(q);
     const okT = !tf || c.dataset.type === tf;
     c.style.display = (okQ && okT) ? '' : 'none';
+  });
+  // Hide a section header if every card under it (until the next header) is hidden
+  const kids = [...document.getElementById('subGrid').children];
+  kids.forEach((el, i) => {
+    if (!el.hasAttribute('data-grouphdr')) return;
+    let anyVisible = false;
+    for (let j = i + 1; j < kids.length; j++) {
+      if (kids[j].hasAttribute('data-grouphdr')) break;
+      if (kids[j].style.display !== 'none') { anyVisible = true; break; }
+    }
+    el.style.display = anyVisible ? '' : 'none';
   });
 }
 function openAdd() {
