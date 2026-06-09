@@ -169,36 +169,76 @@ async function parseReceiptPdf(buffer) {
   finally { if (parser.destroy) { try { await parser.destroy(); } catch (e) {} } }
   const rawLines = text.split(/\r?\n/);
 
-  // Vendor = first line with letters
+  // Vendor = first line with letters (skip generic document-type headers like "Sales Order")
   let vendor = '';
-  for (const l of rawLines) { const t = l.trim(); if (t.length > 3 && /[a-z]/i.test(t)) { vendor = t.replace(/\s+#\d+.*$/, '').slice(0, 120); break; } }
-
-  // Grand total = last "Total: $X" that isn't sub/net total
-  let amount = null;
   for (const l of rawLines) {
-    if (/sub\s*total|net\s*total/i.test(l)) continue;
-    const m = l.match(/\btotal\s*:?\s*\$?\s*([\d,]+\.\d{2})/i);
-    if (m) { const v = parseFloat(m[1].replace(/,/g, '')); if (!isNaN(v)) amount = v; }
+    const t = l.trim();
+    if (t.length > 3 && /[a-z]/i.test(t) && !/^(sales order|invoice|purchase order|quote|estimate|receipt|order|packing slip)\b/i.test(t)) {
+      vendor = t.replace(/\s+#\d+.*$/, '').slice(0, 120); break;
+    }
   }
 
-  // Line items: rows split on tabs / 2+ spaces, ending in a price, containing a qty
+  // Grand total — prefer an inline "Total: $X"; else the largest standalone dollar amount.
+  let amount = null;
+  for (const l of rawLines) {
+    if (/sub\s*total|net\s*total|sales\s*tax/i.test(l)) continue;
+    const m = l.match(/\btotal\b\s*:?\s*\$?\s*([\d,]+\.\d{2})/i);
+    if (m) { const v = parseFloat(m[1].replace(/,/g, '')); if (!isNaN(v)) amount = v; }
+  }
+  if (amount == null) {
+    let max = 0;
+    for (const l of rawLines) { const m = l.match(/\$\s*([\d,]+\.\d{2})/); if (m) { const v = parseFloat(m[1].replace(/,/g, '')); if (v > max) max = v; } }
+    if (max > 0) amount = max;
+  }
+
+  // Line items — primary: join wrapped lines and match a "<qty> <U/M> <unit> <amount>[T]"
+  // tail at the end of a logical row. Handles QuickBooks/single-spaced/tax-suffix receipts.
+  const BOUNDARY = /^(total|subtotal|sales\s*tax|freight|service\s*charge|return\s*policy|thank you|item\s+description|project\s*name|p\.?o\.?\s*no|ship\b|terms|rep\b|date\b|name\s*\/|qty\b|--)/i;
+  const TAIL = /(\d{1,4})\s+(ea|each|pc|pcs|lf|sf|box|cs|ctn|kit|set|pr|roll|gal|bag)\s+\$?([\d,]+\.\d{2})\s+\$?([\d,]+\.\d{2})\s*[A-Za-z]?\s*$/i;
+  const NEWITEM = /^[A-Z0-9]+-[A-Z0-9\-\/]+\s/i;          // a real SKU at the line start (has a hyphen)
+  const CODELIKE = /^[A-Z0-9][A-Z0-9\-\/]{2,}$/i;
   const lines = [];
+  let buf = '';
   for (const raw of rawLines) {
-    if (/total|tax|freight|page \d|^item\b|description|warranty|warning|notice|payment|assigned|p65|lead law|water flow|terms|\d{1,2}\/\d{1,2}\/\d{2,4}|\b(mc|visa|amex|disc)\s+\d{4}\b|^\s*$/i.test(raw)) continue;
-    const parts = raw.split(/\t+|\s{2,}/).map(s => s.trim()).filter(Boolean);
-    if (parts.length < 3) continue;
-    const last = parts[parts.length - 1].replace(/[$,]/g, '');
-    if (!/^\d+\.\d{2}$/.test(last)) continue;
-    const price = parseFloat(last);
-    if (isNaN(price) || price <= 0) continue;
-    let qty = 1;
-    for (let i = 1; i < parts.length - 1; i++) { if (/^\d{1,3}$/.test(parts[i])) { qty = parseInt(parts[i], 10); break; } }
-    const product_code = /^[A-Z0-9][A-Z0-9\-\/]{2,}$/i.test(parts[0]) ? parts[0] : '';
-    const description = (product_code ? parts.slice(1) : parts)
-      .filter(p => !/^[\d.,]+$/.test(p) && !/^(ea|each|pc|pcs|lf|sf|box|cs)$/i.test(p))
-      .join(' ').slice(0, 200) || product_code;
-    if (!description) continue;
-    lines.push({ product_code, description, qty, price, item_code: categorizeItem(description + ' ' + product_code) });
+    const t = raw.trim();
+    if (!t) continue;
+    if (BOUNDARY.test(t)) { buf = ''; continue; }
+    if (NEWITEM.test(t) && buf && !TAIL.test(buf)) buf = '';   // a new item began; drop the incomplete buffer
+    buf = buf ? buf + ' ' + t : t;
+    const m = buf.match(TAIL);
+    if (m) {
+      const qty = parseInt(m[1], 10) || 1;
+      const price = parseFloat(m[4].replace(/,/g, ''));        // line amount
+      const head = buf.slice(0, m.index).trim();
+      const ft = head.split(/\s+/)[0] || '';
+      const product_code = CODELIKE.test(ft) ? ft : '';
+      const description = (product_code ? head.slice(ft.length).trim() : head).replace(/\s+/g, ' ').slice(0, 200) || product_code;
+      if (description && !isNaN(price) && price > 0) {
+        lines.push({ product_code, description, qty, price, item_code: categorizeItem(description + ' ' + product_code) });
+      }
+      buf = '';
+    }
+  }
+
+  // Fallback: the old tab / 2-space column parser, for receipts that don't use that tail layout.
+  if (!lines.length) {
+    for (const raw of rawLines) {
+      if (/total|tax|freight|page \d|^item\b|description|warranty|warning|notice|payment|assigned|p65|lead law|water flow|terms|\d{1,2}\/\d{1,2}\/\d{2,4}|\b(mc|visa|amex|disc)\s+\d{4}\b|^\s*$/i.test(raw)) continue;
+      const parts = raw.split(/\t+|\s{2,}/).map(s => s.trim()).filter(Boolean);
+      if (parts.length < 3) continue;
+      const last = parts[parts.length - 1].replace(/[$,]/g, '');
+      if (!/^\d+\.\d{2}$/.test(last)) continue;
+      const price = parseFloat(last);
+      if (isNaN(price) || price <= 0) continue;
+      let qty = 1;
+      for (let i = 1; i < parts.length - 1; i++) { if (/^\d{1,3}$/.test(parts[i])) { qty = parseInt(parts[i], 10); break; } }
+      const product_code = CODELIKE.test(parts[0]) ? parts[0] : '';
+      const description = (product_code ? parts.slice(1) : parts)
+        .filter(p => !/^[\d.,]+$/.test(p) && !/^(ea|each|pc|pcs|lf|sf|box|cs)$/i.test(p))
+        .join(' ').slice(0, 200) || product_code;
+      if (!description) continue;
+      lines.push({ product_code, description, qty, price, item_code: categorizeItem(description + ' ' + product_code) });
+    }
   }
   return { vendor, amount, lines };
 }
