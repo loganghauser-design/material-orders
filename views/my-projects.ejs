@@ -48,19 +48,18 @@
     <div class="pcard" style="background:rgba(224,83,31,.1);border-color:rgba(224,83,31,.4);color:#c2410c;font-weight:600">✓ Issue sent to the office.</div>
   <% } %>
 
-  <% if (typeof allProjects !== 'undefined' && allProjects && allProjects.length) { %>
+  <% if (projects.length) { %>
     <div style="margin-bottom:1.1rem">
-      <select id="issueProject" onchange="if(this.value)location.href='/my/issue/'+this.value" style="max-width:280px;width:100%;font-size:.95rem;padding:.55rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface)">
-        <option value="">Project collection</option>
-        <% allProjects.forEach(p => { %>
+      <select id="projectPicker" onchange="showProject(this.value)" style="max-width:300px;width:100%;font-size:.95rem;padding:.55rem .7rem;border:1px solid var(--border);border-radius:9px;background:var(--surface)">
+        <option value="">Project selection</option>
+        <% projects.forEach(p => { %>
           <option value="<%= p.id %>"><%= p.address %></option>
         <% }) %>
       </select>
     </div>
-  <% } %>
-
-  <% if (!projects.length) { %>
-    <div class="pcard"><div class="empty">You're not assigned to any projects yet — but you can still report a material issue on any job using the dropdown above.</div></div>
+    <div id="noSelection" class="empty" style="padding:.4rem 0">Select a project above to view it.</div>
+  <% } else { %>
+    <div class="pcard"><div class="empty">You don't have any projects assigned yet. Ask the office to assign you to a job.</div></div>
   <% } %>
 
   <% projects.forEach(p => {
@@ -68,11 +67,11 @@
        const scheduled = items.filter(i => !i.delivered);
        const delivered = items.filter(i => i.delivered);
   %>
-    <div class="pcard">
+    <div class="pcard" id="pc_<%= p.id %>" style="display:none">
       <h2><%= p.address %></h2>
       <div class="addr2"><%= p.full_address && p.full_address !== p.address ? p.full_address : '' %><span style="margin-left:.4rem">· <%= p.overall_status %></span></div>
       <div style="display:flex;gap:.5rem;margin:.2rem 0 .8rem">
-        <a href="/my/request/<%= p.id %>" style="flex:1;text-align:center;background:#4f8ef7;color:#fff;font-weight:700;text-decoration:none;padding:.7rem;border-radius:10px">📦 Request Material</a>
+        <% if (p.assigned) { %><a href="/my/request/<%= p.id %>" style="flex:1;text-align:center;background:#4f8ef7;color:#fff;font-weight:700;text-decoration:none;padding:.7rem;border-radius:10px">📦 Request Material</a><% } %>
         <a href="/my/issue/<%= p.id %>" style="flex:1;text-align:center;background:#e0531f;color:#fff;font-weight:700;text-decoration:none;padding:.7rem;border-radius:10px">⚠️ Report Issue</a>
       </div>
 
@@ -104,5 +103,15 @@
 
   <p style="color:var(--muted);font-size:.78rem;text-align:center;margin-top:1.5rem">Read-only view · updated by the Buildoly office</p>
 </div>
+<script>
+function showProject(id) {
+  document.querySelectorAll('[id^="pc_"]').forEach(el => el.style.display = 'none');
+  const ns = document.getElementById('noSelection');
+  if (!id) { if (ns) ns.style.display = ''; return; }
+  if (ns) ns.style.display = 'none';
+  const card = document.getElementById('pc_' + id);
+  if (card) card.style.display = '';
+}
+</script>
 </body>
 </html>

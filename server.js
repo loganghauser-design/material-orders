@@ -1499,10 +1499,15 @@ app.get('/my', requireSuper, async (req, res) => {
     await initDb();
     const email = req.session.superEmail;
     const sup = findSuper(email) || { name: 'Super', email };
-    const { rows: allProjects } = await pool.query(
-      "SELECT id, address, full_address, overall_status, super_email FROM projects WHERE super_email IS NOT NULL AND super_email <> '' ORDER BY address"
+    const canAll = canSuperViewAllProjects(email);
+    // Visible projects: all (Bobby) or just assigned (others)
+    const { rows: allRows } = await pool.query(
+      "SELECT id, address, full_address, overall_status, super_email FROM projects ORDER BY address"
     );
-    const mine = allProjects.filter(p => parseSuperEmails(p.super_email).some(s => s.email.toLowerCase() === String(email).toLowerCase()));
+    const isAssigned = p => parseSuperEmails(p.super_email).some(s => s.email.toLowerCase() === String(email).toLowerCase());
+    const visible = canAll ? allRows : allRows.filter(isAssigned);
+    visible.forEach(p => p.assigned = isAssigned(p));   // controls the Request-Material button
+    const mine = visible;
     const DELIV = new Set(['Delivered', 'Delivered from Inv.']);
     const ids = mine.map(p => p.id);
     const itemsByProject = {};
@@ -1532,14 +1537,7 @@ app.get('/my', requireSuper, async (req, res) => {
         });
       }
     }
-    // Issue-report dropdown: all projects for Bobby, assigned-only for everyone else
-    let dropdownProjects;
-    if (canSuperViewAllProjects(email)) {
-      dropdownProjects = (await pool.query('SELECT id, address FROM projects ORDER BY address')).rows;
-    } else {
-      dropdownProjects = mine.map(p => ({ id: p.id, address: p.address })).sort((a, b) => a.address.localeCompare(b.address));
-    }
-    res.render('my-projects', { sup, projects: mine, itemsByProject, allProjects: dropdownProjects, canViewSubs: canSuperViewSubs(email), canViewAll: canSuperViewAllProjects(email), requested: req.query.requested === '1', issued: req.query.issued === '1' });
+    res.render('my-projects', { sup, projects: mine, itemsByProject, canViewSubs: canSuperViewSubs(email), requested: req.query.requested === '1', issued: req.query.issued === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
