@@ -1573,17 +1573,30 @@ app.post('/my/password', requireSuper, async (req, res) => {
     if (!sup) return res.redirect('/my');
     const { current, new1, new2 } = req.body;
     const hash = await superPasswordHash(sup);
-    if (!hash || !(await bcrypt.compare(current || '', hash))) return res.redirect('/my?pw=bad');
-    if (!new1 || String(new1).length < 4) return res.redirect('/my?pw=short');
-    if (new1 !== new2) return res.redirect('/my?pw=mismatch');
+    if (!hash || !(await bcrypt.compare(current || '', hash))) return res.redirect('/my/settings?pw=bad');
+    if (!new1 || String(new1).length < 4) return res.redirect('/my/settings?pw=short');
+    if (new1 !== new2) return res.redirect('/my/settings?pw=mismatch');
     const newHash = await bcrypt.hash(String(new1), 10);
     await pool.query(
       `INSERT INTO super_passwords (email, password_hash, updated_at) VALUES ($1,$2,NOW())
        ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, updated_at=NOW()`,
       [sup.email, newHash]
     );
-    res.redirect('/my?pw=ok');
+    res.redirect('/my/settings?pw=ok');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Super: settings page (change password, contact info)
+app.get('/my/settings', requireSuper, async (req, res) => {
+  try {
+    await initDb();
+    const email = req.session.superEmail;
+    const sup = findSuper(email) || { name: 'Super', email };
+    const { rows: [c] } = await pool.query('SELECT phone FROM super_contacts WHERE email=$1', [email]);
+    res.render('my-settings', { sup, phone: (c && c.phone) || '', canViewSubs: canSuperViewSubs(email), pw: req.query.pw || '' });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
 });
 
 // Helper: is this super assigned to this project?

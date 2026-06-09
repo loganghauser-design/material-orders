@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Settings — Buildoly</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .scard { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1.3rem 1.2rem; margin-bottom:1.1rem; max-width:520px; }
+    .scard h2 { font-size:1.05rem; font-weight:700; margin:0 0 .3rem; }
+    .scard .sub { color:var(--muted); font-size:.85rem; margin-bottom:1rem; }
+    .frow { margin-bottom:.8rem; }
+    .frow label { display:block; font-size:.78rem; font-weight:600; color:var(--muted); margin-bottom:.3rem; text-transform:uppercase; letter-spacing:.04em; }
+    .frow input { width:100%; padding:.75rem .85rem; font-size:1rem; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--text); }
+    .frow input:focus { outline:none; border-color:#111; }
+    .save-btn { width:100%; padding:.8rem; font-size:1rem; font-weight:700; background:#111; color:#fff; border:none; border-radius:10px; cursor:pointer; }
+    .save-btn:hover { background:#000; }
+    .banner { padding:.7rem 1rem; border-radius:10px; font-weight:600; margin-bottom:1rem; font-size:.9rem; }
+    .ok { background:rgba(76,175,125,.12); border:1px solid rgba(76,175,125,.4); color:#16a34a; }
+    .bad { background:rgba(204,34,34,.1); border:1px solid rgba(204,34,34,.35); color:#cc2222; }
+    .info-row { display:flex; justify-content:space-between; padding:.5rem 0; border-bottom:1px solid var(--border); font-size:.92rem; }
+    .info-row:last-child { border-bottom:none; }
+    .info-row .lbl { color:var(--muted); }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <a href="/my" class="nav-brand" style="text-decoration:none">Buildoly</a>
+    <a href="/my" class="nav-tab">My Projects</a>
+    <% if (typeof canViewSubs !== 'undefined' && canViewSubs) { %><a href="/subs" class="nav-tab">📇 Subs</a><% } %>
+    <a href="/my/settings" class="nav-tab active">⚙ Settings</a>
+  </div>
+  <div class="nav-actions">
+    <form method="POST" action="/logout" style="margin:0"><button type="submit" class="btn btn-ghost">Log out</button></form>
+  </div>
+</nav>
+
+<div class="container">
+  <div class="page-header"><h1>Settings</h1></div>
+
+  <!-- Account info -->
+  <div class="scard">
+    <h2>👷 <%= sup.name %></h2>
+    <div class="info-row"><span class="lbl">Email</span><span><%= sup.email %></span></div>
+    <% if (phone) { %><div class="info-row"><span class="lbl">Phone</span><span><%= phone %></span></div><% } %>
+  </div>
+
+  <!-- Change password -->
+  <div class="scard">
+    <h2>🔑 Change my password</h2>
+    <div class="sub">Set a personal password for signing in.</div>
+
+    <% if (pw === 'ok') { %><div class="banner ok">✓ Password updated.</div><% } %>
+    <% if (pw === 'bad') { %><div class="banner bad">Current password is incorrect.</div><% } %>
+    <% if (pw === 'short') { %><div class="banner bad">New password must be at least 4 characters.</div><% } %>
+    <% if (pw === 'mismatch') { %><div class="banner bad">New passwords don't match.</div><% } %>
+
+    <form method="POST" action="/my/password">
+      <div class="frow"><label>Current password</label><input type="password" name="current" required></div>
+      <div class="frow"><label>New password</label><input type="password" name="new1" required></div>
+      <div class="frow"><label>Confirm new password</label><input type="password" name="new2" required></div>
+      <button type="submit" class="save-btn">Update password</button>
+    </form>
+  </div>
+</div>
+</body>
+</html>
