@@ -20,6 +20,13 @@
     .opt.done { cursor:default; opacity:.75; }
     .opt.done .name-done { text-decoration:line-through; color:var(--muted); }
     .dtag { margin-left:auto; font-size:.72rem; font-weight:700; color:#16a34a; background:rgba(76,175,125,.14); padding:2px 8px; border-radius:9px; white-space:nowrap; }
+    .exp-btn { margin-left:auto; background:none; border:1px solid var(--border); border-radius:7px; padding:3px 11px; font-size:.78rem; color:#4f8ef7; font-weight:600; cursor:pointer; }
+    .exp-btn:hover { background:#eaf2ff; }
+    .exp-body { padding:.3rem .9rem .7rem 3rem; background:#fafbff; border-bottom:1px solid var(--border); }
+    .exp-item { display:flex; justify-content:space-between; gap:.8rem; padding:.4rem 0; font-size:.9rem; border-bottom:1px dashed var(--border); }
+    .exp-item:last-child { border-bottom:none; }
+    .exp-qty { color:var(--muted); white-space:nowrap; font-weight:600; }
+    .exp-empty { color:var(--muted); font-size:.85rem; padding:.4rem 0; }
     .fld { margin:1rem; }
     .fld label { display:block; font-weight:600; font-size:.9rem; margin-bottom:.35rem; }
     .fld input, .fld textarea { width:100%; font-size:1rem; padding:.6rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
@@ -43,11 +50,19 @@
     <% STAGES.forEach(stage => { %>
       <div class="stage">
         <div class="stage-h"><span><%= stage.name %></span><button type="button" onclick="toggleStage(this)">Select all</button></div>
-        <% stage.items.forEach(it => { %>
+        <% stage.items.forEach(it => {
+             const schedItems = (typeof byCode !== 'undefined' && byCode[it.code]) ? byCode[it.code] : []; %>
           <% if (delivered.indexOf(it.code) >= 0) { %>
             <div class="opt done"><span class=" name-done"><%= it.name %></span><span class="dtag">✓ Delivered</span></div>
           <% } else { %>
-            <label class="opt"><input type="checkbox" name="codes" value="<%= it.code %>" onchange="syncRow(this)"><span><%= it.name %></span></label>
+            <label class="opt"><input type="checkbox" name="codes" value="<%= it.code %>" onchange="syncRow(this)"><span><%= it.name %></span><% if (schedItems.length) { %><button type="button" class="exp-btn" onclick="event.preventDefault();event.stopPropagation();toggleExp('<%= it.code %>', this)">Expand ▸</button><% } %></label>
+            <% if (schedItems.length) { %>
+              <div class="exp-body" id="exp_<%= it.code %>" style="display:none">
+                <% schedItems.forEach(function(m){ %>
+                  <div class="exp-item"><span><%= m.name %><% if (m.product && m.product !== m.name) { %> <span style="color:var(--muted)">· <%= m.product %></span><% } %><% if (m.supplier) { %><br><span style="color:var(--muted);font-size:.76rem"><%= m.supplier %></span><% } %></span><span class="exp-qty">×<%= m.qty || '1' %></span></div>
+                <% }) %>
+              </div>
+            <% } %>
           <% } %>
         <% }) %>
       </div>
@@ -69,6 +84,13 @@
 </div>
 
 <script>
+function toggleExp(code, btn) {
+  const b = document.getElementById('exp_' + code);
+  if (!b) return;
+  const show = b.style.display === 'none';
+  b.style.display = show ? 'block' : 'none';
+  btn.textContent = show ? 'Hide ▾' : 'Expand ▸';
+}
 function syncRow(cb) { cb.closest('.opt').classList.toggle('on', cb.checked); updateCount(); }
 function toggleStage(btn) {
   const stage = btn.closest('.stage');

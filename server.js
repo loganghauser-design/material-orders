@@ -1558,12 +1558,18 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
   try {
     await initDb();
     const email = req.session.superEmail;
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE id=$1', [req.params.id]);
     if (!superOwnsProject(email, project)) return res.redirect('/my');
     // Already-delivered items can't be requested again
     const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
     const deliveredCodes = pit.filter(r => ['Delivered', 'Delivered from Inv.'].includes(r.status)).map(r => r.item_code);
-    res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', delivered: deliveredCodes });
+    // Schedule items per category — so each row can "Expand" to show what's in that delivery
+    let byCode = {};
+    if (project.finish_schedule_url) {
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source }); }
+      catch (e) { byCode = {}; }
+    }
+    res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', delivered: deliveredCodes, byCode });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
