@@ -189,6 +189,8 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* Vendor email threads */
 .thread-item { border: 1px solid var(--border); border-radius: 8px; margin-bottom: .6rem; overflow: hidden; }
+.thread-item.thread-unread { border-color: #e05252; box-shadow: 0 0 0 1px #e05252 inset; }
+.thread-item.thread-unread .thread-head { background: #fff4f4; }
 .thread-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .7rem 1rem; cursor: pointer; background: #fafbff; }
 .thread-head:hover { background: #f0f2f8; }
 .thread-type { display: inline-block; margin-left: .5rem; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; background: rgba(79,142,247,.12); color: #2563eb; padding: .12rem .5rem; border-radius: 10px; }

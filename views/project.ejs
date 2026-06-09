@@ -761,7 +761,11 @@ async function markCategoryStock(code, mode) {
     MAT_SCHED_LOADED = false; loadMaterialsSchedule();
   } catch (e) { showToast('Some items could not be saved — please retry', true); }
 }
-document.addEventListener('DOMContentLoaded', () => showTab('materials'));
+document.addEventListener('DOMContentLoaded', () => {
+  const tab = new URLSearchParams(location.search).get('tab');
+  const valid = ['materials','orders','emails','docs','schedule'];
+  showTab(valid.includes(tab) ? tab : 'materials');
+});
 
 let FIN_SCHED_LOADED = false;
 async function loadFinishSchedule(force) {
@@ -846,11 +850,12 @@ async function loadThreads() {
     }
     data.threads.forEach(t => THREAD_INFO[t.gmail_thread_id] = t);
     el.innerHTML = data.threads.map(t => `
-      <div class="thread-item">
+      <div class="thread-item${t.has_unread ? ' thread-unread' : ''}" id="ti_${t.gmail_thread_id}">
         <div class="thread-head" onclick="toggleThread('${t.gmail_thread_id}', this)">
           <div>
-            <strong>${escapeHtmlJs(t.subject)}</strong>
+            ${t.has_unread ? '<span class="reply-dot" title="New reply">●</span> ' : ''}<strong>${escapeHtmlJs(t.subject)}</strong>
             <span class="thread-type">${escapeHtmlJs(t.email_type || '')}</span>
+            ${t.has_unread ? '<span style="color:#cc2222;font-size:.72rem;font-weight:700;margin-left:.35rem">NEW REPLY</span>' : ''}
           </div>
           <div style="display:flex;align-items:center;gap:.6rem">
             <span style="font-size:.78rem;color:var(--muted)">${escapeHtmlJs(t.supplier_name||'')} · ${new Date(t.sent_at).toLocaleDateString()}</span>
@@ -860,6 +865,15 @@ async function loadThreads() {
         <div class="thread-body" id="tb_${t.gmail_thread_id}"></div>
       </div>
     `).join('');
+    // If we arrived here from a project notification, auto-open the newest unread thread
+    const params = new URLSearchParams(location.search);
+    if (params.get('openUnread')) {
+      const firstUnread = data.threads.find(t => t.has_unread);
+      if (firstUnread) {
+        const head = document.querySelector('#ti_' + firstUnread.gmail_thread_id + ' .thread-head');
+        if (head) { toggleThread(firstUnread.gmail_thread_id, head); head.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+      }
+    }
   } catch(e) {
     el.innerHTML = '<div style="color:var(--danger);font-size:.85rem">Error loading threads.</div>';
   }

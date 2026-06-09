@@ -2062,8 +2062,8 @@ app.post('/settings/attachment/delete', requireAuth, async (req, res) => {
 app.get('/projects/:id/threads', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, sent_at
-       FROM vendor_emails WHERE project_id=$1 AND gmail_thread_id IS NOT NULL ORDER BY sent_at DESC`,
+      `SELECT id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, sent_at, has_unread
+       FROM vendor_emails WHERE project_id=$1 AND gmail_thread_id IS NOT NULL ORDER BY has_unread DESC, sent_at DESC`,
       [req.params.id]
     );
     res.json({ ok: true, threads: rows });
