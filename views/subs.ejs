@@ -116,6 +116,7 @@
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
     const STATUS_OPTS = ['Under Review', 'Approved', 'Active', 'Rejected', 'Blacklisted'];
+    const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County'];
     const sections = [
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
       { title: 'Subcontractors', key: 'sub', list: subs.filter(s => catOf(s) !== 'gc') },
@@ -225,7 +226,12 @@
         </div>
       </div>
       <div class="mg2">
-        <div class="mg"><label>Location</label><input name="location" id="f_location"></div>
+        <div class="mg"><label>Location</label>
+          <select name="location" id="f_location">
+            <option value="">—</option>
+            <% LOCATION_OPTS.forEach(o => { %><option value="<%= o %>"><%= o %></option><% }) %>
+          </select>
+        </div>
         <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
       </div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
@@ -274,10 +280,20 @@ function filterSubs() {
     sec.style.display = vis ? '' : 'none';
   });
 }
+// Set a <select> value, injecting the value as an option if it isn't already listed
+function fillSelect(id, val) {
+  const sel = document.getElementById(id);
+  Array.from(sel.querySelectorAll('option[data-custom]')).forEach(o => o.remove());
+  if (val && !Array.from(sel.options).some(o => o.value === val)) {
+    const o = document.createElement('option'); o.value = val; o.textContent = val; o.setAttribute('data-custom', ''); sel.appendChild(o);
+  }
+  sel.value = val || '';
+}
 function openAdd() {
   document.getElementById('modalTitle').textContent = 'Add Subcontractor';
   document.getElementById('editId').value = '';
-  ['company','owner','type','phone','email','location','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
+  ['company','owner','type','phone','email','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
+  fillSelect('f_location', '');
   document.getElementById('f_category').value = 'sub';   // default new entries to Subcontractor
   document.getElementById('subModal').classList.add('show');
 }
@@ -289,7 +305,7 @@ function openEdit(s) {
   document.getElementById('f_type').value = s.type || '';
   document.getElementById('f_phone').value = s.phone || '';
   document.getElementById('f_email').value = s.email || '';
-  document.getElementById('f_location').value = s.location || '';
+  fillSelect('f_location', s.location || '');
   document.getElementById('f_status').value = s.status || '';
   document.getElementById('f_category').value = (s.category === 'gc' || s.category === 'sub') ? s.category : (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub');
   document.getElementById('f_projects').value = s.projects || '';
