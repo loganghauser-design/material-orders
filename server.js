@@ -1078,7 +1078,7 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
 // that project's delivery alerts. chatId is the Google Chat user ID (numeric) used
 // for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
 const SUPERS = [
-  { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
+  { email: 'bobby@buildoly.com', username: 'bobby', name: 'Bobby Li', chatId: '111280454403124522893', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
   { email: 'kevin@buildoly.com', username: 'kevin', name: 'Kevin Leon', chatId: '114651669878031315273', passwordHash: '$2b$10$a/A51wAAQ.lyxhGwm0qfeecV15mKr1JyZTUqDNhN03Aw/JHb4Vbpe' },
   { email: 'eddie@buildoly.com', username: 'eddie', name: 'Eddie Solorzano', chatId: '105599791425178916274', passwordHash: '$2b$10$a/A51wAAQ.lyxhGwm0qfeecV15mKr1JyZTUqDNhN03Aw/JHb4Vbpe' },
 ];
