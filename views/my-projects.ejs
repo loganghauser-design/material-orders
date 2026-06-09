@@ -51,7 +51,8 @@
   <% if (typeof allProjects !== 'undefined' && allProjects && allProjects.length) { %>
     <div class="pcard" style="border-color:#e0531f;background:rgba(224,83,31,.05)">
       <div style="font-weight:700;margin-bottom:.5rem">⚠️ Report a material issue</div>
-      <div style="color:var(--muted);font-size:.85rem;margin-bottom:.6rem">Pick any project to flag a damaged / wrong / missing material — even one not assigned to you.</div>
+      <% var _all = (typeof canViewAll !== 'undefined' && canViewAll); %>
+      <div style="color:var(--muted);font-size:.85rem;margin-bottom:.6rem"><%= _all ? 'Pick any project to flag a damaged / wrong / missing material — even one not assigned to you.' : 'Pick one of your assigned projects to flag a damaged / wrong / missing material.' %></div>
       <select id="issueProject" onchange="if(this.value)location.href='/my/issue/'+this.value" style="width:100%;font-size:1rem;padding:.7rem .75rem;border:1px solid var(--border);border-radius:10px;background:var(--surface)">
         <option value="">— pick a project —</option>
         <% allProjects.forEach(p => { %>

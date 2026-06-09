@@ -1539,7 +1539,7 @@ app.get('/my', requireSuper, async (req, res) => {
     } else {
       dropdownProjects = mine.map(p => ({ id: p.id, address: p.address })).sort((a, b) => a.address.localeCompare(b.address));
     }
-    res.render('my-projects', { sup, projects: mine, itemsByProject, allProjects: dropdownProjects, canViewSubs: canSuperViewSubs(email), requested: req.query.requested === '1', issued: req.query.issued === '1' });
+    res.render('my-projects', { sup, projects: mine, itemsByProject, allProjects: dropdownProjects, canViewSubs: canSuperViewSubs(email), canViewAll: canSuperViewAllProjects(email), requested: req.query.requested === '1', issued: req.query.issued === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
