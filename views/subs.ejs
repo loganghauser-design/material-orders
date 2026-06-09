@@ -8,30 +8,30 @@
   <style>
     .subs-toolbar { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
     .subs-toolbar input[type=search], .subs-toolbar select { padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); font-size:.9rem; }
-    .subs-toolbar input[type=search] { min-width:220px; flex:1; }
-    .sub-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:1rem; }
-    .sub-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; }
-    .sub-card h3 { font-size:1.05rem; font-weight:700; margin:0 0 .15rem; }
-    .sub-type { display:inline-block; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; background:#eaf2ff; color:#1d4ed8; padding:2px 8px; border-radius:10px; margin-bottom:.5rem; }
-    .sub-status { font-size:.72rem; color:var(--muted); margin-left:.4rem; }
-    .sub-row { font-size:.86rem; padding:.18rem 0; display:flex; gap:.4rem; }
-    .sub-row .lbl { color:var(--muted); min-width:62px; flex:none; }
-    .sub-row a { color:#1d4ed8; text-decoration:none; }
-    .sub-photos { display:flex; gap:.4rem; flex-wrap:wrap; margin:.6rem 0 .2rem; }
-    .sub-photos a { position:relative; }
-    .sub-photos img { width:62px; height:62px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
-    .sub-actions { display:flex; gap:.5rem; align-items:center; margin-top:.7rem; padding-top:.6rem; border-top:1px solid var(--border); flex-wrap:wrap; }
-    .sub-actions button, .sub-actions label.upl { font-size:.78rem; padding:.3rem .6rem; border-radius:7px; border:1px solid var(--border); background:var(--surface); cursor:pointer; }
-    .sub-actions .del { color:var(--danger); border-color:rgba(204,34,34,.3); }
+    .subs-toolbar input[type=search] { min-width:240px; flex:1; }
+    .sec-title { font-size:1.1rem; font-weight:700; margin:1.4rem 0 .5rem; display:flex; align-items:center; gap:.5rem; }
+    .sec-title .cnt { color:var(--muted); font-weight:400; font-size:.9rem; }
+    .tbl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:10px; }
+    .subs-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    .subs-table th { text-align:left; font-size:.68rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:.55rem .7rem; border-bottom:2px solid var(--border); white-space:nowrap; background:var(--bg); position:sticky; top:0; }
+    .subs-table td { padding:.55rem .7rem; border-bottom:1px solid var(--border); vertical-align:top; }
+    .subs-table tr:last-child td { border-bottom:none; }
+    .subs-table tbody tr:hover td { background:var(--bg); }
+    .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
+    .subs-table .co { font-weight:600; }
+    .subs-table .notes { color:var(--muted); max-width:240px; }
+    .thumbs { display:flex; gap:.25rem; margin-top:.25rem; }
+    .thumbs img { width:30px; height:30px; object-fit:cover; border-radius:5px; border:1px solid var(--border); }
+    .row-actions { white-space:nowrap; }
+    .row-actions button, .row-actions label.upl { font-size:.85rem; padding:.2rem .4rem; border:1px solid var(--border); background:var(--surface); border-radius:6px; cursor:pointer; line-height:1; }
+    .row-actions .del { color:var(--danger); border-color:rgba(204,34,34,.3); }
     .modal-bk { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-start; justify-content:center; z-index:50; padding:2rem 1rem; overflow:auto; }
     .modal-bk.show { display:flex; }
     .modal-card { background:var(--surface); border-radius:14px; padding:1.3rem; width:100%; max-width:520px; }
     .modal-card h2 { font-size:1.15rem; margin:0 0 1rem; }
-    .mg { margin-bottom:.7rem; }
-    .mg label { display:block; font-size:.8rem; font-weight:600; margin-bottom:.25rem; }
-    .mg input, .mg textarea, .mg select { width:100%; padding:.5rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); font-size:.92rem; }
+    .mg { margin-bottom:.7rem; } .mg label { display:block; font-size:.8rem; font-weight:600; margin-bottom:.25rem; }
+    .mg input, .mg textarea { width:100%; padding:.5rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); font-size:.92rem; }
     .mg2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
-    .grouphdr { grid-column:1/-1; font-size:.8rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:.6rem 0 -.2rem; }
   </style>
 </head>
 <body>
@@ -53,7 +53,7 @@
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
     <h1>Subcontractors <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= subs.length %>)</span></h1>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-      <button class="btn btn-primary" onclick="openAdd()">+ Add Subcontractor</button>
+      <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
@@ -72,40 +72,59 @@
     <select id="typeFilter" onchange="filterSubs()"><option value="">All trades</option></select>
   </div>
 
+  <%
+    function isGC(s) { return /general\s*contractor|^\s*gc\b/i.test(s.type || ''); }
+    const sections = [
+      { title: 'General Contractors', list: subs.filter(isGC) },
+      { title: 'Subcontractors', list: subs.filter(s => !isGC(s)) },
+    ];
+  %>
+
   <% if (!subs.length) { %>
-    <div class="card" style="color:var(--muted)">No subcontractors yet. Click <strong>Import from Sheet</strong> to pull your GC &amp; Sub Database, or <strong>+ Add Subcontractor</strong>.</div>
+    <div class="card" style="color:var(--muted)">No subcontractors yet. Click <strong>Import from Sheet</strong> or <strong>+ Add</strong>.</div>
   <% } %>
 
-  <div class="sub-grid" id="subGrid">
-    <% let curGroup = null; subs.forEach(s => { %>
-      <% const g = s.group_label || ''; if (g !== curGroup) { curGroup = g; if (g) { %><div class="grouphdr" data-grouphdr><%= g %></div><% } } %>
-      <div class="sub-card" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
-        <h3><%= s.company || s.owner || 'Unnamed' %></h3>
-        <% if (s.type) { %><span class="sub-type"><%= s.type %></span><% } %><% if (s.status) { %><span class="sub-status"><%= s.status %></span><% } %>
-        <% if (s.owner && s.company) { %><div class="sub-row"><span class="lbl">Contact</span><span><%= s.owner %></span></div><% } %>
-        <% if (s.phone) { %><div class="sub-row"><span class="lbl">Phone</span><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a></div><% } %>
-        <% if (s.email) { %><div class="sub-row"><span class="lbl">Email</span><a href="mailto:<%= s.email %>"><%= s.email %></a></div><% } %>
-        <% if (s.location) { %><div class="sub-row"><span class="lbl">Location</span><span><%= s.location %></span></div><% } %>
-        <% if (s.projects) { %><div class="sub-row"><span class="lbl">Projects</span><span><%= s.projects %></span></div><% } %>
-        <% if (s.notes) { %><div class="sub-row"><span class="lbl">Notes</span><span><%= s.notes %></span></div><% } %>
-        <% var ph = photosBySub[s.id] || []; %>
-        <% if (ph.length) { %>
-          <div class="sub-photos">
-            <% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>" alt="photo"></a><% }) %>
-          </div>
-        <% } %>
-        <div class="sub-actions">
-          <button onclick='openEdit(<%- JSON.stringify(s) %>)'>✏ Edit</button>
-          <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
-            <label class="upl">📷 Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.form.submit()"></label>
-          </form>
-          <form method="POST" action="/subs/<%= s.id %>/delete" style="margin:0;display:inline" onsubmit="return confirm('Delete this subcontractor?')">
-            <button type="submit" class="del">🗑</button>
-          </form>
-        </div>
+  <% sections.forEach(sec => { %>
+    <div class="sub-section" data-section>
+      <div class="sec-title"><%= sec.title %> <span class="cnt">(<%= sec.list.length %>)</span></div>
+      <% if (!sec.list.length) { %>
+        <div style="color:var(--muted);font-size:.85rem">None.</div>
+      <% } else { %>
+      <div class="tbl-wrap">
+        <table class="subs-table">
+          <thead><tr>
+            <th>Company</th><th>Contact</th><th>Type</th><th>Phone</th><th>Email</th><th>Location</th><th>Status</th><th>Notes</th><th></th>
+          </tr></thead>
+          <tbody>
+            <% sec.list.forEach(s => { var ph = photosBySub[s.id] || []; %>
+              <tr data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+                <td class="co"><%= s.company || '—' %>
+                  <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><% }) %></div><% } %>
+                </td>
+                <td><%= s.owner || '' %></td>
+                <td><%= s.type || '' %></td>
+                <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
+                <td><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
+                <td><%= s.location || '' %></td>
+                <td><%= s.status || '' %></td>
+                <td class="notes"><%= s.notes || '' %></td>
+                <td class="row-actions">
+                  <button onclick='openEdit(<%- JSON.stringify(s) %>)' title="Edit">✏</button>
+                  <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
+                    <label class="upl" title="Add photo">📷<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.form.submit()"></label>
+                  </form>
+                  <form method="POST" action="/subs/<%= s.id %>/delete" style="margin:0;display:inline" onsubmit="return confirm('Delete this subcontractor?')">
+                    <button type="submit" class="del" title="Delete">🗑</button>
+                  </form>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
       </div>
-    <% }) %>
-  </div>
+      <% } %>
+    </div>
+  <% }) %>
 </div>
 
 <!-- Add / Edit modal -->
@@ -117,7 +136,7 @@
       <div class="mg"><label>Company</label><input name="company" id="f_company" placeholder="e.g. Pyramid Drywall"></div>
       <div class="mg2">
         <div class="mg"><label>Contact / Owner</label><input name="owner" id="f_owner"></div>
-        <div class="mg"><label>Trade / Type</label><input name="type" id="f_type" list="tradeList" placeholder="Electrician, Plumber…"></div>
+        <div class="mg"><label>Trade / Type</label><input name="type" id="f_type" list="tradeList" placeholder="General Contractor, Electrician…"></div>
       </div>
       <div class="mg2">
         <div class="mg"><label>Phone</label><input name="phone" id="f_phone"></div>
@@ -125,7 +144,7 @@
       </div>
       <div class="mg2">
         <div class="mg"><label>Location</label><input name="location" id="f_location"></div>
-        <div class="mg"><label>Status</label><input name="status" id="f_status" placeholder="Under Review, Active…"></div>
+        <div class="mg"><label>Status</label><input name="status" id="f_status"></div>
       </div>
       <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
@@ -145,30 +164,23 @@
 </datalist>
 
 <script>
-// Populate the trade filter from the cards on the page
 (function () {
-  const types = [...new Set([...document.querySelectorAll('.sub-card')].map(c => c.dataset.type).filter(Boolean))].sort();
+  const types = [...new Set([...document.querySelectorAll('tr[data-type]')].map(c => c.dataset.type).filter(Boolean))].sort();
   const sel = document.getElementById('typeFilter');
   types.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t.replace(/\b\w/g, m => m.toUpperCase()); sel.appendChild(o); });
 })();
 function filterSubs() {
   const q = document.getElementById('subSearch').value.toLowerCase().trim();
   const tf = document.getElementById('typeFilter').value;
-  document.querySelectorAll('.sub-card').forEach(c => {
-    const okQ = !q || c.dataset.search.includes(q);
-    const okT = !tf || c.dataset.type === tf;
-    c.style.display = (okQ && okT) ? '' : 'none';
+  document.querySelectorAll('tr[data-search]').forEach(r => {
+    const okQ = !q || r.dataset.search.includes(q);
+    const okT = !tf || r.dataset.type === tf;
+    r.style.display = (okQ && okT) ? '' : 'none';
   });
-  // Hide a section header if every card under it (until the next header) is hidden
-  const kids = [...document.getElementById('subGrid').children];
-  kids.forEach((el, i) => {
-    if (!el.hasAttribute('data-grouphdr')) return;
-    let anyVisible = false;
-    for (let j = i + 1; j < kids.length; j++) {
-      if (kids[j].hasAttribute('data-grouphdr')) break;
-      if (kids[j].style.display !== 'none') { anyVisible = true; break; }
-    }
-    el.style.display = anyVisible ? '' : 'none';
+  // Hide a whole section if it has no visible rows
+  document.querySelectorAll('.sub-section').forEach(sec => {
+    const vis = [...sec.querySelectorAll('tr[data-search]')].some(r => r.style.display !== 'none');
+    sec.style.display = vis ? '' : 'none';
   });
 }
 function openAdd() {
@@ -195,7 +207,7 @@ function openEdit(s) {
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }
 document.getElementById('subForm').addEventListener('submit', async function (e) {
   const id = document.getElementById('editId').value;
-  if (!id) return;   // Add → normal form POST to /subs
+  if (!id) return;
   e.preventDefault();
   const body = new URLSearchParams();
   ['company','owner','type','phone','email','location','status','projects','notes'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
