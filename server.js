@@ -2770,6 +2770,14 @@ app.post('/subs/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// Quick inline status change (Under Review → Active / Rejected / etc.)
+app.post('/subs/:id/status', requireAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE subcontractors SET status=$1 WHERE id=$2', [req.body.status || null, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.post('/subs/:id/delete', requireAuth, async (req, res) => {
   try { await pool.query('DELETE FROM subcontractors WHERE id=$1', [req.params.id]); res.redirect('/subs'); }
   catch (err) { res.status(500).send('Error: ' + err.message); }

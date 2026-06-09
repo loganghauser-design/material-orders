@@ -23,9 +23,11 @@
     .subs-table tr.subhdr td { background:#dededf; color:#1a1a1a; font-size:1.15rem; font-weight:800; padding:.6rem .8rem; border-top:2px solid #cfcfd2; }
     .subs-table tr.subhdr:hover td { background:#dededf; }
     .spill { display:inline-block; padding:3px 12px; border-radius:13px; font-size:.78rem; font-weight:700; white-space:nowrap; }
+    select.spill { border:1px solid rgba(0,0,0,.15); cursor:pointer; padding:3px 6px; }
     .pill-review { background:#ffe599; color:#7f6000; }
     .pill-approved { background:#b6d7a8; color:#274e13; }
     .pill-active { background:#38761d; color:#fff; }
+    .pill-rejected { background:#e06666; color:#fff; }
     .pill-black { background:#111; color:#fff; }
     .pill-default { background:#e6e6e6; color:#555; }
     .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
@@ -87,10 +89,12 @@
     function catOf(s) { return s.category || (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'); }
     function pillClass(st) { st = (st || '').toLowerCase();
       if (/black/.test(st)) return 'pill-black';
+      if (/reject|declin/.test(st)) return 'pill-rejected';
       if (/active/.test(st)) return 'pill-active';
       if (/approv/.test(st)) return 'pill-approved';
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
+    const STATUS_OPTS = ['Under Review', 'Approved', 'Active', 'Rejected', 'Blacklisted'];
     const sections = [
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
       { title: 'Subcontractors', key: 'sub', list: subs.filter(s => catOf(s) !== 'gc') },
@@ -123,7 +127,13 @@
                 </td>
                 <td><%= s.location || '' %></td>
                 <td><%= s.type || '' %></td>
-                <td><% if (s.status) { %><span class="spill <%= pillClass(s.status) %>"><%= s.status %></span><% } %></td>
+                <td>
+                  <select class="spill <%= pillClass(s.status) %>" data-id="<%= s.id %>" onchange="changeStatus(this)">
+                    <option value="">—</option>
+                    <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>" <%= s.status===o?'selected':'' %>><%= o %></option><% }) %>
+                    <% if (s.status && STATUS_OPTS.indexOf(s.status) < 0) { %><option value="<%= s.status %>" selected><%= s.status %></option><% } %>
+                  </select>
+                </td>
                 <td><%= s.owner || '' %></td>
                 <td><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
                 <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
@@ -233,6 +243,21 @@ function openEdit(s) {
   document.getElementById('f_notes').value = s.notes || '';
   document.getElementById('f_group').value = s.group_label || '';
   document.getElementById('subModal').classList.add('show');
+}
+function pillClassJS(st) { st = (st || '').toLowerCase();
+  if (/black/.test(st)) return 'pill-black';
+  if (/reject|declin/.test(st)) return 'pill-rejected';
+  if (/active/.test(st)) return 'pill-active';
+  if (/approv/.test(st)) return 'pill-approved';
+  if (/review|vetting|pending/.test(st)) return 'pill-review';
+  return 'pill-default'; }
+async function changeStatus(sel) {
+  sel.className = 'spill ' + pillClassJS(sel.value);   // recolor instantly
+  const body = new URLSearchParams({ status: sel.value });
+  try {
+    const r = await fetch('/subs/' + sel.dataset.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    if (!r.ok) throw 0;
+  } catch (e) { alert('Could not save status — try again'); }
 }
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }
 document.getElementById('subForm').addEventListener('submit', async function (e) {
