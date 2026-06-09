@@ -101,6 +101,21 @@
     </div>
   <% }) %>
 
+  <!-- Change password -->
+  <div class="pcard" style="margin-top:1.2rem">
+    <% if (typeof pw !== 'undefined' && pw === 'ok') { %><div style="color:#16a34a;font-weight:600;margin-bottom:.6rem">✓ Password updated.</div><% } %>
+    <% if (typeof pw !== 'undefined' && pw === 'bad') { %><div style="color:#cc2222;font-weight:600;margin-bottom:.6rem">Current password is incorrect.</div><% } %>
+    <% if (typeof pw !== 'undefined' && pw === 'short') { %><div style="color:#cc2222;font-weight:600;margin-bottom:.6rem">New password must be at least 4 characters.</div><% } %>
+    <% if (typeof pw !== 'undefined' && pw === 'mismatch') { %><div style="color:#cc2222;font-weight:600;margin-bottom:.6rem">New passwords don't match.</div><% } %>
+    <button type="button" onclick="var f=document.getElementById('pwForm');f.style.display=(f.style.display==='none'?'block':'none')" style="background:none;border:none;color:#4f8ef7;font-weight:700;font-size:.95rem;cursor:pointer;padding:0">🔑 Change my password</button>
+    <form id="pwForm" method="POST" action="/my/password" style="display:<%= (typeof pw !== 'undefined' && pw && pw !== 'ok') ? 'block' : 'none' %>;margin-top:.8rem">
+      <div style="margin-bottom:.6rem"><label style="display:block;font-size:.82rem;font-weight:600;margin-bottom:.25rem">Current password</label><input type="password" name="current" required style="width:100%;padding:.6rem .7rem;border:1px solid var(--border);border-radius:9px;font-size:1rem;background:var(--surface)"></div>
+      <div style="margin-bottom:.6rem"><label style="display:block;font-size:.82rem;font-weight:600;margin-bottom:.25rem">New password</label><input type="password" name="new1" required style="width:100%;padding:.6rem .7rem;border:1px solid var(--border);border-radius:9px;font-size:1rem;background:var(--surface)"></div>
+      <div style="margin-bottom:.8rem"><label style="display:block;font-size:.82rem;font-weight:600;margin-bottom:.25rem">Confirm new password</label><input type="password" name="new2" required style="width:100%;padding:.6rem .7rem;border:1px solid var(--border);border-radius:9px;font-size:1rem;background:var(--surface)"></div>
+      <button type="submit" style="width:100%;background:#4f8ef7;color:#fff;font-weight:700;border:none;border-radius:10px;padding:.7rem;font-size:1rem;cursor:pointer">Update password</button>
+    </form>
+  </div>
+
   <p style="color:var(--muted);font-size:.78rem;text-align:center;margin-top:1.5rem">Read-only view · updated by the Buildoly office</p>
 </div>
 <script>

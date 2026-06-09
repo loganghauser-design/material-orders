@@ -1091,6 +1091,15 @@ function findSuperByLogin(login) {
   const l = String(login || '').trim().toLowerCase();
   return SUPERS.find(s => s.email.toLowerCase() === l || (s.username && s.username.toLowerCase() === l)) || null;
 }
+// A super's effective password hash: their own custom one if set, else the built-in default.
+async function superPasswordHash(sup) {
+  if (!sup) return null;
+  try {
+    const { rows: [r] } = await pool.query('SELECT password_hash FROM super_passwords WHERE email=$1', [sup.email]);
+    if (r && r.password_hash) return r.password_hash;
+  } catch (e) { /* table may not exist yet on first boot */ }
+  return sup.passwordHash || null;
+}
 // Which supers may view the Subcontractor directory (read-only). Bobby only.
 const SUBS_SUPER_EMAILS = ['bobby@buildoly.com'];
 function canSuperViewSubs(email) {
@@ -1236,6 +1245,11 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
+    );
+    CREATE TABLE IF NOT EXISTS super_passwords (
+      email TEXT PRIMARY KEY,
+      password_hash TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS material_requests (
       id SERIAL PRIMARY KEY,
@@ -1489,9 +1503,12 @@ app.post('/login', async (req, res) => {
   }
   // Superintendent (logs in with their email or first-name username)
   const sup = findSuperByLogin(username);
-  if (sup && sup.passwordHash && await bcrypt.compare(password || '', sup.passwordHash)) {
-    req.session.authenticated = true; req.session.role = 'super'; req.session.superEmail = sup.email;
-    return res.redirect('/my');
+  if (sup) {
+    const hash = await superPasswordHash(sup);   // custom password if they set one, else the default
+    if (hash && await bcrypt.compare(password || '', hash)) {
+      req.session.authenticated = true; req.session.role = 'super'; req.session.superEmail = sup.email;
+      return res.redirect('/my');
+    }
   }
   return res.render('login', { error: 'Invalid username or password.' });
 });
@@ -1542,10 +1559,31 @@ app.get('/my', requireSuper, async (req, res) => {
         });
       }
     }
-    res.render('my-projects', { sup, projects: mine, itemsByProject, canViewSubs: canSuperViewSubs(email), requested: req.query.requested === '1', issued: req.query.issued === '1' });
+    res.render('my-projects', { sup, projects: mine, itemsByProject, canViewSubs: canSuperViewSubs(email), requested: req.query.requested === '1', issued: req.query.issued === '1', pw: req.query.pw || '' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// Super: change their own password
+app.post('/my/password', requireSuper, async (req, res) => {
+  try {
+    await initDb();
+    const sup = findSuper(req.session.superEmail);
+    if (!sup) return res.redirect('/my');
+    const { current, new1, new2 } = req.body;
+    const hash = await superPasswordHash(sup);
+    if (!hash || !(await bcrypt.compare(current || '', hash))) return res.redirect('/my?pw=bad');
+    if (!new1 || String(new1).length < 4) return res.redirect('/my?pw=short');
+    if (new1 !== new2) return res.redirect('/my?pw=mismatch');
+    const newHash = await bcrypt.hash(String(new1), 10);
+    await pool.query(
+      `INSERT INTO super_passwords (email, password_hash, updated_at) VALUES ($1,$2,NOW())
+       ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, updated_at=NOW()`,
+      [sup.email, newHash]
+    );
+    res.redirect('/my?pw=ok');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
 // Helper: is this super assigned to this project?
