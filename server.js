@@ -1086,6 +1086,11 @@ function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
   return SUPERS.find(s => s.email.toLowerCase() === e) || null;
 }
+// Which supers may view the Subcontractor directory (read-only). Bobby only.
+const SUBS_SUPER_EMAILS = ['bobby@buildoly.com'];
+function canSuperViewSubs(email) {
+  return SUBS_SUPER_EMAILS.includes(String(email || '').trim().toLowerCase());
+}
 // A project's super_email holds a comma-separated list (multiple supers per project).
 function parseSuperEmails(str) {
   const set = String(str || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
@@ -1454,7 +1459,7 @@ app.use((req, res, next) => {
   if (req.session && req.session.role === 'super') {
     const p = req.path;
     const ok = p === '/my' || p.startsWith('/my/') || p === '/logout' || p === '/login'
-      || ((p === '/subs' || p.startsWith('/sub-photo/')) && req.method === 'GET');   // read-only subs directory
+      || ((p === '/subs' || p.startsWith('/sub-photo/')) && req.method === 'GET' && canSuperViewSubs(req.session.superEmail));   // read-only subs directory — Bobby only
     if (!ok) return res.redirect('/my');
   }
   next();
@@ -1524,7 +1529,7 @@ app.get('/my', requireSuper, async (req, res) => {
     }
     // All projects — for the "report an issue on any project" dropdown
     const { rows: everyProject } = await pool.query('SELECT id, address FROM projects ORDER BY address');
-    res.render('my-projects', { sup, projects: mine, itemsByProject, allProjects: everyProject, requested: req.query.requested === '1', issued: req.query.issued === '1' });
+    res.render('my-projects', { sup, projects: mine, itemsByProject, allProjects: everyProject, canViewSubs: canSuperViewSubs(email), requested: req.query.requested === '1', issued: req.query.issued === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
