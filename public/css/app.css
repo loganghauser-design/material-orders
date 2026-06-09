@@ -91,8 +91,8 @@ textarea { resize: vertical; min-height: 80px; }
 .error-msg { background: rgba(224,82,82,.08); border: 1px solid rgba(224,82,82,.3); color: var(--danger); padding: .75rem 1rem; border-radius: 6px; margin-bottom: 1.25rem; font-size: .875rem; }
 
 /* Main grid */
-.grid-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
-.grid-table { width: 100%; border-collapse: collapse; font-size: .8rem; white-space: nowrap; table-layout: fixed; }
+.grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+.grid-table { width: 100%; min-width: 1150px; border-collapse: collapse; font-size: .8rem; white-space: nowrap; table-layout: fixed; }
 .grid-table thead tr:first-child th { padding: .6rem .75rem; background: #f0f2f8; text-align: center; font-size: .78rem; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
 .grid-table thead tr:nth-child(2) th { padding: .5rem .35rem; background: #f8f9fb; text-align: center; font-size: .7rem; color: var(--muted); border-bottom: 2px solid var(--border); }
 .grid-table thead tr:nth-child(2) th span { display: block; font-size: .65rem; color: var(--muted); font-weight: 400; }
