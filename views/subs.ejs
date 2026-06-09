@@ -56,7 +56,7 @@
     .mg2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
   </style>
 </head>
-<body class="<%= isSuper ? 'super-view' : '' %>">
+<body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
 <% if (isSuper) { %>
 <nav class="nav">
   <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">

@@ -1482,8 +1482,9 @@ function requireSuper(req, res, next) {
 app.use((req, res, next) => {
   if (req.session && req.session.role === 'super') {
     const p = req.path;
+    const subsArea = p === '/subs' || p.startsWith('/subs/') || p.startsWith('/sub-photo');
     const ok = p === '/my' || p.startsWith('/my/') || p === '/logout' || p === '/login'
-      || ((p === '/subs' || p.startsWith('/sub-photo/')) && req.method === 'GET' && canSuperViewSubs(req.session.superEmail));   // read-only subs directory — Bobby only
+      || (subsArea && canSuperViewSubs(req.session.superEmail));   // Bobby: full edit access to the Subs directory
     if (!ok) return res.redirect('/my');
   }
   next();
@@ -3001,7 +3002,9 @@ app.get('/subs', requireAuth, async (req, res) => {
     const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
     const photosBySub = {};
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
-    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper: req.session.role === 'super' });
+    const isSuper = req.session.role === 'super';
+    const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
+    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
