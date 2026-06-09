@@ -34,6 +34,7 @@
     .submitbar button { width:100%; font-size:1.05rem; padding:.9rem; border:none; border-radius:11px; background:#4f8ef7; color:#fff; font-weight:700; cursor:pointer; }
     .submitbar button:disabled { opacity:.5; }
     .errbox { margin:1rem; padding:.7rem .9rem; border-radius:9px; background:rgba(204,34,34,.1); color:#cc2222; font-size:.9rem; }
+    .adv-notice { margin:1rem 1rem 0; padding:.7rem .9rem; border-radius:9px; background:#fff4e5; border:1px solid #f6c886; color:#8a5300; font-size:.9rem; line-height:1.4; }
   </style>
 </head>
 <body>
@@ -43,6 +44,8 @@
     <h1>📦 Request material</h1>
     <div style="color:var(--muted);font-size:.88rem;margin-top:.15rem"><%= project.address %></div>
   </div>
+
+  <div class="adv-notice">⏰ Please request materials <strong>at least one week in advance</strong> so the office has time to order and schedule delivery.</div>
 
   <% if (err) { %><div class="errbox">Pick at least one item to request.</div><% } %>
 
