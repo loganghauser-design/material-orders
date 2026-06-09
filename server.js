@@ -1684,12 +1684,14 @@ app.post('/issues/:id/respond', requireAuth, async (req, res) => {
     const body = String(req.body.body || '').trim().slice(0, 1000);
     if (!body) return res.status(400).json({ ok: false, error: 'Write a response first.' });
     const { rows: [iss] } = await pool.query(
-      `SELECT mi.id, mi.item_code, mi.item_label, p.address
+      `SELECT mi.id, mi.item_code, mi.item_label, mi.super_email, p.address
        FROM material_issues mi LEFT JOIN projects p ON p.id = mi.project_id WHERE mi.id=$1`, [req.params.id]);
     if (!iss) return res.status(404).json({ ok: false, error: 'Issue not found.' });
     await pool.query('INSERT INTO material_issue_replies (issue_id, body) VALUES ($1,$2)', [req.params.id, body]);
     const what = iss.item_code ? (CODE_NAME[iss.item_code] || iss.item_code) : (iss.item_label || 'material issue');
-    const lines = [`💬 *Office response* — ${shortAddress(iss.address || '')} (${what})`, body];
+    const sup = findSuper(iss.super_email);
+    const mention = sup && sup.chatId ? `<users/${sup.chatId}> ` : '';   // @ the super who opened the ticket
+    const lines = [`💬 *Office response* — ${shortAddress(iss.address || '')} (${what})`, mention + body];
     postToChat(lines.join('\n'), 'issue-' + iss.id);   // same thread key as the original issue
     res.json({ ok: true });
   } catch (err) {
