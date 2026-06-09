@@ -1124,13 +1124,21 @@ function shortAddress(addr) {
   s = s.replace(/\s+(ave|avenue|st|street|blvd|boulevard|dr|drive|ln|lane|rd|road|way|ct|court|pl|place|ter|terrace|cir|circle|hwy|highway|pkwy|parkway|sq|square|trl|trail)\.?$/i, '');
   return s.trim();
 }
-async function postToChat(text) {
+// Post to Google Chat. Pass a threadKey to group messages into one thread
+// (e.g. an issue + its responses) — works in spaces that are organized by thread.
+async function postToChat(text, threadKey) {
   if (!CHAT_WEBHOOK_URL) { console.log('postToChat: no CHAT_WEBHOOK_URL set'); return; }
   try {
-    const r = await fetch(CHAT_WEBHOOK_URL, {
+    let url = CHAT_WEBHOOK_URL;
+    const body = { text };
+    if (threadKey) {
+      url += (url.includes('?') ? '&' : '?') + 'messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD';
+      body.thread = { threadKey: String(threadKey) };
+    }
+    const r = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json; charset=UTF-8' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(body),
     });
     console.log('postToChat status:', r.status);
     if (!r.ok) console.log('postToChat error body:', (await r.text()).slice(0, 200));
@@ -1238,6 +1246,13 @@ async function initDb() {
       status VARCHAR(20) DEFAULT 'pending',
       created_at TIMESTAMPTZ DEFAULT NOW(),
       resolved_at TIMESTAMPTZ
+    );
+    -- Office responses to an issue (also posted to the chat thread).
+    CREATE TABLE IF NOT EXISTS material_issue_replies (
+      id SERIAL PRIMARY KEY,
+      issue_id INTEGER NOT NULL REFERENCES material_issues(id) ON DELETE CASCADE,
+      body TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS subcontractors (
       id SERIAL PRIMARY KEY,
@@ -1590,9 +1605,9 @@ app.post('/my/issue/:id', requireSuper, upload.single('photo'), async (req, res)
     // Need at least a description, an item, or a photo
     if (!note && !itemCode && !itemLabel && !req.file) return res.redirect('/my/issue/' + project.id + '?err=1');
     const photo = req.file ? { data: req.file.buffer, mime: req.file.mimetype, name: req.file.originalname } : {};
-    await pool.query(
+    const { rows: [issue] } = await pool.query(
       `INSERT INTO material_issues (project_id, super_email, item_code, item_label, note, photo_data, photo_mime, photo_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
       [project.id, email, itemCode, itemLabel, note || null, photo.data || null, photo.mime || null, photo.name || null]
     );
     const sup = findSuper(email) || { name: email };
@@ -1601,7 +1616,7 @@ app.post('/my/issue/:id', requireSuper, upload.single('photo'), async (req, res)
     const lines = [`⚠️ *Material issue* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${sup.name}`, `Item: ${what}`];
     if (note) lines.push('Issue: ' + note);
     if (req.file) lines.push('📷 Photo attached (see Issues inbox)');
-    postToChat(lines.join('\n'));
+    postToChat(lines.join('\n'), 'issue-' + issue.id);   // thread key ties responses to this issue
     res.redirect('/my?issued=1');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -1623,10 +1638,14 @@ app.get('/issues', requireAuth, async (req, res) => {
              p.address
       FROM material_issues mi LEFT JOIN projects p ON p.id = mi.project_id
       ORDER BY (mi.status='pending') DESC, mi.created_at DESC`);
+    const { rows: replyRows } = await pool.query('SELECT id, issue_id, body, created_at FROM material_issue_replies ORDER BY created_at ASC');
+    const repliesByIssue = {};
+    for (const rep of replyRows) (repliesByIssue[rep.issue_id] = repliesByIssue[rep.issue_id] || []).push(rep);
     const issues = rows.map(r => ({
       ...r,
       superName: (findSuper(r.super_email) || {}).name || r.super_email || 'Super',
       itemName: r.item_code ? (CODE_NAME[r.item_code] || r.item_code) : (r.item_label || ''),
+      replies: repliesByIssue[r.id] || [],
     }));
     res.render('issues', { issues, pendingIssues: issues.filter(i => i.status === 'pending').length });
   } catch (err) {
@@ -1654,6 +1673,25 @@ app.post('/issues/:id/resolve', requireAuth, async (req, res) => {
     if (reopen) await pool.query("UPDATE material_issues SET status='pending', resolved_at=NULL WHERE id=$1", [req.params.id]);
     else await pool.query("UPDATE material_issues SET status='resolved', resolved_at=NOW() WHERE id=$1", [req.params.id]);
     res.json({ ok: true, status: reopen ? 'pending' : 'resolved' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Respond to an issue → log it + post into the issue's chat thread
+app.post('/issues/:id/respond', requireAuth, async (req, res) => {
+  try {
+    const body = String(req.body.body || '').trim().slice(0, 1000);
+    if (!body) return res.status(400).json({ ok: false, error: 'Write a response first.' });
+    const { rows: [iss] } = await pool.query(
+      `SELECT mi.id, mi.item_code, mi.item_label, p.address
+       FROM material_issues mi LEFT JOIN projects p ON p.id = mi.project_id WHERE mi.id=$1`, [req.params.id]);
+    if (!iss) return res.status(404).json({ ok: false, error: 'Issue not found.' });
+    await pool.query('INSERT INTO material_issue_replies (issue_id, body) VALUES ($1,$2)', [req.params.id, body]);
+    const what = iss.item_code ? (CODE_NAME[iss.item_code] || iss.item_code) : (iss.item_label || 'material issue');
+    const lines = [`💬 *Office response* — ${shortAddress(iss.address || '')} (${what})`, body];
+    postToChat(lines.join('\n'), 'issue-' + iss.id);   // same thread key as the original issue
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
