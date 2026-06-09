@@ -54,6 +54,9 @@
     .mg { margin-bottom:.7rem; } .mg label { display:block; font-size:.8rem; font-weight:600; margin-bottom:.25rem; }
     .mg input, .mg textarea, .mg select { width:100%; padding:.5rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); font-size:.92rem; }
     .mg2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
+    .trade-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
+    .trade-chip { padding:.32rem .7rem; border:1px solid var(--border); border-radius:16px; font-size:.82rem; cursor:pointer; user-select:none; background:var(--bg); white-space:nowrap; }
+    .trade-chip.on { background:#111; color:#fff; border-color:#111; }
   </style>
 </head>
 <body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
@@ -203,9 +206,14 @@
     <form id="subForm" method="POST" action="/subs">
       <input type="hidden" id="editId" value="">
       <div class="mg"><label>Company</label><input name="company" id="f_company" placeholder="e.g. Pyramid Drywall"></div>
-      <div class="mg2">
-        <div class="mg"><label>Contact / Owner</label><input name="owner" id="f_owner"></div>
-        <div class="mg"><label>Trade / Type</label><input name="type" id="f_type" list="tradeList" placeholder="General Contractor, Electrician…"></div>
+      <div class="mg"><label>Contact / Owner</label><input name="owner" id="f_owner"></div>
+      <div class="mg"><label>Trade / Type <span style="font-weight:400;color:var(--muted)">— tap all that apply</span></label>
+        <div id="tradeChips" class="trade-chips"></div>
+        <div style="display:flex;gap:.4rem;margin-top:.45rem">
+          <input id="tradeOther" placeholder="Add another trade…" style="flex:1;padding:.45rem .6rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);font-size:.88rem" onkeydown="if(event.key==='Enter'){event.preventDefault();addTradeOther();}">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="addTradeOther()">Add</button>
+        </div>
+        <input type="hidden" name="type" id="f_type">
       </div>
       <div class="mg2">
         <div class="mg"><label>Phone</label><input name="phone" id="f_phone"></div>
@@ -252,16 +260,17 @@
 
 <script>
 (function () {
-  const types = [...new Set([...document.querySelectorAll('tr[data-type]')].map(c => c.dataset.type).filter(Boolean))].sort();
+  const set = new Set();
+  document.querySelectorAll('tr[data-type]').forEach(r => r.dataset.type.split(',').forEach(t => { t = t.trim(); if (t) set.add(t); }));
   const sel = document.getElementById('typeFilter');
-  types.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t.replace(/\b\w/g, m => m.toUpperCase()); sel.appendChild(o); });
+  [...set].sort().forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t.replace(/\b\w/g, m => m.toUpperCase()); sel.appendChild(o); });
 })();
 function filterSubs() {
   const q = document.getElementById('subSearch').value.toLowerCase().trim();
   const tf = document.getElementById('typeFilter').value;
   document.querySelectorAll('tr[data-search]').forEach(r => {
     const okQ = !q || r.dataset.search.includes(q);
-    const okT = !tf || r.dataset.type === tf;
+    const okT = !tf || r.dataset.type.split(',').map(x => x.trim()).includes(tf);
     r.style.display = (okQ && okT) ? '' : 'none';
   });
   // Hide sub-section headers that have no visible rows beneath them
@@ -280,6 +289,31 @@ function filterSubs() {
     sec.style.display = vis ? '' : 'none';
   });
 }
+// ── Multi-select trades ──
+const TRADES = ['General Contractor','Electrician','Plumber','Drywall','Framing','Painter','Handyman','HVAC','Flooring','Roofing','Concrete','Demolition','Junk Removal','Landscaping','Tile','Solar','Stucco','Insulation','Fire Sprinklers','Decking','Finishes','Tree Removal'];
+let selectedTrades = [];
+function renderTradeChips() {
+  const all = [...new Set([...TRADES, ...selectedTrades])];
+  document.getElementById('tradeChips').innerHTML = all.map(t =>
+    `<span class="trade-chip${selectedTrades.includes(t) ? ' on' : ''}" onclick="toggleTrade(this.dataset.t)" data-t="${t.replace(/"/g,'&quot;')}">${t}</span>`).join('');
+  document.getElementById('f_type').value = selectedTrades.join(', ');
+}
+function toggleTrade(t) {
+  const i = selectedTrades.indexOf(t);
+  if (i >= 0) selectedTrades.splice(i, 1); else selectedTrades.push(t);
+  renderTradeChips();
+}
+function addTradeOther() {
+  const inp = document.getElementById('tradeOther');
+  const v = inp.value.trim();
+  if (v && !selectedTrades.some(t => t.toLowerCase() === v.toLowerCase())) selectedTrades.push(v);
+  inp.value = '';
+  renderTradeChips();
+}
+function setTradesFromString(str) {
+  selectedTrades = String(str || '').split(/[,;]+/).map(x => x.trim()).filter(Boolean);
+  renderTradeChips();
+}
 // Set a <select> value, injecting the value as an option if it isn't already listed
 function fillSelect(id, val) {
   const sel = document.getElementById(id);
@@ -292,8 +326,9 @@ function fillSelect(id, val) {
 function openAdd() {
   document.getElementById('modalTitle').textContent = 'Add Subcontractor';
   document.getElementById('editId').value = '';
-  ['company','owner','type','phone','email','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
+  ['company','owner','phone','email','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
   fillSelect('f_location', '');
+  setTradesFromString('');
   document.getElementById('f_category').value = 'sub';   // default new entries to Subcontractor
   document.getElementById('subModal').classList.add('show');
 }
@@ -302,7 +337,7 @@ function openEdit(s) {
   document.getElementById('editId').value = s.id;
   document.getElementById('f_company').value = s.company || '';
   document.getElementById('f_owner').value = s.owner || '';
-  document.getElementById('f_type').value = s.type || '';
+  setTradesFromString(s.type);
   document.getElementById('f_phone').value = s.phone || '';
   document.getElementById('f_email').value = s.email || '';
   fillSelect('f_location', s.location || '');
@@ -351,7 +386,9 @@ async function changeStatus(sel) {
   const body = new URLSearchParams({ status: sel.value });
   try {
     const r = await fetch('/subs/' + sel.dataset.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-    if (!r.ok) throw 0;
+    const data = await r.json();
+    if (!r.ok || !data.ok) throw 0;
+    if (data.moved) location.reload();   // jumped to a different section — refresh to show it there
   } catch (e) { alert('Could not save status — try again'); }
 }
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }

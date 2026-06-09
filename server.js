@@ -3010,6 +3010,20 @@ app.get('/subs', requireAuth, async (req, res) => {
   }
 });
 
+// Map a status to the matching section bucket, so status and section stay in sync.
+function bucketForStatus(category, status) {
+  const s = (status || '').toLowerCase();
+  const gc = category === 'gc';
+  if (/active/.test(s)) return gc ? 'Active Buildoly Outside General Contractors' : 'Active Buildoly Subcontractors';
+  if (/black/.test(s)) return gc ? 'Blacklisted Buildoly General Contractors' : 'Blacklisted Buildoly Sub Contractors';
+  if (/approv/.test(s)) return gc ? 'Vetted but Unused GCs' : 'Vetted but Unused';
+  return 'Under Vetting';   // Under Review / Rejected / blank → intake bucket
+}
+async function bucketSortOrder(category, group) {
+  const { rows: [mx] } = await pool.query('SELECT MAX(sort_order) m FROM subcontractors WHERE category=$1 AND group_label IS NOT DISTINCT FROM $2', [category, group]);
+  return (mx && mx.m != null) ? Number(mx.m) + 1 : 9999;
+}
+
 // Add a subcontractor
 app.post('/subs', requireAuth, async (req, res) => {
   try {
@@ -3017,11 +3031,13 @@ app.post('/subs', requireAuth, async (req, res) => {
     if (!(b.company || b.owner || '').trim()) return res.redirect('/subs');
     // Use the chosen Section if provided, else infer from the Type
     const cat = (b.category === 'gc' || b.category === 'sub') ? b.category : (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
+    const grp = bucketForStatus(cat, b.status);
+    const so = await bucketSortOrder(cat, grp);
     await pool.query(
-      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, category)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, category, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
-       b.email || null, b.phone || null, b.projects || null, b.notes || null, b.group_label || null, cat]
+       b.email || null, b.phone || null, b.projects || null, b.notes || null, grp, cat, so]
     );
     res.redirect('/subs?added=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
@@ -3042,11 +3058,16 @@ app.post('/subs/:id', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-// Quick inline status change (Under Review → Active / Rejected / etc.)
+// Quick inline status change (Under Review → Active / Rejected / etc.) — also moves it to the matching section
 app.post('/subs/:id/status', requireAuth, async (req, res) => {
   try {
-    await pool.query('UPDATE subcontractors SET status=$1 WHERE id=$2', [req.body.status || null, req.params.id]);
-    res.json({ ok: true });
+    const status = req.body.status || null;
+    const { rows: [cur] } = await pool.query('SELECT category, group_label FROM subcontractors WHERE id=$1', [req.params.id]);
+    const cat = (cur && cur.category) || 'sub';
+    const grp = bucketForStatus(cat, status);
+    const so = await bucketSortOrder(cat, grp);
+    await pool.query('UPDATE subcontractors SET status=$1, group_label=$2, sort_order=$3 WHERE id=$4', [status, grp, so, req.params.id]);
+    res.json({ ok: true, moved: !cur || cur.group_label !== grp });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
