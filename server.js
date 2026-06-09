@@ -1522,7 +1522,9 @@ app.get('/my', requireSuper, async (req, res) => {
         });
       }
     }
-    res.render('my-projects', { sup, projects: mine, itemsByProject, requested: req.query.requested === '1', issued: req.query.issued === '1' });
+    // All projects — for the "report an issue on any project" dropdown
+    const { rows: everyProject } = await pool.query('SELECT id, address FROM projects ORDER BY address');
+    res.render('my-projects', { sup, projects: mine, itemsByProject, allProjects: everyProject, requested: req.query.requested === '1', issued: req.query.issued === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -1583,8 +1585,9 @@ app.get('/my/issue/:id', requireSuper, async (req, res) => {
   try {
     await initDb();
     const email = req.session.superEmail;
+    // Supers can report a material issue on ANY project (not just assigned ones)
     const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email FROM projects WHERE id=$1', [req.params.id]);
-    if (!superOwnsProject(email, project)) return res.redirect('/my');
+    if (!project) return res.redirect('/my');
     res.render('my-issue', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -1597,7 +1600,7 @@ app.post('/my/issue/:id', requireSuper, upload.single('photo'), async (req, res)
     await initDb();
     const email = req.session.superEmail;
     const { rows: [project] } = await pool.query('SELECT id, address, super_email FROM projects WHERE id=$1', [req.params.id]);
-    if (!superOwnsProject(email, project)) return res.redirect('/my');
+    if (!project) return res.redirect('/my');   // any project allowed for issue reports
     const note = String(req.body.note || '').trim().slice(0, 1000);
     const valid = new Set(ALL_ITEMS.map(i => i.code));
     const itemCode = valid.has(req.body.item_code) ? req.body.item_code : null;
