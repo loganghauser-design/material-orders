@@ -17,6 +17,9 @@
     .subs-table td { padding:.55rem .7rem; border-bottom:1px solid var(--border); vertical-align:top; }
     .subs-table tr:last-child td { border-bottom:none; }
     .subs-table tbody tr:hover td { background:var(--bg); }
+    .subs-table tr.subhdr td { background:var(--bg); font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:.4rem .7rem; }
+    .subs-table tr.subhdr:hover td { background:var(--bg); }
+    .subs-table tr.subhdr.bl td { color:var(--danger); }
     .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
     .subs-table .co { font-weight:600; }
     .subs-table .notes { color:var(--muted); max-width:240px; }
@@ -73,10 +76,10 @@
   </div>
 
   <%
-    function isGC(s) { return /general\s*contractor|^\s*gc\b/i.test(s.type || ''); }
+    function catOf(s) { return s.category || (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'); }
     const sections = [
-      { title: 'General Contractors', list: subs.filter(isGC) },
-      { title: 'Subcontractors', list: subs.filter(s => !isGC(s)) },
+      { title: 'General Contractors', list: subs.filter(s => catOf(s) === 'gc') },
+      { title: 'Subcontractors', list: subs.filter(s => catOf(s) !== 'gc') },
     ];
   %>
 
@@ -96,7 +99,10 @@
             <th>Company</th><th>Contact</th><th>Type</th><th>Phone</th><th>Email</th><th>Location</th><th>Status</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody>
-            <% sec.list.forEach(s => { var ph = photosBySub[s.id] || []; %>
+            <% var curGrp = null; sec.list.forEach(s => { var ph = photosBySub[s.id] || [];
+                 if ((s.group_label||'') !== curGrp) { curGrp = s.group_label||''; %>
+                   <% if (curGrp) { %><tr class="subhdr<%= /blacklist/i.test(curGrp) ? ' bl' : '' %>"><td colspan="9"><%= curGrp %></td></tr><% } %>
+            <% } %>
               <tr data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="co"><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><% }) %></div><% } %>
@@ -176,6 +182,16 @@ function filterSubs() {
     const okQ = !q || r.dataset.search.includes(q);
     const okT = !tf || r.dataset.type === tf;
     r.style.display = (okQ && okT) ? '' : 'none';
+  });
+  // Hide sub-section headers that have no visible rows beneath them
+  document.querySelectorAll('.subs-table tbody').forEach(tb => {
+    const trs = [...tb.children];
+    trs.forEach((tr, i) => {
+      if (!tr.classList.contains('subhdr')) return;
+      let any = false;
+      for (let j = i + 1; j < trs.length; j++) { if (trs[j].classList.contains('subhdr')) break; if (trs[j].style.display !== 'none') { any = true; break; } }
+      tr.style.display = any ? '' : 'none';
+    });
   });
   // Hide a whole section if it has no visible rows
   document.querySelectorAll('.sub-section').forEach(sec => {

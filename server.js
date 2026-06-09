@@ -1209,6 +1209,7 @@ async function initDb() {
     ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_date_end DATE;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS sort_order INTEGER;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS category TEXT;
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
@@ -2702,19 +2703,24 @@ async function readSubsSheet() {
   let h = rows.findIndex(r => (r || []).some(c => /company\s*name/i.test(String(c))));
   if (h < 0) h = 3;
   const out = [];
-  let group = '';
+  let group = '', category = 'gc';   // sheet starts in the GC portion until the "Subcontractors" divider
   for (let i = h + 1; i < rows.length; i++) {
     const r = rows[i] || [];
     const company = (r[1] || '').trim();
     if (!company) continue;
     const hasDetail = [2, 3, 4, 5, 6, 7].some(j => (r[j] || '').trim());
-    if (!hasDetail) { group = company; continue; }   // a section header row
+    if (!hasDetail) {                                  // a section header row
+      group = company;
+      if (/sub\s*contra/i.test(company)) category = 'sub';
+      else if (/general\s*contractor|outside\s*gc|\bgc'?s?\b/i.test(company)) category = 'gc';
+      continue;
+    }
     out.push({
       company, location: (r[2] || '').trim(), type: (r[3] || '').trim(), status: (r[4] || '').trim(),
       owner: (r[5] || '').trim(), email: (r[6] || '').trim(), phone: (r[7] || '').trim(),
       projects: (r[8] || '').trim(),
       notes: [(r[9] || '').trim(), (r[10] || '').trim()].filter(Boolean).join(' · '),
-      group_label: group, sort_order: i,   // i = sheet row index → preserves sheet order
+      group_label: group, sort_order: i, category,   // i = sheet row index; category = gc|sub from the section
     });
   }
   return out;
@@ -2738,11 +2744,12 @@ app.post('/subs', requireAuth, async (req, res) => {
   try {
     const b = req.body;
     if (!(b.company || b.owner || '').trim()) return res.redirect('/subs');
+    const cat = /general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub';
     await pool.query(
-      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, category)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
-       b.email || null, b.phone || null, b.projects || null, b.notes || null, b.group_label || null]
+       b.email || null, b.phone || null, b.projects || null, b.notes || null, b.group_label || null, cat]
     );
     res.redirect('/subs?added=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
@@ -2752,10 +2759,12 @@ app.post('/subs', requireAuth, async (req, res) => {
 app.post('/subs/:id', requireAuth, async (req, res) => {
   try {
     const b = req.body;
+    // Re-derive GC vs Sub when an explicit category isn't provided.
+    const cat = b.category || (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
     await pool.query(
-      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, projects=$8, notes=$9 WHERE id=$10`,
+      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, projects=$8, notes=$9, category=$10 WHERE id=$11`,
       [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
-       b.email || null, b.phone || null, b.projects || null, b.notes || null, req.params.id]
+       b.email || null, b.phone || null, b.projects || null, b.notes || null, cat, req.params.id]
     );
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -2799,10 +2808,10 @@ app.post('/subs/import', requireAuth, async (req, res) => {
     for (const s of sheetSubs) {
       if (have.has(s.company.toLowerCase())) continue;
       await pool.query(
-        `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, sort_order)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, sort_order, category)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [s.company, s.location || null, s.type || null, s.status || null, s.owner || null,
-         s.email || null, s.phone || null, s.projects || null, s.notes || null, s.group_label || null, s.sort_order]
+         s.email || null, s.phone || null, s.projects || null, s.notes || null, s.group_label || null, s.sort_order, s.category || 'sub']
       );
       have.add(s.company.toLowerCase());
       added++;
