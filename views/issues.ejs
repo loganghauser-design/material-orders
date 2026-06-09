@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Issues — Material Orders</title>
+  <title>Issues — Buildoly Office</title>
   <link rel="stylesheet" href="/css/app.css">
   <style>
     .issue { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; display:flex; gap:1rem; }
@@ -28,11 +28,15 @@
 </head>
 <body>
 <nav class="nav">
-  <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
-    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+  <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Buildoly Office</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab">Payments</a>
+    <a href="/driving" class="nav-tab">Driving Log</a>
     <a href="/inventory" class="nav-tab">Inventory</a>
     <a href="/issues" class="nav-tab active">Issues<% if (pendingIssues) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= pendingIssues %></span><% } %></a>
     <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/subs" class="nav-tab">Subs</a>
     <a href="/settings" class="nav-tab">Settings</a>
   </div>
   <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
