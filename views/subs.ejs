@@ -32,7 +32,9 @@
     .pill-default { background:#e6e6e6; color:#555; }
     .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
     .subs-table .co { font-weight:600; }
-    .subs-table .notes { color:var(--muted); max-width:240px; }
+    .subs-table .notes { color:var(--muted); max-width:260px; }
+    .note-clip { display:-webkit-box; -webkit-line-clamp:2; line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; cursor:pointer; }
+    .note-clip.open { -webkit-line-clamp:unset; line-clamp:unset; overflow:visible; }
     .thumbs { display:flex; gap:.25rem; margin-top:.25rem; }
     .thumbs img { width:30px; height:30px; object-fit:cover; border-radius:5px; border:1px solid var(--border); }
     .row-actions { white-space:nowrap; }
@@ -119,7 +121,7 @@
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
     const STATUS_OPTS = ['Under Review', 'Approved', 'Active', 'Rejected', 'Blacklisted'];
-    const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County'];
+    const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County'];
     const sections = [
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
       { title: 'Subcontractors', key: 'sub', list: subs.filter(s => catOf(s) !== 'gc') },
@@ -169,7 +171,7 @@
                 <td><%= s.owner || '' %></td>
                 <td><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
                 <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
-                <td class="notes"><%= s.notes || '' %></td>
+                <td class="notes"><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
                 <td class="row-actions">
                   <select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
                     <option value="">Move…</option>
