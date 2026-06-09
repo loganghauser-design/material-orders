@@ -52,7 +52,7 @@
     .modal-card { background:var(--surface); border-radius:14px; padding:1.3rem; width:100%; max-width:520px; }
     .modal-card h2 { font-size:1.15rem; margin:0 0 1rem; }
     .mg { margin-bottom:.7rem; } .mg label { display:block; font-size:.8rem; font-weight:600; margin-bottom:.25rem; }
-    .mg input, .mg textarea { width:100%; padding:.5rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); font-size:.92rem; }
+    .mg input, .mg textarea, .mg select { width:100%; padding:.5rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); font-size:.92rem; }
     .mg2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
   </style>
 </head>
@@ -210,10 +210,23 @@
         <div class="mg"><label>Email</label><input name="email" id="f_email"></div>
       </div>
       <div class="mg2">
-        <div class="mg"><label>Location</label><input name="location" id="f_location"></div>
-        <div class="mg"><label>Status</label><input name="status" id="f_status"></div>
+        <div class="mg"><label>Section</label>
+          <select name="category" id="f_category">
+            <option value="gc">General Contractor (GC)</option>
+            <option value="sub">Subcontractor</option>
+          </select>
+        </div>
+        <div class="mg"><label>Status</label>
+          <select name="status" id="f_status">
+            <option value="">—</option>
+            <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>"><%= o %></option><% }) %>
+          </select>
+        </div>
       </div>
-      <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
+      <div class="mg2">
+        <div class="mg"><label>Location</label><input name="location" id="f_location"></div>
+        <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
+      </div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
       <input type="hidden" name="group_label" id="f_group">
       <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:.4rem">
@@ -264,6 +277,7 @@ function openAdd() {
   document.getElementById('modalTitle').textContent = 'Add Subcontractor';
   document.getElementById('editId').value = '';
   ['company','owner','type','phone','email','location','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
+  document.getElementById('f_category').value = 'sub';   // default new entries to Subcontractor
   document.getElementById('subModal').classList.add('show');
 }
 function openEdit(s) {
@@ -276,6 +290,7 @@ function openEdit(s) {
   document.getElementById('f_email').value = s.email || '';
   document.getElementById('f_location').value = s.location || '';
   document.getElementById('f_status').value = s.status || '';
+  document.getElementById('f_category').value = (s.category === 'gc' || s.category === 'sub') ? s.category : (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub');
   document.getElementById('f_projects').value = s.projects || '';
   document.getElementById('f_notes').value = s.notes || '';
   document.getElementById('f_group').value = s.group_label || '';
@@ -328,7 +343,7 @@ document.getElementById('subForm').addEventListener('submit', async function (e)
   if (!id) return;
   e.preventDefault();
   const body = new URLSearchParams();
-  ['company','owner','type','phone','email','location','status','projects','notes'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
+  ['company','owner','type','phone','email','location','status','projects','notes','category'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
   document.getElementById('saveBtn').textContent = 'Saving…';
   const r = await fetch('/subs/' + id, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (r.ok) location.reload(); else { alert('Could not save'); document.getElementById('saveBtn').textContent = 'Save'; }

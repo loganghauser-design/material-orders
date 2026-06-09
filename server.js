@@ -2961,7 +2961,8 @@ app.post('/subs', requireAuth, async (req, res) => {
   try {
     const b = req.body;
     if (!(b.company || b.owner || '').trim()) return res.redirect('/subs');
-    const cat = /general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub';
+    // Use the chosen Section if provided, else infer from the Type
+    const cat = (b.category === 'gc' || b.category === 'sub') ? b.category : (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
     await pool.query(
       `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, category)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
