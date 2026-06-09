@@ -2778,6 +2778,19 @@ app.post('/subs/:id/status', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// Move a sub to a different section/group (GC↔Sub and between buckets like Under Vetting → Active)
+app.post('/subs/:id/move', requireAuth, async (req, res) => {
+  try {
+    const cat = req.body.category === 'gc' ? 'gc' : 'sub';
+    const grp = req.body.group_label || null;
+    // Drop it at the end of the target bucket so it lands in the right place
+    const { rows: [m] } = await pool.query('SELECT MAX(sort_order) mx FROM subcontractors WHERE category=$1 AND group_label IS NOT DISTINCT FROM $2', [cat, grp]);
+    const so = (m && m.mx != null) ? m.mx + 1 : null;
+    await pool.query('UPDATE subcontractors SET category=$1, group_label=$2, sort_order=COALESCE($3, sort_order) WHERE id=$4', [cat, grp, so, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.post('/subs/:id/delete', requireAuth, async (req, res) => {
   try { await pool.query('DELETE FROM subcontractors WHERE id=$1', [req.params.id]); res.redirect('/subs'); }
   catch (err) { res.status(500).send('Error: ' + err.message); }

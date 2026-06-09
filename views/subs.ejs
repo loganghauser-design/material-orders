@@ -37,6 +37,7 @@
     .thumbs img { width:30px; height:30px; object-fit:cover; border-radius:5px; border:1px solid var(--border); }
     .row-actions { white-space:nowrap; }
     .row-actions button, .row-actions label.upl { font-size:.85rem; padding:.2rem .4rem; border:1px solid var(--border); background:var(--surface); border-radius:6px; cursor:pointer; line-height:1; }
+    .moveSel { font-size:.74rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); cursor:pointer; max-width:130px; }
     .row-actions .del { color:var(--danger); border-color:rgba(204,34,34,.3); }
     .modal-bk { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-start; justify-content:center; z-index:50; padding:2rem 1rem; overflow:auto; }
     .modal-bk.show { display:flex; }
@@ -99,6 +100,9 @@
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
       { title: 'Subcontractors', key: 'sub', list: subs.filter(s => catOf(s) !== 'gc') },
     ];
+    // Distinct buckets you can move a sub into (preserving sheet order)
+    const moveTargets = []; const _seenT = {};
+    subs.forEach(s => { const cat = catOf(s), grp = s.group_label || '', k = cat + '||' + grp; if (!_seenT[k]) { _seenT[k] = 1; moveTargets.push({ cat, grp }); } });
   %>
 
   <% if (!subs.length) { %>
@@ -117,10 +121,13 @@
             <th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody>
-            <% var curGrp = null; sec.list.forEach(s => { var ph = photosBySub[s.id] || [];
-                 if ((s.group_label||'') !== curGrp) { curGrp = s.group_label||''; %>
-                   <% if (curGrp) { %><tr class="subhdr"><td colspan="9"><%= curGrp %></td></tr><% } %>
-            <% } %>
+            <%
+              const groups = []; const gmap = {};
+              sec.list.forEach(x => { const g = x.group_label || ''; if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
+            %>
+            <% groups.forEach(g => { %>
+              <% if (g) { %><tr class="subhdr"><td colspan="9"><%= g %></td></tr><% } %>
+              <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; %>
               <tr data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="co"><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><% }) %></div><% } %>
@@ -139,6 +146,15 @@
                 <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
                 <td class="notes"><%= s.notes || '' %></td>
                 <td class="row-actions">
+                  <select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
+                    <option value="">Move…</option>
+                    <optgroup label="Outside GCs">
+                      <% moveTargets.filter(t => t.cat === 'gc').forEach(t => { %><option value="gc||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
+                    </optgroup>
+                    <optgroup label="Subcontractors">
+                      <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
+                    </optgroup>
+                  </select>
                   <button onclick='openEdit(<%- JSON.stringify(s) %>)' title="Edit">✏</button>
                   <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
                     <label class="upl" title="Add photo">📷<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.form.submit()"></label>
@@ -148,6 +164,7 @@
                   </form>
                 </td>
               </tr>
+              <% }) %>
             <% }) %>
           </tbody>
         </table>
@@ -251,6 +268,15 @@ function pillClassJS(st) { st = (st || '').toLowerCase();
   if (/approv/.test(st)) return 'pill-approved';
   if (/review|vetting|pending/.test(st)) return 'pill-review';
   return 'pill-default'; }
+async function changeMove(sel) {
+  if (!sel.value) return;
+  const [cat, grp] = sel.value.split('||');
+  const body = new URLSearchParams({ category: cat, group_label: grp });
+  try {
+    const r = await fetch('/subs/' + sel.dataset.id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    if (r.ok) location.reload(); else throw 0;
+  } catch (e) { alert('Could not move — try again'); sel.value = ''; }
+}
 async function changeStatus(sel) {
   sel.className = 'spill ' + pillClassJS(sel.value);   // recolor instantly
   const body = new URLSearchParams({ status: sel.value });
