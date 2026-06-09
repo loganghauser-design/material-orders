@@ -1079,12 +1079,17 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
 // for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
 const SUPERS = [
   { email: 'bobby@buildoly.com', name: 'Bobby Li', chatId: '111280454403124522893', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
-  { email: 'kevin@buildoly.com', name: 'Kevin Leon', chatId: '114651669878031315273', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
-  { email: 'eddie@buildoly.com', name: 'Eddie Solorzano', chatId: '105599791425178916274', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
+  { email: 'kevin@buildoly.com', username: 'kevin', name: 'Kevin Leon', chatId: '114651669878031315273', passwordHash: '$2b$10$a/A51wAAQ.lyxhGwm0qfeecV15mKr1JyZTUqDNhN03Aw/JHb4Vbpe' },
+  { email: 'eddie@buildoly.com', username: 'eddie', name: 'Eddie Solorzano', chatId: '105599791425178916274', passwordHash: '$2b$10$a/A51wAAQ.lyxhGwm0qfeecV15mKr1JyZTUqDNhN03Aw/JHb4Vbpe' },
 ];
 function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
   return SUPERS.find(s => s.email.toLowerCase() === e) || null;
+}
+// Login lookup: match by email OR a short username (first name).
+function findSuperByLogin(login) {
+  const l = String(login || '').trim().toLowerCase();
+  return SUPERS.find(s => s.email.toLowerCase() === l || (s.username && s.username.toLowerCase() === l)) || null;
 }
 // Which supers may view the Subcontractor directory (read-only). Bobby only.
 const SUBS_SUPER_EMAILS = ['bobby@buildoly.com'];
@@ -1482,8 +1487,8 @@ app.post('/login', async (req, res) => {
     req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null;
     return res.redirect('/');
   }
-  // Superintendent (logs in with their email)
-  const sup = findSuper(username);
+  // Superintendent (logs in with their email or first-name username)
+  const sup = findSuperByLogin(username);
   if (sup && sup.passwordHash && await bcrypt.compare(password || '', sup.passwordHash)) {
     req.session.authenticated = true; req.session.role = 'super'; req.session.superEmail = sup.email;
     return res.redirect('/my');
