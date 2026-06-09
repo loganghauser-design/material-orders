@@ -1222,6 +1222,19 @@ async function initDb() {
       fulfilled BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    CREATE TABLE IF NOT EXISTS subcontractors (
+      id SERIAL PRIMARY KEY,
+      company TEXT, location TEXT, type TEXT, status TEXT,
+      owner TEXT, email TEXT, phone TEXT, projects TEXT, notes TEXT,
+      group_label TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS sub_photos (
+      id SERIAL PRIMARY KEY,
+      sub_id INTEGER REFERENCES subcontractors(id) ON DELETE CASCADE,
+      filename TEXT, mime TEXT, data BYTEA,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -2674,6 +2687,127 @@ app.get('/suppliers', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// ── Subcontractor database (app-owned, editable; seeded from the GC & Sub Database sheet) ──
+const SUBS_SHEET_ID = '1vqPL96RG-KKqY99ADBHIU1JjLAc4c4ywB9ehg7KcqYg';
+const SUBS_SHEET_TAB = 'GC & Sub Database';
+
+// Read + parse the GC & Sub Database tab into row objects (for the one-time import).
+async function readSubsSheet() {
+  if (!sheetsClient) throw new Error('Google Sheets not configured.');
+  const { data } = await sheetsClient.spreadsheets.values.get({ spreadsheetId: SUBS_SHEET_ID, range: `${SUBS_SHEET_TAB}!A1:Z2000` });
+  const rows = data.values || [];
+  let h = rows.findIndex(r => (r || []).some(c => /company\s*name/i.test(String(c))));
+  if (h < 0) h = 3;
+  const out = [];
+  let group = '';
+  for (let i = h + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const company = (r[1] || '').trim();
+    if (!company) continue;
+    const hasDetail = [2, 3, 4, 5, 6, 7].some(j => (r[j] || '').trim());
+    if (!hasDetail) { group = company; continue; }   // a section header row
+    out.push({
+      company, location: (r[2] || '').trim(), type: (r[3] || '').trim(), status: (r[4] || '').trim(),
+      owner: (r[5] || '').trim(), email: (r[6] || '').trim(), phone: (r[7] || '').trim(),
+      projects: (r[8] || '').trim(),
+      notes: [(r[9] || '').trim(), (r[10] || '').trim()].filter(Boolean).join(' · '),
+      group_label: group,
+    });
+  }
+  return out;
+}
+
+app.get('/subs', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: subs } = await pool.query('SELECT * FROM subcontractors ORDER BY type NULLS LAST, company');
+    const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
+    const photosBySub = {};
+    photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
+    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Add a subcontractor
+app.post('/subs', requireAuth, async (req, res) => {
+  try {
+    const b = req.body;
+    if (!(b.company || b.owner || '').trim()) return res.redirect('/subs');
+    await pool.query(
+      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
+       b.email || null, b.phone || null, b.projects || null, b.notes || null, b.group_label || null]
+    );
+    res.redirect('/subs?added=1');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Edit a subcontractor
+app.post('/subs/:id', requireAuth, async (req, res) => {
+  try {
+    const b = req.body;
+    await pool.query(
+      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, projects=$8, notes=$9 WHERE id=$10`,
+      [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
+       b.email || null, b.phone || null, b.projects || null, b.notes || null, req.params.id]
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.post('/subs/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM subcontractors WHERE id=$1', [req.params.id]); res.redirect('/subs'); }
+  catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Upload a photo (business card etc.) for a subcontractor
+app.post('/subs/:id/photo', requireAuth, upload.single('photo'), async (req, res) => {
+  try {
+    if (req.file) {
+      await pool.query('INSERT INTO sub_photos (sub_id, filename, mime, data) VALUES ($1,$2,$3,$4)',
+        [req.params.id, req.file.originalname, req.file.mimetype, req.file.buffer]);
+    }
+    res.redirect('/subs');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+app.get('/sub-photo/:id', requireAuth, async (req, res) => {
+  const { rows: [p] } = await pool.query('SELECT mime, data FROM sub_photos WHERE id=$1', [req.params.id]);
+  if (!p) return res.status(404).send('Not found');
+  res.setHeader('Content-Type', p.mime || 'image/jpeg');
+  res.send(p.data);
+});
+
+app.post('/sub-photo/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM sub_photos WHERE id=$1', [req.params.id]); res.redirect('/subs'); }
+  catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// One-time import from the Google Sheet — only adds companies not already in the DB.
+app.post('/subs/import', requireAuth, async (req, res) => {
+  try {
+    const sheetSubs = await readSubsSheet();
+    const { rows: existing } = await pool.query('SELECT LOWER(company) c FROM subcontractors WHERE company IS NOT NULL');
+    const have = new Set(existing.map(r => r.c));
+    let added = 0;
+    for (const s of sheetSubs) {
+      if (have.has(s.company.toLowerCase())) continue;
+      await pool.query(
+        `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [s.company, s.location || null, s.type || null, s.status || null, s.owner || null,
+         s.email || null, s.phone || null, s.projects || null, s.notes || null, s.group_label || null]
+      );
+      have.add(s.company.toLowerCase());
+      added++;
+    }
+    res.redirect('/subs?imported=' + added);
+  } catch (err) { res.status(500).send('Import error: ' + err.message); }
 });
 
 // ── Inventory (manual office stock with purchase history + schedule draw-down) ──

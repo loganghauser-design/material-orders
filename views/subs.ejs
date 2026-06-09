@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subcontractors — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .subs-toolbar { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
+    .subs-toolbar input[type=search], .subs-toolbar select { padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); font-size:.9rem; }
+    .subs-toolbar input[type=search] { min-width:220px; flex:1; }
+    .sub-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(310px,1fr)); gap:1rem; }
+    .sub-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; }
+    .sub-card h3 { font-size:1.05rem; font-weight:700; margin:0 0 .15rem; }
+    .sub-type { display:inline-block; font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; background:#eaf2ff; color:#1d4ed8; padding:2px 8px; border-radius:10px; margin-bottom:.5rem; }
+    .sub-status { font-size:.72rem; color:var(--muted); margin-left:.4rem; }
+    .sub-row { font-size:.86rem; padding:.18rem 0; display:flex; gap:.4rem; }
+    .sub-row .lbl { color:var(--muted); min-width:62px; flex:none; }
+    .sub-row a { color:#1d4ed8; text-decoration:none; }
+    .sub-photos { display:flex; gap:.4rem; flex-wrap:wrap; margin:.6rem 0 .2rem; }
+    .sub-photos a { position:relative; }
+    .sub-photos img { width:62px; height:62px; object-fit:cover; border-radius:8px; border:1px solid var(--border); }
+    .sub-actions { display:flex; gap:.5rem; align-items:center; margin-top:.7rem; padding-top:.6rem; border-top:1px solid var(--border); flex-wrap:wrap; }
+    .sub-actions button, .sub-actions label.upl { font-size:.78rem; padding:.3rem .6rem; border-radius:7px; border:1px solid var(--border); background:var(--surface); cursor:pointer; }
+    .sub-actions .del { color:var(--danger); border-color:rgba(204,34,34,.3); }
+    .modal-bk { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-start; justify-content:center; z-index:50; padding:2rem 1rem; overflow:auto; }
+    .modal-bk.show { display:flex; }
+    .modal-card { background:var(--surface); border-radius:14px; padding:1.3rem; width:100%; max-width:520px; }
+    .modal-card h2 { font-size:1.15rem; margin:0 0 1rem; }
+    .mg { margin-bottom:.7rem; }
+    .mg label { display:block; font-size:.8rem; font-weight:600; margin-bottom:.25rem; }
+    .mg input, .mg textarea, .mg select { width:100%; padding:.5rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); font-size:.92rem; }
+    .mg2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
+    .grouphdr { grid-column:1/-1; font-size:.8rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:.6rem 0 -.2rem; }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab">Payments</a>
+    <a href="/driving" class="nav-tab">Driving Log</a>
+    <a href="/inventory" class="nav-tab">Inventory</a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/subs" class="nav-tab active">Subs</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+
+<div class="container">
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
+    <h1>Subcontractors <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= subs.length %>)</span></h1>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <button class="btn btn-primary" onclick="openAdd()">+ Add Subcontractor</button>
+      <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
+        <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
+      </form>
+    </div>
+  </div>
+
+  <% if (typeof imported !== 'undefined' && imported !== undefined) { %>
+    <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Imported <%= imported %> new subcontractor(s) from the sheet.</div>
+  <% } %>
+  <% if (typeof added !== 'undefined' && added) { %>
+    <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Subcontractor added.</div>
+  <% } %>
+
+  <div class="subs-toolbar">
+    <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
+    <select id="typeFilter" onchange="filterSubs()"><option value="">All trades</option></select>
+  </div>
+
+  <% if (!subs.length) { %>
+    <div class="card" style="color:var(--muted)">No subcontractors yet. Click <strong>Import from Sheet</strong> to pull your GC &amp; Sub Database, or <strong>+ Add Subcontractor</strong>.</div>
+  <% } %>
+
+  <div class="sub-grid" id="subGrid">
+    <% subs.forEach(s => { %>
+      <div class="sub-card" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+        <h3><%= s.company || s.owner || 'Unnamed' %></h3>
+        <% if (s.type) { %><span class="sub-type"><%= s.type %></span><% } %><% if (s.status) { %><span class="sub-status"><%= s.status %></span><% } %>
+        <% if (s.owner && s.company) { %><div class="sub-row"><span class="lbl">Contact</span><span><%= s.owner %></span></div><% } %>
+        <% if (s.phone) { %><div class="sub-row"><span class="lbl">Phone</span><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a></div><% } %>
+        <% if (s.email) { %><div class="sub-row"><span class="lbl">Email</span><a href="mailto:<%= s.email %>"><%= s.email %></a></div><% } %>
+        <% if (s.location) { %><div class="sub-row"><span class="lbl">Location</span><span><%= s.location %></span></div><% } %>
+        <% if (s.projects) { %><div class="sub-row"><span class="lbl">Projects</span><span><%= s.projects %></span></div><% } %>
+        <% if (s.notes) { %><div class="sub-row"><span class="lbl">Notes</span><span><%= s.notes %></span></div><% } %>
+        <% var ph = photosBySub[s.id] || []; %>
+        <% if (ph.length) { %>
+          <div class="sub-photos">
+            <% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>" alt="photo"></a><% }) %>
+          </div>
+        <% } %>
+        <div class="sub-actions">
+          <button onclick='openEdit(<%- JSON.stringify(s) %>)'>✏ Edit</button>
+          <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
+            <label class="upl">📷 Photo<input type="file" name="photo" accept="image/*" style="display:none" onchange="this.form.submit()"></label>
+          </form>
+          <form method="POST" action="/subs/<%= s.id %>/delete" style="margin:0;display:inline" onsubmit="return confirm('Delete this subcontractor?')">
+            <button type="submit" class="del">🗑</button>
+          </form>
+        </div>
+      </div>
+    <% }) %>
+  </div>
+</div>
+
+<!-- Add / Edit modal -->
+<div class="modal-bk" id="subModal">
+  <div class="modal-card">
+    <h2 id="modalTitle">Add Subcontractor</h2>
+    <form id="subForm" method="POST" action="/subs">
+      <input type="hidden" id="editId" value="">
+      <div class="mg"><label>Company</label><input name="company" id="f_company" placeholder="e.g. Pyramid Drywall"></div>
+      <div class="mg2">
+        <div class="mg"><label>Contact / Owner</label><input name="owner" id="f_owner"></div>
+        <div class="mg"><label>Trade / Type</label><input name="type" id="f_type" list="tradeList" placeholder="Electrician, Plumber…"></div>
+      </div>
+      <div class="mg2">
+        <div class="mg"><label>Phone</label><input name="phone" id="f_phone"></div>
+        <div class="mg"><label>Email</label><input name="email" id="f_email"></div>
+      </div>
+      <div class="mg2">
+        <div class="mg"><label>Location</label><input name="location" id="f_location"></div>
+        <div class="mg"><label>Status</label><input name="status" id="f_status" placeholder="Under Review, Active…"></div>
+      </div>
+      <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
+      <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
+      <input type="hidden" name="group_label" id="f_group">
+      <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:.4rem">
+        <button type="button" class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="saveBtn">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+<datalist id="tradeList">
+  <option>General Contractor</option><option>Electrician</option><option>Plumber</option>
+  <option>Drywall</option><option>Framing</option><option>Painter</option><option>Handyman</option>
+  <option>HVAC</option><option>Flooring</option><option>Roofing</option><option>Concrete</option>
+  <option>Demolition</option><option>Junk Removal</option><option>Landscaping</option><option>Tile</option>
+</datalist>
+
+<script>
+// Populate the trade filter from the cards on the page
+(function () {
+  const types = [...new Set([...document.querySelectorAll('.sub-card')].map(c => c.dataset.type).filter(Boolean))].sort();
+  const sel = document.getElementById('typeFilter');
+  types.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t.replace(/\b\w/g, m => m.toUpperCase()); sel.appendChild(o); });
+})();
+function filterSubs() {
+  const q = document.getElementById('subSearch').value.toLowerCase().trim();
+  const tf = document.getElementById('typeFilter').value;
+  document.querySelectorAll('.sub-card').forEach(c => {
+    const okQ = !q || c.dataset.search.includes(q);
+    const okT = !tf || c.dataset.type === tf;
+    c.style.display = (okQ && okT) ? '' : 'none';
+  });
+}
+function openAdd() {
+  document.getElementById('modalTitle').textContent = 'Add Subcontractor';
+  document.getElementById('editId').value = '';
+  ['company','owner','type','phone','email','location','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
+  document.getElementById('subModal').classList.add('show');
+}
+function openEdit(s) {
+  document.getElementById('modalTitle').textContent = 'Edit Subcontractor';
+  document.getElementById('editId').value = s.id;
+  document.getElementById('f_company').value = s.company || '';
+  document.getElementById('f_owner').value = s.owner || '';
+  document.getElementById('f_type').value = s.type || '';
+  document.getElementById('f_phone').value = s.phone || '';
+  document.getElementById('f_email').value = s.email || '';
+  document.getElementById('f_location').value = s.location || '';
+  document.getElementById('f_status').value = s.status || '';
+  document.getElementById('f_projects').value = s.projects || '';
+  document.getElementById('f_notes').value = s.notes || '';
+  document.getElementById('f_group').value = s.group_label || '';
+  document.getElementById('subModal').classList.add('show');
+}
+function closeModal() { document.getElementById('subModal').classList.remove('show'); }
+document.getElementById('subForm').addEventListener('submit', async function (e) {
+  const id = document.getElementById('editId').value;
+  if (!id) return;   // Add → normal form POST to /subs
+  e.preventDefault();
+  const body = new URLSearchParams();
+  ['company','owner','type','phone','email','location','status','projects','notes'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
+  document.getElementById('saveBtn').textContent = 'Saving…';
+  const r = await fetch('/subs/' + id, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+  if (r.ok) location.reload(); else { alert('Could not save'); document.getElementById('saveBtn').textContent = 'Save'; }
+});
+document.getElementById('subModal').addEventListener('click', e => { if (e.target.id === 'subModal') closeModal(); });
+</script>
+</body>
+</html>
