@@ -38,6 +38,9 @@
     .row-actions { white-space:nowrap; }
     .row-actions button, .row-actions label.upl { font-size:.85rem; padding:.2rem .4rem; border:1px solid var(--border); background:var(--surface); border-radius:6px; cursor:pointer; line-height:1; }
     .moveSel { font-size:.74rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); cursor:pointer; max-width:130px; }
+    .drag-h { cursor:grab; color:var(--muted); text-align:center; user-select:none; font-size:1.05rem; width:24px; }
+    .drag-h:active { cursor:grabbing; }
+    .subs-table tr.drop-hi > td { background:#dbeafe !important; box-shadow:inset 0 2px 0 #4f8ef7; }
     .row-actions .del { color:var(--danger); border-color:rgba(204,34,34,.3); }
     .modal-bk { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-start; justify-content:center; z-index:50; padding:2rem 1rem; overflow:auto; }
     .modal-bk.show { display:flex; }
@@ -118,7 +121,7 @@
       <div class="tbl-wrap">
         <table class="subs-table">
           <thead><tr>
-            <th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th><th></th>
+            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody>
             <%
@@ -126,9 +129,10 @@
               sec.list.forEach(x => { const g = x.group_label || ''; if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
             %>
             <% groups.forEach(g => { %>
-              <% if (g) { %><tr class="subhdr"><td colspan="9"><%= g %></td></tr><% } %>
+              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="10"><%= g %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; %>
-              <tr data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+              <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+                <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
                 <td class="co"><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><% }) %></div><% } %>
                 </td>
@@ -268,6 +272,23 @@ function pillClassJS(st) { st = (st || '').toLowerCase();
   if (/approv/.test(st)) return 'pill-approved';
   if (/review|vetting|pending/.test(st)) return 'pill-review';
   return 'pill-default'; }
+// ── Drag & drop to move between buckets / sections ──
+let dragId = null;
+function onDragStart(e, id) { dragId = id; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch (x) {} }
+function onDragOver(e) { if (!dragId) return; e.preventDefault(); e.currentTarget.classList.add('drop-hi'); }
+function onDragLeave(e) { e.currentTarget.classList.remove('drop-hi'); }
+async function onDrop(e) {
+  e.preventDefault();
+  const t = e.currentTarget; t.classList.remove('drop-hi');
+  const cat = t.dataset.cat, grp = t.dataset.grp || '';
+  const id = dragId; dragId = null;
+  if (!id || cat == null) return;
+  const body = new URLSearchParams({ category: cat, group_label: grp });
+  try {
+    const r = await fetch('/subs/' + id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+    if (r.ok) location.reload(); else throw 0;
+  } catch (err) { alert('Could not move — try again'); }
+}
 async function changeMove(sel) {
   if (!sel.value) return;
   const [cat, grp] = sel.value.split('||');
