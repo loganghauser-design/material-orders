@@ -913,9 +913,7 @@ function extractBody(payload) {
     if (part.parts) part.parts.forEach(walk);
   }
   walk(payload);
-  if (plain) return { text: plain, isHtml: false };
-  if (htmlBody) return { text: htmlBody, isHtml: true };
-  return { text: '', isHtml: false };
+  return { plain, html: htmlBody };
 }
 
 function headerVal(headers, name) {
@@ -953,11 +951,24 @@ function plainToDisplayHtml(text, fromMe) {
   return escapeHtml(stripQuotedPlain(text, fromMe)).replace(/\n/g, '<br>');
 }
 // Clean an HTML body: drop the Gmail/Outlook quoted history, then sanitize.
+// Sanitize a FULL email HTML body for safe display (keeps text + tables/boxes; strips
+// scripts, event handlers, and js: URLs). Unlike sanitizePastedHtml, it keeps everything,
+// not just the first table.
+function sanitizeEmailHtml(html) {
+  let s = String(html || '');
+  s = s.replace(/<!--[\s\S]*?-->/g, '');
+  s = s.replace(/<(script|style|head|title)\b[\s\S]*?<\/\1>/gi, '');
+  s = s.replace(/<(script|style|meta|link|base)\b[^>]*>/gi, '');
+  s = s.replace(/<\/?(html|body|head)\b[^>]*>/gi, '');
+  s = s.replace(/\son\w+\s*=\s*"[^"]*"/gi, '').replace(/\son\w+\s*=\s*'[^']*'/gi, '');
+  s = s.replace(/(href|src)\s*=\s*(["'])\s*javascript:[^"']*\2/gi, '$1="#"');
+  return s.trim();
+}
 function htmlToDisplayHtml(html) {
   let s = String(html || '');
   s = s.replace(/<div[^>]*class="[^"]*gmail_quote[^"]*"[\s\S]*$/i, '');
   s = s.replace(/<blockquote[\s\S]*?<\/blockquote>/gi, '');
-  return sanitizePastedHtml(s);
+  return sanitizeEmailHtml(s);
 }
 
 // List file attachments (filename + Gmail attachmentId) in a message payload
@@ -980,8 +991,15 @@ async function fetchThread(threadId) {
   const messages = (data.messages || []).map(m => {
     const headers = m.payload.headers;
     const fromMe = headerVal(headers, 'From').includes(gmailUser);
-    const body = extractBody(m.payload);
-    const bodyHtml = body.isHtml ? htmlToDisplayHtml(body.text) : plainToDisplayHtml(body.text, fromMe);
+    const { plain, html } = extractBody(m.payload);
+    // Our own messages: render the HTML so the items table/boxes show. Vendor replies:
+    // prefer cleaned plain text so the quoted history gets stripped (HTML quotes are
+    // harder to strip reliably). Fall back to whichever part exists.
+    let bodyHtml;
+    if (fromMe && html) bodyHtml = htmlToDisplayHtml(html);
+    else if (plain) bodyHtml = plainToDisplayHtml(plain, fromMe);
+    else if (html) bodyHtml = htmlToDisplayHtml(html);
+    else bodyHtml = '';
     return {
       id: m.id,
       from: headerVal(headers, 'From'),
@@ -991,9 +1009,9 @@ async function fetchThread(threadId) {
       messageIdHeader: headerVal(headers, 'Message-ID'),
       references: headerVal(headers, 'References'),
       snippet: m.snippet,
-      body: body.text,           // raw text (used for material detection)
-      bodyHtml,                  // cleaned, quote-stripped HTML for display
-      isHtml: body.isHtml,
+      body: plain || html || '',   // raw text for material detection
+      bodyHtml,                    // display HTML (table preserved for our messages)
+      isHtml: !plain && !!html,
       attachments: extractAttachments(m.payload),
       fromMe,
     };
