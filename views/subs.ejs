@@ -9,18 +9,25 @@
     .subs-toolbar { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
     .subs-toolbar input[type=search], .subs-toolbar select { padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); font-size:.9rem; }
     .subs-toolbar input[type=search] { min-width:240px; flex:1; }
-    .sec-title { font-size:1.75rem; font-weight:800; letter-spacing:-.01em; margin:2.6rem 0 1rem; padding:.7rem 1rem; background:var(--bg); border-left:6px solid #4f8ef7; border-radius:9px; display:flex; align-items:center; gap:.6rem; }
-    .sec-title .cnt { color:var(--muted); font-weight:600; font-size:1.05rem; }
-    .sub-section:first-of-type .sec-title { margin-top:.6rem; }
+    .sec-title { font-size:1.6rem; font-weight:800; margin:2.4rem 0 .6rem; padding:.7rem 1rem; border-radius:9px; display:flex; align-items:center; gap:.6rem; }
+    .sec-title .cnt { font-weight:600; font-size:1.05rem; opacity:.7; }
+    .sec-gc { background:#fce5cd; color:#7a4a16; }
+    .sec-sub { background:#ead1dc; color:#7a2c52; }
+    .sub-section:first-of-type .sec-title { margin-top:.4rem; }
     .tbl-wrap { overflow-x:auto; border:1px solid var(--border); border-radius:10px; }
     .subs-table { width:100%; border-collapse:collapse; font-size:.85rem; }
     .subs-table th { text-align:left; font-size:.68rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); padding:.55rem .7rem; border-bottom:2px solid var(--border); white-space:nowrap; background:var(--bg); position:sticky; top:0; }
     .subs-table td { padding:.55rem .7rem; border-bottom:1px solid var(--border); vertical-align:top; }
     .subs-table tr:last-child td { border-bottom:none; }
     .subs-table tbody tr:hover td { background:var(--bg); }
-    .subs-table tr.subhdr td { background:var(--bg); font-size:1.5rem; font-weight:900; letter-spacing:-.01em; color:inherit; padding:1rem .8rem; border-top:3px solid var(--border); }
-    .subs-table tr.subhdr:hover td { background:var(--bg); }
-    .subs-table tr.subhdr.bl td { color:var(--danger); background:rgba(204,34,34,.08); }
+    .subs-table tr.subhdr td { background:#dededf; color:#1a1a1a; font-size:1.15rem; font-weight:800; padding:.6rem .8rem; border-top:2px solid #cfcfd2; }
+    .subs-table tr.subhdr:hover td { background:#dededf; }
+    .spill { display:inline-block; padding:3px 12px; border-radius:13px; font-size:.78rem; font-weight:700; white-space:nowrap; }
+    .pill-review { background:#ffe599; color:#7f6000; }
+    .pill-approved { background:#b6d7a8; color:#274e13; }
+    .pill-active { background:#38761d; color:#fff; }
+    .pill-black { background:#111; color:#fff; }
+    .pill-default { background:#e6e6e6; color:#555; }
     .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
     .subs-table .co { font-weight:600; }
     .subs-table .notes { color:var(--muted); max-width:240px; }
@@ -78,9 +85,15 @@
 
   <%
     function catOf(s) { return s.category || (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'); }
+    function pillClass(st) { st = (st || '').toLowerCase();
+      if (/black/.test(st)) return 'pill-black';
+      if (/active/.test(st)) return 'pill-active';
+      if (/approv/.test(st)) return 'pill-approved';
+      if (/review|vetting|pending/.test(st)) return 'pill-review';
+      return 'pill-default'; }
     const sections = [
-      { title: 'General Contractors', list: subs.filter(s => catOf(s) === 'gc') },
-      { title: 'Subcontractors', list: subs.filter(s => catOf(s) !== 'gc') },
+      { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
+      { title: 'Subcontractors', key: 'sub', list: subs.filter(s => catOf(s) !== 'gc') },
     ];
   %>
 
@@ -90,30 +103,30 @@
 
   <% sections.forEach(sec => { %>
     <div class="sub-section" data-section>
-      <div class="sec-title"><%= sec.title %> <span class="cnt">(<%= sec.list.length %>)</span></div>
+      <div class="sec-title sec-<%= sec.key %>"><%= sec.title %> <span class="cnt">(<%= sec.list.length %>)</span></div>
       <% if (!sec.list.length) { %>
         <div style="color:var(--muted);font-size:.85rem">None.</div>
       <% } else { %>
       <div class="tbl-wrap">
         <table class="subs-table">
           <thead><tr>
-            <th>Company</th><th>Contact</th><th>Type</th><th>Phone</th><th>Email</th><th>Location</th><th>Status</th><th>Notes</th><th></th>
+            <th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody>
             <% var curGrp = null; sec.list.forEach(s => { var ph = photosBySub[s.id] || [];
                  if ((s.group_label||'') !== curGrp) { curGrp = s.group_label||''; %>
-                   <% if (curGrp) { %><tr class="subhdr<%= /blacklist/i.test(curGrp) ? ' bl' : '' %>"><td colspan="9"><%= curGrp %></td></tr><% } %>
+                   <% if (curGrp) { %><tr class="subhdr"><td colspan="9"><%= curGrp %></td></tr><% } %>
             <% } %>
               <tr data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="co"><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><% }) %></div><% } %>
                 </td>
-                <td><%= s.owner || '' %></td>
-                <td><%= s.type || '' %></td>
-                <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
-                <td><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
                 <td><%= s.location || '' %></td>
-                <td><%= s.status || '' %></td>
+                <td><%= s.type || '' %></td>
+                <td><% if (s.status) { %><span class="spill <%= pillClass(s.status) %>"><%= s.status %></span><% } %></td>
+                <td><%= s.owner || '' %></td>
+                <td><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
+                <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
                 <td class="notes"><%= s.notes || '' %></td>
                 <td class="row-actions">
                   <button onclick='openEdit(<%- JSON.stringify(s) %>)' title="Edit">✏</button>
