@@ -17,6 +17,9 @@
     .opt:last-child { border-bottom:none; }
     .opt input { width:24px; height:24px; flex:none; accent-color:#4f8ef7; }
     .opt.on { background:#eaf2ff; }
+    .opt.done { cursor:default; opacity:.75; }
+    .opt.done .name-done { text-decoration:line-through; color:var(--muted); }
+    .dtag { margin-left:auto; font-size:.72rem; font-weight:700; color:#16a34a; background:rgba(76,175,125,.14); padding:2px 8px; border-radius:9px; white-space:nowrap; }
     .fld { margin:1rem; }
     .fld label { display:block; font-weight:600; font-size:.9rem; margin-bottom:.35rem; }
     .fld input, .fld textarea { width:100%; font-size:1rem; padding:.6rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
@@ -41,7 +44,11 @@
       <div class="stage">
         <div class="stage-h"><span><%= stage.name %></span><button type="button" onclick="toggleStage(this)">Select all</button></div>
         <% stage.items.forEach(it => { %>
-          <label class="opt"><input type="checkbox" name="codes" value="<%= it.code %>" onchange="syncRow(this)"><span><%= it.name %></span></label>
+          <% if (delivered.indexOf(it.code) >= 0) { %>
+            <div class="opt done"><span class=" name-done"><%= it.name %></span><span class="dtag">✓ Delivered</span></div>
+          <% } else { %>
+            <label class="opt"><input type="checkbox" name="codes" value="<%= it.code %>" onchange="syncRow(this)"><span><%= it.name %></span></label>
+          <% } %>
         <% }) %>
       </div>
     <% }) %>

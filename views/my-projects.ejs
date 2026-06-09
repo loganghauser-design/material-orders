@@ -23,6 +23,7 @@
 <nav class="nav">
   <div style="display:flex;align-items:center;gap:1rem">
     <span class="nav-brand">Material Orders</span>
+    <a href="/subs" class="nav-tab">📇 Subs</a>
   </div>
   <div class="nav-actions">
     <form method="POST" action="/logout" style="margin:0"><button type="submit" class="btn btn-ghost">Log out</button></form>
@@ -55,12 +56,12 @@
       <div class="addr2"><%= p.full_address && p.full_address !== p.address ? p.full_address : '' %><span style="margin-left:.4rem">· <%= p.overall_status %></span></div>
       <a href="/my/request/<%= p.id %>" style="display:block;text-align:center;background:#4f8ef7;color:#fff;font-weight:700;text-decoration:none;padding:.7rem;border-radius:10px;margin:.2rem 0 .8rem">📦 Request Material</a>
 
-      <div class="group-label">📅 Scheduled for delivery</div>
+      <div class="group-label">📦 Outstanding material</div>
       <% if (!scheduled.length) { %>
-        <div class="empty">Nothing scheduled right now.</div>
+        <div class="empty">Nothing outstanding right now.</div>
       <% } else { scheduled.forEach(i => { %>
         <div class="ditem">
-          <span><%= i.name %></span>
+          <span><%= i.name %><% if (i.status) { %><br><span style="font-size:.72rem;color:var(--muted)"><%= i.status %></span><% } %></span>
           <span class="pill pill-sched"><%= i.deliveryDate ? i.deliveryDate.toLocaleDateString('en-US', i.deliveryDateEnd ? {month:'short',day:'numeric'} : {weekday:'short',month:'short',day:'numeric'}) : 'TBD' %><% if (i.deliveryDateEnd) { %> – <%= i.deliveryDateEnd.toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></span>
         </div>
       <% }) } %>

@@ -41,6 +41,11 @@
     .drag-h { cursor:grab; color:var(--muted); text-align:center; user-select:none; font-size:1.05rem; width:24px; }
     .drag-h:active { cursor:grabbing; }
     .subs-table tr.drop-hi > td { background:#dbeafe !important; box-shadow:inset 0 2px 0 #4f8ef7; }
+    /* read-only super view: hide all the editing controls */
+    .super-view .admin-actions { display:none; }
+    .super-view .subs-table th:first-child, .super-view .subs-table td.drag-h { display:none; }
+    .super-view .subs-table th:last-child, .super-view .subs-table td.row-actions { display:none; }
+    .super-view select.spill { pointer-events:none; -webkit-appearance:none; appearance:none; padding:3px 12px; }
     .row-actions .del { color:var(--danger); border-color:rgba(204,34,34,.3); }
     .modal-bk { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-start; justify-content:center; z-index:50; padding:2rem 1rem; overflow:auto; }
     .modal-bk.show { display:flex; }
@@ -51,7 +56,17 @@
     .mg2 { display:grid; grid-template-columns:1fr 1fr; gap:.7rem; }
   </style>
 </head>
-<body>
+<body class="<%= isSuper ? 'super-view' : '' %>">
+<% if (isSuper) { %>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <span class="nav-brand">Material Orders</span>
+    <a href="/my" class="nav-tab">My Projects</a>
+    <a href="/subs" class="nav-tab active">Subs</a>
+  </div>
+  <div class="nav-actions"><form method="POST" action="/logout" style="margin:0"><button type="submit" class="btn btn-ghost">Log out</button></form></div>
+</nav>
+<% } else { %>
 <nav class="nav">
   <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
     <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
@@ -65,11 +80,12 @@
   </div>
   <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
 </nav>
+<% } %>
 
 <div class="container">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
     <h1>Subcontractors <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= subs.length %>)</span></h1>
-    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <div class="admin-actions" style="display:flex;gap:.5rem;flex-wrap:wrap">
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>

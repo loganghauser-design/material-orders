@@ -1423,7 +1423,8 @@ function requireSuper(req, res, next) {
 app.use((req, res, next) => {
   if (req.session && req.session.role === 'super') {
     const p = req.path;
-    const ok = p === '/my' || p.startsWith('/my/') || p === '/logout' || p === '/login';
+    const ok = p === '/my' || p.startsWith('/my/') || p === '/logout' || p === '/login'
+      || ((p === '/subs' || p.startsWith('/sub-photo/')) && req.method === 'GET');   // read-only subs directory
     if (!ok) return res.redirect('/my');
   }
   next();
@@ -1469,10 +1470,12 @@ app.get('/my', requireSuper, async (req, res) => {
       const { rows: items } = await pool.query(
         'SELECT project_id, item_code, status, delivery_date, delivery_date_end FROM project_items WHERE project_id = ANY($1::int[])', [ids]
       );
+      const OUTSTANDING = new Set(['RFQ sent', 'Order Placed', 'In Inventory', 'Issue']);
       for (const it of items) {
         const delivered = DELIV.has(it.status);
-        const scheduled = !delivered && it.delivery_date;
-        if (!delivered && !scheduled) continue;   // only show delivered or scheduled items
+        // Outstanding = anything moving (ordered / in inventory / scheduled / issue) but not delivered
+        const outstanding = !delivered && (OUTSTANDING.has(it.status) || !!it.delivery_date);
+        if (!delivered && !outstanding) continue;
         (itemsByProject[it.project_id] = itemsByProject[it.project_id] || []).push({
           name: CODE_NAME[it.item_code] || it.item_code,
           status: it.status, delivered: !!delivered,
@@ -1507,7 +1510,10 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
     const email = req.session.superEmail;
     const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email FROM projects WHERE id=$1', [req.params.id]);
     if (!superOwnsProject(email, project)) return res.redirect('/my');
-    res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1' });
+    // Already-delivered items can't be requested again
+    const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
+    const deliveredCodes = pit.filter(r => ['Delivered', 'Delivered from Inv.'].includes(r.status)).map(r => r.item_code);
+    res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', delivered: deliveredCodes });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -2733,7 +2739,7 @@ app.get('/subs', requireAuth, async (req, res) => {
     const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
     const photosBySub = {};
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
-    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added });
+    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper: req.session.role === 'super' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
