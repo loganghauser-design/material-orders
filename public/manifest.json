@@ -1,10 +1,10 @@
 {
-  "name": "Material Orders",
-  "short_name": "Orders",
+  "name": "Buildoly",
+  "short_name": "Buildoly",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f5f6fa",
-  "theme_color": "#4f8ef7",
+  "background_color": "#000000",
+  "theme_color": "#000000",
   "icons": [
     { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
