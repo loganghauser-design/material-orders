@@ -1224,6 +1224,21 @@ async function initDb() {
       fulfilled BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Material issues reported by superintendents (photo optional) → office inbox.
+    CREATE TABLE IF NOT EXISTS material_issues (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      super_email TEXT,
+      item_code VARCHAR(10),
+      item_label TEXT,
+      note TEXT,
+      photo_data BYTEA,
+      photo_mime TEXT,
+      photo_name TEXT,
+      status VARCHAR(20) DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      resolved_at TIMESTAMPTZ
+    );
     CREATE TABLE IF NOT EXISTS subcontractors (
       id SERIAL PRIMARY KEY,
       company TEXT, location TEXT, type TEXT, status TEXT,
@@ -1492,7 +1507,7 @@ app.get('/my', requireSuper, async (req, res) => {
         });
       }
     }
-    res.render('my-projects', { sup, projects: mine, itemsByProject, requested: req.query.requested === '1' });
+    res.render('my-projects', { sup, projects: mine, itemsByProject, requested: req.query.requested === '1', issued: req.query.issued === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -1548,6 +1563,112 @@ app.post('/my/request/:id', requireSuper, async (req, res) => {
   }
 });
 
+// Super: report a material issue (with optional photo) — form
+app.get('/my/issue/:id', requireSuper, async (req, res) => {
+  try {
+    await initDb();
+    const email = req.session.superEmail;
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email FROM projects WHERE id=$1', [req.params.id]);
+    if (!superOwnsProject(email, project)) return res.redirect('/my');
+    res.render('my-issue', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1' });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Super: submit a material issue → store (+ photo) and ping the office
+app.post('/my/issue/:id', requireSuper, upload.single('photo'), async (req, res) => {
+  try {
+    await initDb();
+    const email = req.session.superEmail;
+    const { rows: [project] } = await pool.query('SELECT id, address, super_email FROM projects WHERE id=$1', [req.params.id]);
+    if (!superOwnsProject(email, project)) return res.redirect('/my');
+    const note = String(req.body.note || '').trim().slice(0, 1000);
+    const valid = new Set(ALL_ITEMS.map(i => i.code));
+    const itemCode = valid.has(req.body.item_code) ? req.body.item_code : null;
+    const itemLabel = String(req.body.item_label || '').trim().slice(0, 200) || null;
+    // Need at least a description, an item, or a photo
+    if (!note && !itemCode && !itemLabel && !req.file) return res.redirect('/my/issue/' + project.id + '?err=1');
+    const photo = req.file ? { data: req.file.buffer, mime: req.file.mimetype, name: req.file.originalname } : {};
+    await pool.query(
+      `INSERT INTO material_issues (project_id, super_email, item_code, item_label, note, photo_data, photo_mime, photo_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [project.id, email, itemCode, itemLabel, note || null, photo.data || null, photo.mime || null, photo.name || null]
+    );
+    const sup = findSuper(email) || { name: email };
+    const what = itemCode ? (CODE_NAME[itemCode] || itemCode) : (itemLabel || 'a material');
+    const LOGAN = '106404376271648731086';
+    const lines = [`⚠️ *Material issue* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${sup.name}`, `Item: ${what}`];
+    if (note) lines.push('Issue: ' + note);
+    if (req.file) lines.push('📷 Photo attached (see Issues inbox)');
+    postToChat(lines.join('\n'));
+    res.redirect('/my?issued=1');
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// ── Admin: material-issue inbox ───────────────────────────────────────────────
+async function getPendingIssueCount() {
+  try { const { rows: [r] } = await pool.query("SELECT COUNT(*) c FROM material_issues WHERE status='pending'"); return Number(r.c) || 0; }
+  catch (e) { return 0; }
+}
+
+app.get('/issues', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows } = await pool.query(`
+      SELECT mi.id, mi.project_id, mi.super_email, mi.item_code, mi.item_label, mi.note,
+             mi.status, mi.created_at, mi.resolved_at, (mi.photo_data IS NOT NULL) AS has_photo,
+             p.address
+      FROM material_issues mi LEFT JOIN projects p ON p.id = mi.project_id
+      ORDER BY (mi.status='pending') DESC, mi.created_at DESC`);
+    const issues = rows.map(r => ({
+      ...r,
+      superName: (findSuper(r.super_email) || {}).name || r.super_email || 'Super',
+      itemName: r.item_code ? (CODE_NAME[r.item_code] || r.item_code) : (r.item_label || ''),
+    }));
+    res.render('issues', { issues, pendingIssues: issues.filter(i => i.status === 'pending').length });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Serve an issue photo
+app.get('/issues/:id/photo', requireAuth, async (req, res) => {
+  try {
+    const { rows: [r] } = await pool.query('SELECT photo_data, photo_mime, photo_name FROM material_issues WHERE id=$1', [req.params.id]);
+    if (!r || !r.photo_data) return res.status(404).send('No photo.');
+    res.setHeader('Content-Type', r.photo_mime || 'image/jpeg');
+    res.setHeader('Content-Disposition', `inline; filename="${(r.photo_name || 'photo').replace(/[^\w.\- ]/g, '_')}"`);
+    res.send(r.photo_data);
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Resolve / reopen an issue
+app.post('/issues/:id/resolve', requireAuth, async (req, res) => {
+  try {
+    const reopen = req.body.action === 'reopen';
+    if (reopen) await pool.query("UPDATE material_issues SET status='pending', resolved_at=NULL WHERE id=$1", [req.params.id]);
+    else await pool.query("UPDATE material_issues SET status='resolved', resolved_at=NOW() WHERE id=$1", [req.params.id]);
+    res.json({ ok: true, status: reopen ? 'pending' : 'resolved' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// Delete an issue
+app.post('/issues/:id/delete', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM material_issues WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // ── Projects list ─────────────────────────────────────────────────────────────
 
 app.get('/', requireAuth, async (req, res) => {
@@ -1597,7 +1718,8 @@ app.get('/', requireAuth, async (req, res) => {
       projects.sort((a, b) => (deliveredCounts[b.id] || 0) - (deliveredCounts[a.id] || 0));
     }
 
-    res.render('index', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS });
+    const pendingIssues = await getPendingIssueCount();
+    res.render('index', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Report Issue — <%= project.address %></title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .wrap { max-width:640px; margin:0 auto; padding:0 0 7rem; }
+    .rhead { position:sticky; top:0; background:var(--bg); padding:.8rem 1rem; border-bottom:1px solid var(--border); z-index:5; }
+    .rhead a { text-decoration:none; color:var(--muted); font-size:.9rem; }
+    .rhead h1 { font-size:1.15rem; margin:.3rem 0 0; }
+    .fld { margin:1rem; }
+    .fld label { display:block; font-weight:700; font-size:.92rem; margin-bottom:.35rem; }
+    .fld .hint { font-weight:400; color:var(--muted); }
+    .fld input, .fld textarea, .fld select { width:100%; font-size:1rem; padding:.7rem .75rem; border:1px solid var(--border); border-radius:10px; background:var(--surface); font-family:inherit; }
+    .fld textarea { min-height:110px; }
+    .photo-btn { display:flex; align-items:center; justify-content:center; gap:.5rem; width:100%; padding:1.1rem; border:2px dashed var(--border); border-radius:12px; background:var(--surface); font-size:1rem; font-weight:600; color:#4f8ef7; cursor:pointer; }
+    #photoInput { display:none; }
+    #preview { margin-top:.7rem; max-width:100%; border-radius:10px; display:none; }
+    .submitbar { position:fixed; left:0; right:0; bottom:0; padding:.8rem 1rem calc(.8rem + env(safe-area-inset-bottom)); background:var(--bg); border-top:1px solid var(--border); }
+    .submitbar button { width:100%; font-size:1.05rem; padding:.9rem; border:none; border-radius:11px; background:#e0531f; color:#fff; font-weight:700; cursor:pointer; }
+    .errbox { margin:1rem; padding:.7rem .9rem; border-radius:9px; background:rgba(204,34,34,.1); color:#cc2222; font-size:.9rem; }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div class="rhead">
+    <a href="/my">← My projects</a>
+    <h1>⚠️ Report a material issue</h1>
+    <div style="color:var(--muted);font-size:.88rem;margin-top:.15rem"><%= project.address %></div>
+  </div>
+
+  <% if (err) { %><div class="errbox">Add a description, pick an item, or attach a photo.</div><% } %>
+
+  <form method="POST" action="/my/issue/<%= project.id %>" enctype="multipart/form-data" id="issueForm">
+    <div class="fld">
+      <label>Which material? <span class="hint">(optional)</span></label>
+      <select name="item_code">
+        <option value="">— pick a material —</option>
+        <% STAGES.forEach(stage => { %>
+          <optgroup label="<%= stage.name %>">
+            <% stage.items.forEach(it => { %>
+              <option value="<%= it.code %>"><%= it.name %></option>
+            <% }) %>
+          </optgroup>
+        <% }) %>
+      </select>
+    </div>
+
+    <div class="fld">
+      <label>Or describe the item <span class="hint">(if not in the list)</span></label>
+      <input type="text" name="item_label" placeholder="e.g. Front door hardware">
+    </div>
+
+    <div class="fld">
+      <label>What's the issue?</label>
+      <textarea name="note" placeholder="Describe the problem — damaged, wrong size, missing parts, etc."></textarea>
+    </div>
+
+    <div class="fld">
+      <label>Photo <span class="hint">(optional)</span></label>
+      <label class="photo-btn" for="photoInput">📷 Take / choose a photo</label>
+      <input type="file" id="photoInput" name="photo" accept="image/*" capture="environment" onchange="showPreview(this)">
+      <img id="preview" alt="preview">
+    </div>
+  </form>
+</div>
+
+<div class="submitbar">
+  <button type="submit" form="issueForm">Send to office</button>
+</div>
+
+<script>
+function showPreview(input) {
+  const f = input.files && input.files[0];
+  const img = document.getElementById('preview');
+  if (!f) { img.style.display = 'none'; return; }
+  img.src = URL.createObjectURL(f);
+  img.style.display = 'block';
+}
+</script>
+</body>
+</html>

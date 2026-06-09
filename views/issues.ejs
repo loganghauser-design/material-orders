@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Issues — Material Orders</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .issue { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; display:flex; gap:1rem; }
+    .issue.resolved { opacity:.6; }
+    .issue-photo { flex:none; width:120px; height:120px; border-radius:10px; object-fit:cover; border:1px solid var(--border); cursor:pointer; background:var(--bg); }
+    .issue-photo-none { flex:none; width:120px; height:120px; border-radius:10px; border:1px dashed var(--border); display:flex; align-items:center; justify-content:center; color:var(--muted); font-size:.78rem; text-align:center; }
+    .issue-main { flex:1; min-width:0; }
+    .issue-top { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+    .issue-item { font-weight:700; font-size:1.05rem; }
+    .issue-meta { color:var(--muted); font-size:.83rem; margin:.15rem 0 .5rem; }
+    .issue-note { font-size:.95rem; line-height:1.45; white-space:pre-wrap; word-break:break-word; }
+    .badge-pending { background:#fde2e1; color:#b91c1c; padding:2px 10px; border-radius:11px; font-size:.74rem; font-weight:700; }
+    .badge-resolved { background:#dcfce7; color:#166534; padding:2px 10px; border-radius:11px; font-size:.74rem; font-weight:700; }
+    .issue-actions { margin-top:.7rem; display:flex; gap:.5rem; flex-wrap:wrap; }
+    .sec-divider { font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:700; margin:1.5rem 0 .7rem; }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Material Orders</a>
+    <a href="/inventory" class="nav-tab">Inventory</a>
+    <a href="/issues" class="nav-tab active">Issues<% if (pendingIssues) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= pendingIssues %></span><% } %></a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+
+<div class="container">
+  <div class="page-header"><h1>Material Issues</h1></div>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:720px">
+    Issues reported by your superintendents from the field. Each can include a photo. Mark one resolved once it's handled.
+  </p>
+
+  <% const pending = issues.filter(i => i.status === 'pending'); const resolved = issues.filter(i => i.status !== 'pending'); %>
+
+  <% if (!issues.length) { %>
+    <div class="issue" style="display:block;color:var(--muted)">No issues reported yet. When a super reports one from their phone, it shows up here.</div>
+  <% } %>
+
+  <% function renderIssue(it) { %>
+    <div class="issue <%= it.status === 'pending' ? '' : 'resolved' %>" id="issue_<%= it.id %>">
+      <% if (it.has_photo) { %>
+        <a href="/issues/<%= it.id %>/photo" target="_blank" rel="noopener"><img src="/issues/<%= it.id %>/photo" class="issue-photo" alt="issue photo"></a>
+      <% } else { %>
+        <div class="issue-photo-none">No photo</div>
+      <% } %>
+      <div class="issue-main">
+        <div class="issue-top">
+          <div>
+            <div class="issue-item"><%= it.itemName || 'Material issue' %></div>
+            <div class="issue-meta">
+              <strong><%= it.address || 'Project' %></strong> · 👷 <%= it.superName %> ·
+              <%= new Date(it.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) %>
+            </div>
+          </div>
+          <span class="badge-<%= it.status === 'pending' ? 'pending' : 'resolved' %>"><%= it.status === 'pending' ? 'PENDING' : 'RESOLVED' %></span>
+        </div>
+        <% if (it.note) { %><div class="issue-note"><%= it.note %></div><% } %>
+        <div class="issue-actions">
+          <% if (it.status === 'pending') { %>
+            <button class="btn btn-primary btn-sm" onclick="resolveIssue(<%= it.id %>, 'resolve')">✓ Mark resolved</button>
+          <% } else { %>
+            <button class="btn btn-ghost btn-sm" onclick="resolveIssue(<%= it.id %>, 'reopen')">↩ Reopen</button>
+          <% } %>
+          <% if (it.project_id) { %><a class="btn btn-ghost btn-sm" href="/projects/<%= it.project_id %>">Open project</a><% } %>
+          <button class="btn btn-ghost btn-sm" style="color:#cc2222" onclick="deleteIssue(<%= it.id %>)">Delete</button>
+        </div>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (pending.length) { %>
+    <div class="sec-divider">🔴 Pending (<%= pending.length %>)</div>
+    <% pending.forEach(it => renderIssue(it)) %>
+  <% } %>
+  <% if (resolved.length) { %>
+    <div class="sec-divider">✓ Resolved (<%= resolved.length %>)</div>
+    <% resolved.forEach(it => renderIssue(it)) %>
+  <% } %>
+</div>
+
+<script>
+async function resolveIssue(id, action) {
+  const r = await fetch('/issues/' + id + '/resolve', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action }) });
+  const d = await r.json();
+  if (d.ok) location.reload(); else alert('Could not update.');
+}
+async function deleteIssue(id) {
+  if (!confirm('Delete this issue?')) return;
+  const r = await fetch('/issues/' + id + '/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (d.ok) document.getElementById('issue_' + id).remove(); else alert('Could not delete.');
+}
+</script>
+</body>
+</html>
