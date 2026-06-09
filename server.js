@@ -2088,6 +2088,26 @@ app.get('/threads/:threadId', requireAuth, async (req, res) => {
   }
 });
 
+// Download / view a PDF (or any) attachment from a received email
+app.get('/threads/messages/:messageId/attachment/:attachmentId', requireAuth, async (req, res) => {
+  try {
+    if (!useGmail) return res.status(400).send('Gmail not configured.');
+    const { data } = await gmailClient.users.messages.attachments.get({
+      userId: 'me', messageId: req.params.messageId, id: req.params.attachmentId,
+    });
+    if (!data || !data.data) return res.status(404).send('Attachment not found.');
+    const buf = Buffer.from(data.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    const name = String(req.query.name || 'attachment').replace(/[^\w.\- ]/g, '_');
+    const mime = /^[\w.+-]+\/[\w.+-]+$/.test(String(req.query.mime || '')) ? req.query.mime : 'application/octet-stream';
+    res.setHeader('Content-Type', mime);
+    res.setHeader('Content-Disposition', `inline; filename="${name}"`); // inline → PDFs open in the browser
+    res.send(buf);
+  } catch (err) {
+    console.error('Attachment fetch error:', err.message);
+    res.status(500).send('Could not fetch attachment: ' + err.message);
+  }
+});
+
 // Reply within a thread
 app.post('/threads/:threadId/reply', requireAuth, async (req, res) => {
   try {

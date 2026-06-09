@@ -875,13 +875,21 @@ async function toggleThread(threadId, headEl) {
     const data = await r.json();
     if (!data.ok) { box.innerHTML = '<div style="color:var(--danger);padding:.5rem">'+(data.error||'Error')+'</div>'; return; }
     THREAD_MSGS[threadId] = data.messages;
-    const msgs = data.messages.map((m, idx) => `
+    const msgs = data.messages.map((m, idx) => {
+      const atts = (m.attachments || []).map(a => {
+        const isPdf = /pdf/i.test(a.mimeType || '') || /\.pdf$/i.test(a.filename || '');
+        const url = `/threads/messages/${m.id}/attachment/${a.attachmentId}?name=${encodeURIComponent(a.filename || 'attachment')}&mime=${encodeURIComponent(a.mimeType || '')}`;
+        return `<a href="${url}" target="_blank" rel="noopener" title="Open / download" style="display:inline-block;margin:.15rem .35rem .15rem 0;padding:3px 10px;border:1px solid var(--border);border-radius:14px;font-size:.8rem;text-decoration:none;color:var(--text);background:var(--surface)">${isPdf ? '📄' : '📎'} ${escapeHtmlJs(a.filename || 'attachment')}</a>`;
+      }).join('');
+      const attRow = atts ? `<div style="margin-top:.45rem">${atts}</div>` : '';
+      return `
       <div class="msg ${m.fromMe ? 'msg-me':'msg-them'}">
         <div class="msg-meta"><strong>${escapeHtmlJs(m.from)}</strong> · ${escapeHtmlJs(m.date)}</div>
         <div class="msg-body" style="line-height:1.5;word-break:break-word;overflow-wrap:anywhere">${m.bodyHtml || (m.isHtml ? m.body : escapeHtmlJs(m.body).replace(/\n/g,'<br>'))}</div>
+        ${attRow}
         ${m.fromMe ? '' : `<div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" onclick="openOrderDialog('${threadId}', ${idx})">📦 Log Order Confirmation</button></div>`}
       </div>
-    `).join('');
+    `; }).join('');
     box.innerHTML = msgs + `
       <div class="reply-box">
         <textarea id="reply_${threadId}" rows="3" placeholder="Write a reply…"></textarea>
