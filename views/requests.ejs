@@ -83,8 +83,11 @@
       </div>
 
       <div class="req-actions">
+        <% if (!r.fulfilled && r.project_id) { %>
+          <a class="btn btn-primary btn-sm" href="/projects/<%= r.project_id %>?order=<%= encodeURIComponent(r.codes || '') %>">📧 Order it</a>
+        <% } %>
         <% if (!r.fulfilled) { %>
-          <button class="btn btn-primary btn-sm" onclick="fulfill(<%= r.id %>, 'fulfill')">✓ Mark fulfilled</button>
+          <button class="btn btn-ghost btn-sm" onclick="fulfill(<%= r.id %>, 'fulfill')">✓ Mark fulfilled</button>
         <% } else { %>
           <button class="btn btn-ghost btn-sm" onclick="fulfill(<%= r.id %>, 'reopen')">↩ Reopen</button>
         <% } %>

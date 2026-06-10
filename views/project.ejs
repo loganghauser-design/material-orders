@@ -347,6 +347,7 @@
 <div id="rfqModal" class="modal-overlay">
   <div class="modal" style="max-width:920px;width:94vw;max-height:92vh;overflow-y:auto">
     <h2 id="rfqModalTitle">Email Vendor</h2>
+    <div id="rfqOrderBanner" style="display:none;background:#fef3c7;border:1px solid #f6c886;color:#8a5300;border-radius:9px;padding:.6rem .9rem;margin:0 0 .7rem;font-size:.88rem;line-height:1.4"></div>
     <p class="modal-sub">Drafts an email to the supplier. Paste your item list straight from Google Sheets.</p>
     <input type="hidden" id="rfqItemCode">
     <div class="form-group">
@@ -1006,7 +1007,10 @@ const WAREHOUSE_TO = 'ivana@apexoryglobal.com, apg@apexoryglobal.com, op1@gracea
 const WAREHOUSE_CC = 'Bobby@buildoly.com';
 let rfqSavedSupplierEmail = '';
 
+let ORDER_CODES = [];   // set when arriving via a request's "Order it" — pre-ticks only those items
 function openRfqDialog(itemCode, itemName, supplierName, supplierEmail) {
+  ORDER_CODES = [];
+  var _ob = document.getElementById('rfqOrderBanner'); if (_ob) _ob.style.display = 'none';
   document.getElementById('rfqItemCode').value = itemCode;
   const _lbl = supplierName || itemName;
   document.getElementById('rfqModalTitle').textContent = _lbl ? ('Email Vendor — ' + _lbl) : 'Email Vendor';
@@ -1070,6 +1074,19 @@ function fillFromVendor() {
   document.getElementById('rfqStageWrap').style.display = codes.length > 1 ? '' : 'none';
   document.getElementById('rfqItemPick').style.display = 'flex';
   updateItemCount();
+  applyOrderFilter();   // if we came from a request's "Order it", tick only the requested items
+}
+// When ordering from a request, auto-tick only the requested category codes.
+function applyOrderFilter() {
+  if (!ORDER_CODES.length) return;
+  let any = false;
+  getItemChecks().forEach(chk => {
+    const tr = chk.closest('tr');
+    const on = !!(tr && ORDER_CODES.includes(tr.getAttribute('data-code')));
+    chk.checked = on; if (on) any = true;
+  });
+  updateItemCount();
+  return any;
 }
 // Tick only the items in the chosen stage/category (blank = all stages).
 function filterByStage() {
@@ -1080,6 +1097,20 @@ function filterByStage() {
   });
   updateItemCount();
 }
+// Arriving from a request's "Order it": open Email Vendor pre-set to the requested items.
+document.addEventListener('DOMContentLoaded', function () {
+  const order = new URLSearchParams(location.search).get('order');
+  if (!order) return;
+  const codes = order.split(',').map(c => c.trim()).filter(Boolean);
+  if (!codes.length) return;
+  showTab('materials');
+  openRfqDialog('', '', '', '');
+  ORDER_CODES = codes;   // set AFTER openRfqDialog (which clears it)
+  const codeName = {}; ALL_MATERIALS.forEach(m => { codeName[m.code] = m.name; });
+  const names = codes.map(c => codeName[c] || c).join(', ');
+  const b = document.getElementById('rfqOrderBanner');
+  if (b) { b.style.display = 'block'; b.innerHTML = '📥 <strong>Field request</strong> — pick the vendor below; only the requested item(s) get ticked: <strong>' + names + '</strong>.'; }
+});
 // Show/hide the picker controls + live count of how many items are ticked.
 function getItemChecks() { return Array.from(document.querySelectorAll('#rfqItems input.rfq-itemchk')); }
 function updateItemCount() {
