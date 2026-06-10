@@ -1712,31 +1712,38 @@ app.post('/my/issue/:id', requireSuper, upload.single('photo'), async (req, res)
     if (!canSuperViewAllProjects(email) && !superOwnsProject(email, project)) return res.redirect('/my');   // non-Bobby: assigned only
     const note = String(req.body.note || '').trim().slice(0, 1000);
     const valid = new Set(ALL_ITEMS.map(i => i.code));
-    const itemCode = valid.has(req.body.item_code) ? req.body.item_code : null;
-    const itemLabel = String(req.body.item_label || '').trim().slice(0, 200) || null;
-    // Need at least a description, an item, or a photo
-    if (!note && !itemCode && !itemLabel && !req.file) return res.redirect('/my/issue/' + project.id + '?err=1');
+    // Multi-select: the form sends a JSON list of {code,label}. (Fall back to the old single fields.)
+    let selected = [];
+    try { selected = JSON.parse(req.body.selected || '[]'); } catch (e) {}
+    if (!Array.isArray(selected)) selected = [];
+    if (!selected.length && (req.body.item_code || req.body.item_label)) selected = [{ code: req.body.item_code, label: req.body.item_label }];
+    selected = selected
+      .map(s => ({ code: valid.has(s && s.code) ? s.code : null, label: String((s && s.label) || '').trim().slice(0, 200) || null }))
+      .filter(s => s.code || s.label);
+    // Need at least one item, a description, or a photo
+    if (!selected.length && !note && !req.file) return res.redirect('/my/issue/' + project.id + '?err=1');
+    if (!selected.length) selected.push({ code: null, label: null });   // general issue, no specific item
     const photo = req.file ? { data: req.file.buffer, mime: req.file.mimetype, name: req.file.originalname } : {};
-    const { rows: [issue] } = await pool.query(
-      `INSERT INTO material_issues (project_id, super_email, item_code, item_label, note, photo_data, photo_mime, photo_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-      [project.id, email, itemCode, itemLabel, note || null, photo.data || null, photo.mime || null, photo.name || null]
-    );
-    // Reflect the issue on the project: flag that item's stage as "Issue" (unless delivered / N/A)
-    if (itemCode) {
-      await pool.query('INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING', [project.id, itemCode]);
-      await pool.query(
-        `UPDATE project_items SET status='Issue' WHERE project_id=$1 AND item_code=$2 AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`,
-        [project.id, itemCode]
+    const ids = [];
+    for (const s of selected) {
+      const { rows: [issue] } = await pool.query(
+        `INSERT INTO material_issues (project_id, super_email, item_code, item_label, note, photo_data, photo_mime, photo_name)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+        [project.id, email, s.code, s.label, note || null, photo.data || null, photo.mime || null, photo.name || null]
       );
+      ids.push(issue.id);
+      if (s.code) {   // flag that item's stage as "Issue" (unless delivered / N/A)
+        await pool.query('INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING', [project.id, s.code]);
+        await pool.query(`UPDATE project_items SET status='Issue' WHERE project_id=$1 AND item_code=$2 AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`, [project.id, s.code]);
+      }
     }
     const sup = findSuper(email) || { name: email };
-    const what = itemCode ? (CODE_NAME[itemCode] || itemCode) : (itemLabel || 'a material');
+    const what = selected.map(s => s.label || (s.code ? (CODE_NAME[s.code] || s.code) : null)).filter(Boolean).join(', ') || 'a material';
     const LOGAN = '106404376271648731086';
-    const lines = [`⚠️ *Material issue* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${sup.name}`, `Item: ${what}`];
+    const lines = [`⚠️ *Material issue* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${sup.name}`, `Item${selected.length > 1 ? 's' : ''}: ${what}`];
     if (note) lines.push('Issue: ' + note);
     if (req.file) lines.push('📷 Photo attached (see Issues inbox)');
-    postToChat(lines.join('\n'), 'issue-' + issue.id);   // thread key ties responses to this issue
+    postToChat(lines.join('\n'), 'issue-' + ids[0]);
     res.redirect('/my?issued=1');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);

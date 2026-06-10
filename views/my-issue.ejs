@@ -21,6 +21,11 @@
     .submitbar { position:fixed; left:0; right:0; bottom:0; padding:.8rem 1rem calc(.8rem + env(safe-area-inset-bottom)); background:var(--bg); border-top:1px solid var(--border); }
     .submitbar button { width:100%; font-size:1.05rem; padding:.9rem; border:none; border-radius:11px; background:#e0531f; color:#fff; font-weight:700; cursor:pointer; }
     .errbox { margin:1rem; padding:.7rem .9rem; border-radius:9px; background:rgba(204,34,34,.1); color:#cc2222; font-size:.9rem; }
+    .addbtn { background:#e0531f; color:#fff; border:none; border-radius:9px; padding:0 1.1rem; font-weight:700; font-size:.95rem; cursor:pointer; }
+    .chips { display:flex; flex-wrap:wrap; gap:.4rem; }
+    .ichip { background:#fde2e1; color:#b91c1c; font-weight:600; font-size:.88rem; padding:.4rem .8rem; border-radius:14px; display:inline-flex; align-items:center; gap:.5rem; }
+    .ichip .x { cursor:pointer; font-weight:800; }
+    .chips-empty { color:var(--muted); font-size:.85rem; }
   </style>
 </head>
 <body>
@@ -35,9 +40,10 @@
 
   <form method="POST" action="/my/issue/<%= project.id %>" enctype="multipart/form-data" id="issueForm">
     <div class="fld">
-      <label>Which item has the issue?</label>
-      <select id="materialPicker" onchange="pickMaterial(this)">
-        <option value="">— pick the exact item —</option>
+      <label>Which item(s) have the issue? <span class="hint">(add as many as you need)</span></label>
+      <div style="display:flex;gap:.4rem">
+      <select id="materialPicker" style="flex:1">
+        <option value="">— pick an item —</option>
         <% STAGES.forEach(stage => { stage.items.forEach(it => {
              var mats = (typeof byCode !== 'undefined' && byCode[it.code]) ? byCode[it.code] : []; %>
           <optgroup label="<%= it.code %> · <%= it.name %>">
@@ -49,12 +55,14 @@
           </optgroup>
         <% }) }) %>
       </select>
-      <input type="hidden" name="item_code" id="f_item_code">
-    </div>
-
-    <div class="fld">
-      <label>Item <span class="hint">(auto-filled from your pick — edit or type your own)</span></label>
-      <input type="text" name="item_label" id="f_item_label" placeholder="e.g. Front door hardware">
+      <button type="button" class="addbtn" onclick="addPickedItem()">Add</button>
+      </div>
+      <div style="display:flex;gap:.4rem;margin-top:.5rem">
+        <input type="text" id="customItem" placeholder="…or type a custom item" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomItem();}">
+        <button type="button" class="addbtn" onclick="addCustomItem()">Add</button>
+      </div>
+      <div id="selectedItems" class="chips" style="margin-top:.7rem"></div>
+      <input type="hidden" name="selected" id="selectedJson" value="[]">
     </div>
 
     <div class="fld">
@@ -76,12 +84,36 @@
 </div>
 
 <script>
-function pickMaterial(sel) {
-  const opt = sel.options[sel.selectedIndex];
-  document.getElementById('f_item_code').value = opt.value || '';
-  const lbl = opt.dataset ? opt.dataset.label : '';
-  if (lbl) document.getElementById('f_item_label').value = lbl;   // auto-fill the exact material name
+let selIssues = [];   // [{code, label}]
+function escH(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function addItemChip(code, label) {
+  label = (label || '').trim();
+  if (!label) return;
+  if (selIssues.some(s => (s.label||'').toLowerCase() === label.toLowerCase() && s.code === code)) return;
+  selIssues.push({ code: code || '', label });
+  renderChips();
 }
+function addPickedItem() {
+  const sel = document.getElementById('materialPicker');
+  const opt = sel.options[sel.selectedIndex];
+  if (!opt || !opt.value && !(opt.dataset && opt.dataset.label)) return;
+  addItemChip(opt.value || '', (opt.dataset && opt.dataset.label) || opt.text);
+  sel.selectedIndex = 0;
+}
+function addCustomItem() {
+  const inp = document.getElementById('customItem');
+  addItemChip('', inp.value);
+  inp.value = '';
+}
+function removeItem(i) { selIssues.splice(i, 1); renderChips(); }
+function renderChips() {
+  const box = document.getElementById('selectedItems');
+  box.innerHTML = selIssues.length
+    ? selIssues.map((s, i) => `<span class="ichip">${escH(s.label)} <span class="x" onclick="removeItem(${i})">✕</span></span>`).join('')
+    : '<span class="chips-empty">No items added yet — pick one above and tap Add.</span>';
+  document.getElementById('selectedJson').value = JSON.stringify(selIssues);
+}
+renderChips();
 function showPreview(input) {
   const f = input.files && input.files[0];
   const img = document.getElementById('preview');
