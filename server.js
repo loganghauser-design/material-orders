@@ -2016,6 +2016,11 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         note: iss.note || '',
       };
     }
+    // Full per-material issue list for highlighting the exact item in the drill-down
+    const projectIssues = issueRows.map(iss => ({
+      code: iss.item_code, label: iss.item_label || '', note: iss.note || '',
+      sup: (findSuper(iss.super_email) || {}).name || 'Super',
+    }));
     const suppliers = await getSuppliers();
     const { rows: documents } = await pool.query('SELECT id, filename, uploaded_at FROM project_documents WHERE project_id=$1 ORDER BY uploaded_at DESC', [project.id]);
     const { rows: payments } = await pool.query('SELECT * FROM milestone_payments WHERE project_id=$1 ORDER BY requested_at DESC', [project.id]);
@@ -2081,7 +2086,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -3580,7 +3585,7 @@ function startCron() {
 
 // Allow one-off maintenance scripts to reuse the DB + schedule logic
 // (require('./server.js')) without starting the HTTP server.
-module.exports = { pool, computeHeldUsages, initDb, HELD_STATUSES, fetchScheduleValues };
+module.exports = { pool, computeHeldUsages, initDb, HELD_STATUSES, fetchScheduleValues, readScheduleByCategory };
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
