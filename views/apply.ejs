@@ -51,7 +51,7 @@
     <% } else { %>
       <div class="card">
         <div class="intro">Interested in working with Buildoly? Fill this out and our team will review it and get in touch.</div>
-        <% if (typeof err !== 'undefined' && err) { %><div class="errbox">Please enter at least your company or your name.</div><% } %>
+        <% if (typeof err !== 'undefined' && err) { %><div class="errbox">Please fill in your company/name, plus a phone and email so we can reach you.</div><% } %>
 
         <form method="POST" action="/apply" id="applyForm">
           <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off">
@@ -78,8 +78,8 @@
             </div>
           </div>
 
-          <div class="fld"><label>Phone</label><input name="phone" type="tel" placeholder="(555) 123-4567"></div>
-          <div class="fld"><label>Email</label><input name="email" type="email" placeholder="you@company.com"></div>
+          <div class="fld"><label>Phone <span class="req">*</span></label><input name="phone" type="tel" required placeholder="(555) 123-4567"></div>
+          <div class="fld"><label>Email <span class="req">*</span></label><input name="email" type="email" required placeholder="you@company.com"></div>
 
           <div class="fld">
             <label>Counties you serve — tap all that apply</label>

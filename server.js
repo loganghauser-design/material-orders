@@ -3130,7 +3130,9 @@ app.post('/apply', async (req, res) => {
     if (b.website) return res.redirect('/apply?ok=1');   // honeypot — bots fill the hidden field
     const company = String(b.company || '').trim().slice(0, 200);
     const owner = String(b.owner || '').trim().slice(0, 120);
-    if (!company && !owner) return res.redirect('/apply?err=1');
+    const emailIn = String(b.email || '').trim();
+    const phoneIn = String(b.phone || '').trim();
+    if ((!company && !owner) || !emailIn || !phoneIn) return res.redirect('/apply?err=1');   // phone + email required
     const cat = b.category === 'gc' ? 'gc' : 'sub';
     const type = cat === 'gc' ? 'General Contractor' : String(b.type || '').trim().slice(0, 200);
     const grp = bucketForStatus(cat, 'Under Review');
