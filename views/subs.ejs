@@ -239,7 +239,6 @@
         <div id="locChips" class="trade-chips"></div>
         <input type="hidden" name="location" id="f_location">
       </div>
-      <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
       <input type="hidden" name="group_label" id="f_group">
       <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:.4rem">
@@ -342,7 +341,7 @@ function fillSelect(id, val) {
 function openAdd() {
   document.getElementById('modalTitle').textContent = 'Add Subcontractor';
   document.getElementById('editId').value = '';
-  ['company','owner','phone','email','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
+  ['company','owner','phone','email','status','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
   setLocsFromString('');
   setTradesFromString('');
   document.getElementById('f_category').value = 'sub';   // default new entries to Subcontractor
@@ -359,7 +358,6 @@ function openEdit(s) {
   setLocsFromString(s.location || '');
   document.getElementById('f_status').value = s.status || '';
   document.getElementById('f_category').value = (s.category === 'gc' || s.category === 'sub') ? s.category : (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub');
-  document.getElementById('f_projects').value = s.projects || '';
   document.getElementById('f_notes').value = s.notes || '';
   document.getElementById('f_group').value = s.group_label || '';
   document.getElementById('subModal').classList.add('show');
@@ -413,7 +411,7 @@ document.getElementById('subForm').addEventListener('submit', async function (e)
   if (!id) return;
   e.preventDefault();
   const body = new URLSearchParams();
-  ['company','owner','type','phone','email','location','status','projects','notes','category'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
+  ['company','owner','type','phone','email','location','status','notes','category'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
   document.getElementById('saveBtn').textContent = 'Saving…';
   const r = await fetch('/subs/' + id, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (r.ok) location.reload(); else { alert('Could not save'); document.getElementById('saveBtn').textContent = 'Save'; }

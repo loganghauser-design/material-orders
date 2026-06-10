@@ -3034,10 +3034,10 @@ app.post('/subs', requireAuth, async (req, res) => {
     const grp = bucketForStatus(cat, b.status);
     const so = await bucketSortOrder(cat, grp);
     await pool.query(
-      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, category, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, notes, group_label, category, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
       [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
-       b.email || null, b.phone || null, b.projects || null, b.notes || null, grp, cat, so]
+       b.email || null, b.phone || null, b.notes || null, grp, cat, so]
     );
     res.redirect('/subs?added=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
@@ -3050,9 +3050,9 @@ app.post('/subs/:id', requireAuth, async (req, res) => {
     // Re-derive GC vs Sub when an explicit category isn't provided.
     const cat = b.category || (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
     await pool.query(
-      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, projects=$8, notes=$9, category=$10 WHERE id=$11`,
+      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, notes=$8, category=$9 WHERE id=$10`,
       [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
-       b.email || null, b.phone || null, b.projects || null, b.notes || null, cat, req.params.id]
+       b.email || null, b.phone || null, b.notes || null, cat, req.params.id]
     );
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
