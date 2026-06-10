@@ -235,15 +235,11 @@
           </select>
         </div>
       </div>
-      <div class="mg2">
-        <div class="mg"><label>Location</label>
-          <select name="location" id="f_location">
-            <option value="">—</option>
-            <% LOCATION_OPTS.forEach(o => { %><option value="<%= o %>"><%= o %></option><% }) %>
-          </select>
-        </div>
-        <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
+      <div class="mg"><label>Location <span style="font-weight:400;color:var(--muted)">— tap all that apply</span></label>
+        <div id="locChips" class="trade-chips"></div>
+        <input type="hidden" name="location" id="f_location">
       </div>
+      <div class="mg"><label>Buildoly Projects</label><input name="projects" id="f_projects"></div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
       <input type="hidden" name="group_label" id="f_group">
       <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:.4rem">
@@ -316,6 +312,24 @@ function setTradesFromString(str) {
   selectedTrades = String(str || '').split(/[,;]+/).map(x => x.trim()).filter(Boolean);
   renderTradeChips();
 }
+// ── Multi-select location (counties) ──
+const COUNTIES = ['LA County','Orange County','Riverside County','San Diego County','Ventura County','San Bernardino County'];
+let selectedLocs = [];
+function renderLocChips() {
+  const all = [...new Set([...COUNTIES, ...selectedLocs])];
+  document.getElementById('locChips').innerHTML = all.map(t =>
+    `<span class="trade-chip${selectedLocs.includes(t) ? ' on' : ''}" onclick="toggleLoc(this.dataset.t)" data-t="${t.replace(/"/g,'&quot;')}">${t}</span>`).join('');
+  document.getElementById('f_location').value = selectedLocs.join(', ');
+}
+function toggleLoc(t) {
+  const i = selectedLocs.indexOf(t);
+  if (i >= 0) selectedLocs.splice(i, 1); else selectedLocs.push(t);
+  renderLocChips();
+}
+function setLocsFromString(str) {
+  selectedLocs = String(str || '').split(/[,;]+/).map(x => x.trim()).filter(Boolean);
+  renderLocChips();
+}
 // Set a <select> value, injecting the value as an option if it isn't already listed
 function fillSelect(id, val) {
   const sel = document.getElementById(id);
@@ -329,7 +343,7 @@ function openAdd() {
   document.getElementById('modalTitle').textContent = 'Add Subcontractor';
   document.getElementById('editId').value = '';
   ['company','owner','phone','email','status','projects','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
-  fillSelect('f_location', '');
+  setLocsFromString('');
   setTradesFromString('');
   document.getElementById('f_category').value = 'sub';   // default new entries to Subcontractor
   document.getElementById('subModal').classList.add('show');
@@ -342,7 +356,7 @@ function openEdit(s) {
   setTradesFromString(s.type);
   document.getElementById('f_phone').value = s.phone || '';
   document.getElementById('f_email').value = s.email || '';
-  fillSelect('f_location', s.location || '');
+  setLocsFromString(s.location || '');
   document.getElementById('f_status').value = s.status || '';
   document.getElementById('f_category').value = (s.category === 'gc' || s.category === 'sub') ? s.category : (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub');
   document.getElementById('f_projects').value = s.projects || '';
