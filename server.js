@@ -3010,6 +3010,35 @@ app.get('/subs', requireAuth, async (req, res) => {
   }
 });
 
+// ── Public contractor submission form (share this link with GCs / subs) ──
+app.get('/apply', (req, res) => res.render('apply', { ok: req.query.ok === '1', err: req.query.err === '1' }));
+
+app.post('/apply', async (req, res) => {
+  try {
+    await initDb();
+    const b = req.body;
+    if (b.website) return res.redirect('/apply?ok=1');   // honeypot — bots fill the hidden field
+    const company = String(b.company || '').trim().slice(0, 200);
+    const owner = String(b.owner || '').trim().slice(0, 120);
+    if (!company && !owner) return res.redirect('/apply?err=1');
+    const cat = b.category === 'gc' ? 'gc' : 'sub';
+    const type = cat === 'gc' ? 'General Contractor' : String(b.type || '').trim().slice(0, 200);
+    const grp = bucketForStatus(cat, 'Under Review');
+    const so = await bucketSortOrder(cat, grp);
+    const note = String(b.notes || '').trim().slice(0, 1000);
+    const noteFull = (note ? note + ' · ' : '') + 'Self-submitted via form';
+    await pool.query(
+      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, notes, group_label, category, sort_order)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [company || null, String(b.location || '').trim().slice(0, 200) || null, type || null, 'Under Review', owner || null,
+       String(b.email || '').trim().slice(0, 200) || null, String(b.phone || '').trim().slice(0, 40) || null, noteFull, grp, cat, so]
+    );
+    const LOGAN = '106404376271648731086';
+    postToChat(`📝 *New contractor submission* <users/${LOGAN}>\n${company || owner} (${cat === 'gc' ? 'GC' : (type || 'Sub')})${b.phone ? ' · ' + String(b.phone).trim() : ''}\nReview in Subs → Under Vetting`);
+    res.redirect('/apply?ok=1');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
 // Map a status to the matching section bucket, so status and section stay in sync.
 function bucketForStatus(category, status) {
   const s = (status || '').toLowerCase();

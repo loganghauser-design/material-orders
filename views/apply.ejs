@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Buildoly — Contractor Submission</title>
+  <link rel="icon" href="/icon.svg">
+  <meta name="theme-color" content="#000000">
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
+    body { background:#f3f3f5; color:#111; min-height:100vh; -webkit-font-smoothing:antialiased; }
+    .hero { background:#000; color:#fff; padding:34px 20px 28px; text-align:center; }
+    .hero .wm { font-weight:800; font-size:2.2rem; letter-spacing:-.04em; }
+    .hero .sub { color:#9a9a9a; font-size:.8rem; letter-spacing:.18em; text-transform:uppercase; margin-top:6px; }
+    .wrap { max-width:560px; margin:0 auto; padding:22px 16px 70px; }
+    .card { background:#fff; border:1px solid #ececef; border-radius:16px; padding:1.6rem 1.4rem; box-shadow:0 8px 26px rgba(0,0,0,.06); }
+    .intro { color:#555; font-size:.92rem; margin-bottom:1.4rem; line-height:1.5; }
+    .fld { margin-bottom:1.1rem; }
+    .fld > label { display:block; font-size:.78rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#666; margin-bottom:.45rem; }
+    .fld input, .fld textarea { width:100%; padding:.8rem .9rem; font-size:1rem; border:1.5px solid #e3e3e8; border-radius:11px; background:#fafafb; color:#111; }
+    .fld input:focus, .fld textarea:focus { outline:none; border-color:#111; background:#fff; }
+    .req { color:#c0392b; }
+    .seg { display:flex; gap:.6rem; }
+    .seg label { flex:1; text-align:center; padding:.8rem; border:1.5px solid #e3e3e8; border-radius:11px; cursor:pointer; font-weight:600; font-size:.95rem; background:#fafafb; }
+    .seg input { display:none; }
+    .seg input:checked + span { }
+    .seg label:has(input:checked) { border-color:#111; background:#111; color:#fff; }
+    .chips { display:flex; flex-wrap:wrap; gap:.45rem; }
+    .chip { padding:.4rem .8rem; border:1.5px solid #e3e3e8; border-radius:18px; font-size:.85rem; cursor:pointer; user-select:none; background:#fafafb; }
+    .chip.on { background:#111; color:#fff; border-color:#111; }
+    .hint { font-size:.78rem; color:#999; margin-top:.35rem; }
+    .submit { width:100%; padding:.95rem; font-size:1.05rem; font-weight:700; background:#111; color:#fff; border:none; border-radius:12px; cursor:pointer; }
+    .submit:hover { background:#000; }
+    .hp { position:absolute; left:-9999px; }
+    .thanks { text-align:center; padding:2rem 1rem; }
+    .thanks .big { font-size:3rem; }
+    .thanks h2 { font-size:1.3rem; margin:.6rem 0 .4rem; }
+    .thanks p { color:#555; }
+    .errbox { background:#fdf0f0; border:1px solid #f3c9c9; color:#c0392b; padding:.7rem 1rem; border-radius:10px; font-size:.9rem; margin-bottom:1.1rem; }
+  </style>
+</head>
+<body>
+  <div class="hero"><div class="wm">buildoly</div><div class="sub">Contractor Submission</div></div>
+  <div class="wrap">
+    <% if (ok) { %>
+      <div class="card thanks">
+        <div class="big">✅</div>
+        <h2>Thanks — we got your info!</h2>
+        <p>Our team will review your submission and reach out. You can close this page.</p>
+      </div>
+    <% } else { %>
+      <div class="card">
+        <div class="intro">Interested in working with Buildoly? Fill this out and our team will review it and get in touch.</div>
+        <% if (typeof err !== 'undefined' && err) { %><div class="errbox">Please enter at least your company or your name.</div><% } %>
+
+        <form method="POST" action="/apply" id="applyForm">
+          <input type="text" name="website" class="hp" tabindex="-1" autocomplete="off">
+
+          <div class="fld">
+            <label>I am a</label>
+            <div class="seg">
+              <label><input type="radio" name="category" value="gc" checked onchange="onType()"><span>General Contractor</span></label>
+              <label><input type="radio" name="category" value="sub" onchange="onType()"><span>Subcontractor / Trade</span></label>
+            </div>
+          </div>
+
+          <div class="fld"><label>Company name <span class="req">*</span></label><input name="company" required placeholder="e.g. So Cal Home Renovation"></div>
+          <div class="fld"><label>Your name <span class="req">*</span></label><input name="owner" required placeholder="Contact / owner name"></div>
+
+          <div class="fld" id="tradesFld" style="display:none">
+            <label>Trade(s) — tap all that apply</label>
+            <div id="tradeChips" class="chips"></div>
+            <input type="hidden" name="type" id="f_type">
+            <div class="hint">Not listed? Type it below and press Add.</div>
+            <div style="display:flex;gap:.4rem;margin-top:.45rem">
+              <input id="tradeOther" placeholder="Add another trade…" style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();addTradeOther();}">
+              <button type="button" class="submit" style="width:auto;padding:.6rem 1rem;font-size:.9rem" onclick="addTradeOther()">Add</button>
+            </div>
+          </div>
+
+          <div class="fld"><label>Phone</label><input name="phone" type="tel" placeholder="(555) 123-4567"></div>
+          <div class="fld"><label>Email</label><input name="email" type="email" placeholder="you@company.com"></div>
+
+          <div class="fld">
+            <label>Counties you serve — tap all that apply</label>
+            <div id="locChips" class="chips"></div>
+            <input type="hidden" name="location" id="f_location">
+          </div>
+
+          <div class="fld"><label>About your work / license #</label><textarea name="notes" rows="3" placeholder="Years in business, specialties, license #, anything we should know…"></textarea></div>
+
+          <button type="submit" class="submit">Submit</button>
+        </form>
+      </div>
+    <% } %>
+  </div>
+
+<script>
+const TRADES = ['Electrician','Plumber','Drywall','Framing','Painter','Handyman','HVAC','Flooring','Roofing','Concrete','Demolition','Junk Removal','Landscaping','Tile','Solar','Stucco','Insulation','Fire Sprinklers','Decking','Finishes','Tree Removal'];
+const COUNTIES = ['LA County','Orange County','Riverside County','San Diego County','Ventura County','San Bernardino County'];
+let selTrades = [], selLocs = [];
+function chipHtml(list, sel, fn) {
+  const all = [...new Set([...list, ...sel])];
+  return all.map(t => `<span class="chip${sel.includes(t)?' on':''}" onclick="${fn}(this.dataset.t)" data-t="${t.replace(/"/g,'&quot;')}">${t}</span>`).join('');
+}
+function renderT() { document.getElementById('tradeChips').innerHTML = chipHtml(TRADES, selTrades, 'togT'); document.getElementById('f_type').value = selTrades.join(', '); }
+function renderL() { document.getElementById('locChips').innerHTML = chipHtml(COUNTIES, selLocs, 'togL'); document.getElementById('f_location').value = selLocs.join(', '); }
+function togT(t){ const i=selTrades.indexOf(t); if(i>=0)selTrades.splice(i,1); else selTrades.push(t); renderT(); }
+function togL(t){ const i=selLocs.indexOf(t); if(i>=0)selLocs.splice(i,1); else selLocs.push(t); renderL(); }
+function addTradeOther(){ const inp=document.getElementById('tradeOther'); const v=inp.value.trim(); if(v && !selTrades.some(x=>x.toLowerCase()===v.toLowerCase())) selTrades.push(v); inp.value=''; renderT(); }
+function onType(){ const sub=document.querySelector('input[name=category]:checked').value==='sub'; document.getElementById('tradesFld').style.display = sub ? '' : 'none'; }
+renderT(); renderL(); onType();
+</script>
+</body>
+</html>
