@@ -59,6 +59,9 @@
     .trade-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
     .trade-chip { padding:.32rem .7rem; border:1px solid var(--border); border-radius:16px; font-size:.82rem; cursor:pointer; user-select:none; background:var(--bg); white-space:nowrap; }
     .trade-chip.on { background:#111; color:#fff; border-color:#111; }
+    .sortbtn { font-size:.82rem; padding:.32rem .8rem; border:1px solid var(--border); border-radius:8px; text-decoration:none; color:var(--text); background:var(--surface); }
+    .sortbtn.on { background:#111; color:#fff; border-color:#111; }
+    .subs-table .refby { color:var(--muted); font-size:.8rem; max-width:160px; }
   </style>
 </head>
 <body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
@@ -110,6 +113,9 @@
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
     <select id="typeFilter" onchange="filterSubs()"><option value="">All trades</option></select>
+    <span style="margin-left:auto;font-size:.85rem;color:var(--muted)">Group by:</span>
+    <a href="/subs?sort=status" class="sortbtn <%= sort !== 'trade' ? 'on' : '' %>">Status</a>
+    <a href="/subs?sort=trade" class="sortbtn <%= sort === 'trade' ? 'on' : '' %>">Trade</a>
   </div>
 
   <%
@@ -145,15 +151,18 @@
       <div class="tbl-wrap">
         <table class="subs-table">
           <thead><tr>
-            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Notes</th><th></th>
+            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Ref. By</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody>
             <%
+              const byTrade = (typeof sort !== 'undefined' && sort === 'trade');
+              const keyOf = x => byTrade ? ((x.type || '').split(',')[0].trim() || 'Other') : (x.group_label || '');
               const groups = []; const gmap = {};
-              sec.list.forEach(x => { const g = x.group_label || ''; if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
+              sec.list.forEach(x => { const g = keyOf(x); if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
+              if (byTrade) groups.sort((a, b) => a.localeCompare(b));
             %>
             <% groups.forEach(g => { %>
-              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="10"><%= g %></td></tr><% } %>
+              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11"><%= g %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; %>
               <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
@@ -172,6 +181,7 @@
                 <td><%= s.owner || '' %></td>
                 <td><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
                 <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
+                <td class="refby"><%= s.referenced_by || '' %></td>
                 <td class="notes"><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
                 <td class="row-actions">
                   <select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
@@ -240,6 +250,7 @@
         <div id="locChips" class="trade-chips"></div>
         <input type="hidden" name="location" id="f_location">
       </div>
+      <div class="mg"><label>Referenced by <span style="font-weight:400;color:var(--muted)">— how you found them</span></label><input name="referenced_by" id="f_referenced_by" placeholder="e.g. Referral from Bobby · Google · past project"></div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
       <input type="hidden" name="group_label" id="f_group">
       <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:.4rem">
@@ -342,7 +353,7 @@ function fillSelect(id, val) {
 function openAdd() {
   document.getElementById('modalTitle').textContent = 'Add Subcontractor';
   document.getElementById('editId').value = '';
-  ['company','owner','phone','email','status','notes','group'].forEach(k => document.getElementById('f_' + k).value = '');
+  ['company','owner','phone','email','status','notes','group','referenced_by'].forEach(k => document.getElementById('f_' + k).value = '');
   setLocsFromString('');
   setTradesFromString('');
   document.getElementById('f_category').value = 'sub';   // default new entries to Subcontractor
@@ -360,6 +371,7 @@ function openEdit(s) {
   document.getElementById('f_status').value = s.status || '';
   document.getElementById('f_category').value = (s.category === 'gc' || s.category === 'sub') ? s.category : (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub');
   document.getElementById('f_notes').value = s.notes || '';
+  document.getElementById('f_referenced_by').value = s.referenced_by || '';
   document.getElementById('f_group').value = s.group_label || '';
   document.getElementById('subModal').classList.add('show');
 }
@@ -412,7 +424,7 @@ document.getElementById('subForm').addEventListener('submit', async function (e)
   if (!id) return;
   e.preventDefault();
   const body = new URLSearchParams();
-  ['company','owner','type','phone','email','location','status','notes','category'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
+  ['company','owner','type','phone','email','location','status','notes','category','referenced_by'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
   document.getElementById('saveBtn').textContent = 'Saving…';
   const r = await fetch('/subs/' + id, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
   if (r.ok) location.reload(); else { alert('Could not save'); document.getElementById('saveBtn').textContent = 'Save'; }

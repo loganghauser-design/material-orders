@@ -1249,6 +1249,7 @@ async function initDb() {
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_date_end DATE;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS sort_order INTEGER;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS category TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS referenced_by TEXT;
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
@@ -3165,7 +3166,7 @@ app.get('/subs', requireAuth, async (req, res) => {
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
     const isSuper = req.session.role === 'super';
     const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
-    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit });
+    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit, sort: req.query.sort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -3226,10 +3227,10 @@ app.post('/subs', requireAuth, async (req, res) => {
     const grp = bucketForStatus(cat, b.status);
     const so = await bucketSortOrder(cat, grp);
     await pool.query(
-      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, notes, group_label, category, sort_order)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, notes, group_label, category, sort_order, referenced_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
       [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
-       b.email || null, b.phone || null, b.notes || null, grp, cat, so]
+       b.email || null, b.phone || null, b.notes || null, grp, cat, so, b.referenced_by || null]
     );
     res.redirect('/subs?added=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
@@ -3242,9 +3243,9 @@ app.post('/subs/:id', requireAuth, async (req, res) => {
     // Re-derive GC vs Sub when an explicit category isn't provided.
     const cat = b.category || (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
     await pool.query(
-      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, notes=$8, category=$9 WHERE id=$10`,
+      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, notes=$8, category=$9, referenced_by=$10 WHERE id=$11`,
       [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
-       b.email || null, b.phone || null, b.notes || null, cat, req.params.id]
+       b.email || null, b.phone || null, b.notes || null, cat, b.referenced_by || null, req.params.id]
     );
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
