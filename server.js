@@ -587,7 +587,7 @@ async function readScheduleVendors(scheduleUrl, opts = {}) {
   }
   const rows = ((await r.json()).values) || [];
   const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
-  const SKIP = /contractor to proc|^n\/a$/i;     // skip contractor-procured / N/A (keep Buildoly Stock — it ships from the warehouse)
+  const SKIP = /contractor to proc|^n\/a$|^#/i;  // skip contractor-procured / N/A / spreadsheet errors (#N/A, #REF!, …) — keep Buildoly Stock (ships from the warehouse)
   const vendors = {};
   for (let i = 5; i < rows.length; i++) {
     const row = rows[i];
@@ -3585,7 +3585,7 @@ function startCron() {
 
 // Allow one-off maintenance scripts to reuse the DB + schedule logic
 // (require('./server.js')) without starting the HTTP server.
-module.exports = { pool, computeHeldUsages, initDb, HELD_STATUSES, fetchScheduleValues, readScheduleByCategory };
+module.exports = { pool, computeHeldUsages, initDb, HELD_STATUSES, fetchScheduleValues, readScheduleByCategory, readScheduleVendors };
 
 if (require.main === module) {
   const PORT = process.env.PORT || 3000;
