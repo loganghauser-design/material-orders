@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Requests — Buildoly Supply</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .req { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
+    .req.done { opacity:.6; }
+    .req-top { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+    .req-items { font-weight:700; font-size:1.05rem; line-height:1.4; }
+    .req-meta { color:var(--muted); font-size:.83rem; margin:.2rem 0 .5rem; }
+    .req-note { font-size:.94rem; line-height:1.45; white-space:pre-wrap; word-break:break-word; margin-top:.3rem; }
+    .req-needed { font-size:.85rem; font-weight:600; color:#b45309; margin-top:.3rem; }
+    .badge-pending { background:#fde2e1; color:#b91c1c; padding:2px 10px; border-radius:11px; font-size:.74rem; font-weight:700; white-space:nowrap; }
+    .badge-done { background:#dcfce7; color:#166534; padding:2px 10px; border-radius:11px; font-size:.74rem; font-weight:700; white-space:nowrap; }
+    .req-actions { margin-top:.7rem; display:flex; gap:.5rem; flex-wrap:wrap; }
+    .sec-divider { font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:700; margin:1.5rem 0 .7rem; }
+    .respond-box { display:flex; gap:.5rem; margin-top:.6rem; }
+    .respond-box input { flex:1; padding:.5rem .7rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); font-size:.88rem; }
+    .navbadge { background:#cc2222; color:#fff; border-radius:9px; padding:0 6px; font-size:.72rem; }
+  </style>
+</head>
+<body>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Buildoly Supply</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab">Payments</a>
+    <a href="/driving" class="nav-tab">Driving Log</a>
+    <a href="/inventory" class="nav-tab">Inventory</a>
+    <a href="/requests" class="nav-tab active">Requests<% if (typeof pendingRequests !== 'undefined' && pendingRequests) { %> <span class="navbadge"><%= pendingRequests %></span><% } %></a>
+    <a href="/issues" class="nav-tab">Issues<% if (typeof pendingIssues !== 'undefined' && pendingIssues) { %> <span class="navbadge"><%= pendingIssues %></span><% } %></a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/subs" class="nav-tab">Subs</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+
+<div class="container">
+  <div class="page-header"><h1>Material Requests</h1></div>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:720px">
+    Material your superintendents requested from the field. Mark one fulfilled once it's ordered / on its way.
+  </p>
+
+  <% const pending = requests.filter(r => !r.fulfilled); const done = requests.filter(r => r.fulfilled); %>
+
+  <% if (!requests.length) { %>
+    <div class="req" style="color:var(--muted)">No requests yet. When a super taps “Request Material” on their phone, it shows up here.</div>
+  <% } %>
+
+  <% function renderReq(r) { %>
+    <div class="req <%= r.fulfilled ? 'done' : '' %>" id="req_<%= r.id %>">
+      <div class="req-top">
+        <div style="min-width:0">
+          <div class="req-items"><%= r.items.length ? r.items.join(', ') : 'Material request' %></div>
+          <div class="req-meta">
+            <strong><%= r.address || 'Project' %></strong> · 👷 <%= r.superName %> ·
+            <%= new Date(r.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) %>
+          </div>
+          <% if (r.needed_by) { %><div class="req-needed">📅 Needed by <%= new Date(r.needed_by).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) %></div><% } %>
+          <% if (r.note) { %><div class="req-note"><%= r.note %></div><% } %>
+        </div>
+        <span class="badge-<%= r.fulfilled ? 'done' : 'pending' %>"><%= r.fulfilled ? 'FULFILLED' : 'PENDING' %></span>
+      </div>
+
+      <div class="respond-box">
+        <input type="text" placeholder="Reply to the super (pings them in chat)…" id="resp_<%= r.id %>" onkeydown="if(event.key==='Enter')respond(<%= r.id %>)">
+        <button class="btn btn-primary btn-sm" onclick="respond(<%= r.id %>)">Send</button>
+      </div>
+
+      <div class="req-actions">
+        <% if (!r.fulfilled) { %>
+          <button class="btn btn-primary btn-sm" onclick="fulfill(<%= r.id %>, 'fulfill')">✓ Mark fulfilled</button>
+        <% } else { %>
+          <button class="btn btn-ghost btn-sm" onclick="fulfill(<%= r.id %>, 'reopen')">↩ Reopen</button>
+        <% } %>
+        <% if (r.project_id) { %><a class="btn btn-ghost btn-sm" href="/projects/<%= r.project_id %>">Open project</a><% } %>
+        <button class="btn btn-ghost btn-sm" style="color:#cc2222" onclick="del(<%= r.id %>)">Delete</button>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (pending.length) { %>
+    <div class="sec-divider">🔴 Pending (<%= pending.length %>)</div>
+    <% pending.forEach(r => renderReq(r)) %>
+  <% } %>
+  <% if (done.length) { %>
+    <div class="sec-divider">✓ Fulfilled (<%= done.length %>)</div>
+    <% done.forEach(r => renderReq(r)) %>
+  <% } %>
+</div>
+
+<script>
+async function fulfill(id, action) {
+  const r = await fetch('/requests/' + id + '/fulfill', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action }) });
+  const d = await r.json();
+  if (d.ok) location.reload(); else alert('Could not update.');
+}
+async function respond(id) {
+  const inp = document.getElementById('resp_' + id);
+  const body = inp.value.trim();
+  if (!body) return;
+  inp.disabled = true;
+  try {
+    const r = await fetch('/requests/' + id + '/respond', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ body }) });
+    const d = await r.json();
+    if (d.ok) { inp.value=''; inp.disabled=false; inp.placeholder='✓ Sent — reply again if needed'; } else { alert('Could not send: ' + (d.error || 'error')); inp.disabled = false; }
+  } catch (e) { alert('Could not send.'); inp.disabled = false; }
+}
+async function del(id) {
+  if (!confirm('Delete this request?')) return;
+  const r = await fetch('/requests/' + id + '/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (d.ok) document.getElementById('req_' + id).remove(); else alert('Could not delete.');
+}
+</script>
+</body>
+</html>

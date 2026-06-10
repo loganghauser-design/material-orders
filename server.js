@@ -1490,6 +1490,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// Expose pending counts to every admin page so the nav can show badges (Issues + Requests)
+app.use(async (req, res, next) => {
+  if (req.method === 'GET' && req.session && req.session.authenticated && req.session.role === 'admin') {
+    try {
+      res.locals.pendingIssues = await getPendingIssueCount();
+      res.locals.pendingRequests = await getPendingRequestCount();
+    } catch (e) { /* tables may not exist yet */ }
+  }
+  next();
+});
+
 app.get('/login', (req, res) => {
   if (req.session.authenticated) return res.redirect(req.session.role === 'super' ? '/my' : '/');
   res.render('login', { error: null });
@@ -1788,6 +1799,60 @@ app.post('/issues/:id/delete', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// ── Admin: material-request inbox (supers' "Request Material" submissions) ─────
+async function getPendingRequestCount() {
+  try { const { rows: [r] } = await pool.query('SELECT COUNT(*) c FROM material_requests WHERE fulfilled = FALSE'); return Number(r.c) || 0; }
+  catch (e) { return 0; }
+}
+
+app.get('/requests', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows } = await pool.query(`
+      SELECT mr.id, mr.project_id, mr.super_email, mr.codes, mr.note, mr.needed_by,
+             mr.fulfilled, mr.created_at, p.address
+      FROM material_requests mr LEFT JOIN projects p ON p.id = mr.project_id
+      ORDER BY (mr.fulfilled = FALSE) DESC, mr.created_at DESC`);
+    const requests = rows.map(r => ({
+      ...r,
+      superName: (findSuper(r.super_email) || {}).name || r.super_email || 'Super',
+      items: String(r.codes || '').split(',').filter(Boolean).map(c => CODE_NAME[c.trim()] || c.trim()),
+    }));
+    res.render('requests', { requests, pendingRequests: requests.filter(r => !r.fulfilled).length });
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Mark a request fulfilled / reopen it
+app.post('/requests/:id/fulfill', requireAuth, async (req, res) => {
+  try {
+    const reopen = req.body.action === 'reopen';
+    await pool.query('UPDATE material_requests SET fulfilled=$1 WHERE id=$2', [!reopen, req.params.id]);
+    res.json({ ok: true, fulfilled: !reopen });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Reply to a request → ping the super who asked, in chat
+app.post('/requests/:id/respond', requireAuth, async (req, res) => {
+  try {
+    const body = String(req.body.body || '').trim().slice(0, 1000);
+    if (!body) return res.status(400).json({ ok: false, error: 'Write a response first.' });
+    const { rows: [r] } = await pool.query(
+      'SELECT mr.super_email, p.address FROM material_requests mr LEFT JOIN projects p ON p.id = mr.project_id WHERE mr.id=$1', [req.params.id]);
+    if (!r) return res.status(404).json({ ok: false, error: 'Request not found.' });
+    const sup = findSuper(r.super_email);
+    const mention = sup && sup.chatId ? `<users/${sup.chatId}> ` : '';
+    postToChat(`📦 *Office update* — ${shortAddress(r.address || '')}\n${mention}${body}`, 'request-' + req.params.id);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.post('/requests/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM material_requests WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // ── Projects list ─────────────────────────────────────────────────────────────
