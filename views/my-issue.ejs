@@ -41,8 +41,8 @@
         <% STAGES.forEach(stage => { stage.items.forEach(it => {
              var mats = (typeof byCode !== 'undefined' && byCode[it.code]) ? byCode[it.code] : []; %>
           <optgroup label="<%= it.code %> · <%= it.name %>">
-            <% if (mats.length) { mats.forEach(function(m){ %>
-              <option value="<%= it.code %>" data-label="<%= m.name %>"><%= m.name %><% if (m.product && m.product !== m.name) { %> — <%= m.product %><% } %></option>
+            <% if (mats.length) { var _seen = {}; mats.forEach(function(m){ var _k = (m.name || '').trim().toLowerCase(); if (!_k || _seen[_k]) return; _seen[_k] = 1; %>
+              <option value="<%= it.code %>" data-label="<%= m.name %>"><%= m.name %></option>
             <% }) } else { %>
               <option value="<%= it.code %>" data-label=""><%= it.name %> (whole section)</option>
             <% } %>
