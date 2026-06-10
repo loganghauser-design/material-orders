@@ -593,7 +593,7 @@ function lookupVendorEmail(name){
 }
 let SCHEDULE_VENDORS = [];
 let RFQ_COVERED = [];   // material codes the current auto-filled order covers
-const STATUS_CLASSES = ['cell-not_yet_placed','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
+const STATUS_CLASSES = ['cell-not_yet_placed','cell-delivery_requested','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
 function statusToClass(st){ return 'cell-' + String(st).toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,''); }
 const THREAD_INFO = {};   // gmail_thread_id -> thread row (vendor name/email, item_code)
 const THREAD_MSGS = {};   // gmail_thread_id -> messages array (with detected + attachments)

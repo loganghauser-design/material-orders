@@ -245,6 +245,7 @@ async function parseReceiptPdf(buffer) {
 
 const ITEM_STATUSES = [
   'Not yet placed',
+  'Delivery Requested',
   'RFQ sent',
   'Order Placed',
   'In Inventory',
@@ -1654,6 +1655,14 @@ app.post('/my/request/:id', requireSuper, async (req, res) => {
       'INSERT INTO material_requests (project_id, super_email, codes, note, needed_by) VALUES ($1,$2,$3,$4,$5)',
       [project.id, email, codes.join(','), note || null, neededBy]
     );
+    // Reflect the request on the project: bump each item's stage to "Delivery Requested"
+    // (only if nothing's happened yet — never override an order already in motion or delivered)
+    for (const c of codes) await pool.query('INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING', [project.id, c]);
+    await pool.query(
+      `UPDATE project_items SET status='Delivery Requested'
+       WHERE project_id=$1 AND item_code = ANY($2) AND (status IS NULL OR status='' OR status='Not yet placed')`,
+      [project.id, codes]
+    );
     const sup = findSuper(email) || { name: email };
     const names = codes.map(c => CODE_NAME[c] || c);
     const LOGAN = '106404376271648731086';
@@ -1702,6 +1711,14 @@ app.post('/my/issue/:id', requireSuper, upload.single('photo'), async (req, res)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
       [project.id, email, itemCode, itemLabel, note || null, photo.data || null, photo.mime || null, photo.name || null]
     );
+    // Reflect the issue on the project: flag that item's stage as "Issue" (unless delivered / N/A)
+    if (itemCode) {
+      await pool.query('INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING', [project.id, itemCode]);
+      await pool.query(
+        `UPDATE project_items SET status='Issue' WHERE project_id=$1 AND item_code=$2 AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`,
+        [project.id, itemCode]
+      );
+    }
     const sup = findSuper(email) || { name: email };
     const what = itemCode ? (CODE_NAME[itemCode] || itemCode) : (itemLabel || 'a material');
     const LOGAN = '106404376271648731086';

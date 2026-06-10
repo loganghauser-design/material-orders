@@ -126,6 +126,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* Item status colors — matching legend (apply to cells and dropdowns) */
 .cell-not_yet_placed { background: #f3f4f6; color: #9ca3af; }
+.cell-delivery_requested { background: #fde68a; color: #92400e; }
 .cell-rfq_sent { background: #cfe2f3; color: #1e3a5f; }
 .cell-order_placed { background: #b6d7a8; color: #274e13; }
 .cell-in_inventory { background: #d9c2f0; color: #4a235a; }
