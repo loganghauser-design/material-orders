@@ -1682,10 +1682,15 @@ app.get('/my/issue/:id', requireSuper, async (req, res) => {
     await initDb();
     const email = req.session.superEmail;
     // Bobby can report on ANY project; other supers only on their assigned ones
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/my');
     if (!canSuperViewAllProjects(email) && !superOwnsProject(email, project)) return res.redirect('/my');
-    res.render('my-issue', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1' });
+    let byCode = {};
+    if (project.finish_schedule_url) {
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source }); }
+      catch (e) { byCode = {}; }
+    }
+    res.render('my-issue', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', byCode });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -2007,7 +2012,8 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     for (const iss of issueRows) {
       if (!issueByCode[iss.item_code]) issueByCode[iss.item_code] = {
         sup: (findSuper(iss.super_email) || {}).name || 'Super',
-        note: iss.note || iss.item_label || '',
+        label: iss.item_label || '',
+        note: iss.note || '',
       };
     }
     const suppliers = await getSuppliers();

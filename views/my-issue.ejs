@@ -35,22 +35,26 @@
 
   <form method="POST" action="/my/issue/<%= project.id %>" enctype="multipart/form-data" id="issueForm">
     <div class="fld">
-      <label>Which material? <span class="hint">(optional)</span></label>
-      <select name="item_code">
-        <option value="">— pick a material —</option>
-        <% STAGES.forEach(stage => { %>
-          <optgroup label="<%= stage.name %>">
-            <% stage.items.forEach(it => { %>
-              <option value="<%= it.code %>"><%= it.name %></option>
-            <% }) %>
+      <label>Which item has the issue?</label>
+      <select id="materialPicker" onchange="pickMaterial(this)">
+        <option value="">— pick the exact item —</option>
+        <% STAGES.forEach(stage => { stage.items.forEach(it => {
+             var mats = (typeof byCode !== 'undefined' && byCode[it.code]) ? byCode[it.code] : []; %>
+          <optgroup label="<%= it.code %> · <%= it.name %>">
+            <% if (mats.length) { mats.forEach(function(m){ %>
+              <option value="<%= it.code %>" data-label="<%= m.name %>"><%= m.name %><% if (m.product && m.product !== m.name) { %> — <%= m.product %><% } %></option>
+            <% }) } else { %>
+              <option value="<%= it.code %>" data-label=""><%= it.name %> (whole section)</option>
+            <% } %>
           </optgroup>
-        <% }) %>
+        <% }) }) %>
       </select>
+      <input type="hidden" name="item_code" id="f_item_code">
     </div>
 
     <div class="fld">
-      <label>Or describe the item <span class="hint">(if not in the list)</span></label>
-      <input type="text" name="item_label" placeholder="e.g. Front door hardware">
+      <label>Item <span class="hint">(auto-filled from your pick — edit or type your own)</span></label>
+      <input type="text" name="item_label" id="f_item_label" placeholder="e.g. Front door hardware">
     </div>
 
     <div class="fld">
@@ -72,6 +76,12 @@
 </div>
 
 <script>
+function pickMaterial(sel) {
+  const opt = sel.options[sel.selectedIndex];
+  document.getElementById('f_item_code').value = opt.value || '';
+  const lbl = opt.dataset ? opt.dataset.label : '';
+  if (lbl) document.getElementById('f_item_label').value = lbl;   // auto-fill the exact material name
+}
 function showPreview(input) {
   const f = input.files && input.files[0];
   const img = document.getElementById('preview');
