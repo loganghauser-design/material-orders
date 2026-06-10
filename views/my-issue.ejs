@@ -41,8 +41,8 @@
         <% STAGES.forEach(stage => { stage.items.forEach(it => {
              var mats = (typeof byCode !== 'undefined' && byCode[it.code]) ? byCode[it.code] : []; %>
           <optgroup label="<%= it.code %> · <%= it.name %>">
-            <% if (mats.length) { var _seen = {}; mats.forEach(function(m){ var _k = (m.name || '').trim().toLowerCase(); if (!_k || _seen[_k]) return; _seen[_k] = 1; %>
-              <option value="<%= it.code %>" data-label="<%= m.name %>"><%= m.name %></option>
+            <% if (mats.length) { var _seen = {}; mats.forEach(function(m){ var _lbl = m.room ? (m.room + ' — ' + m.name) : m.name; var _k = _lbl.trim().toLowerCase(); if (!_k || _seen[_k]) return; _seen[_k] = 1; %>
+              <option value="<%= it.code %>" data-label="<%= _lbl %>"><%= _lbl %></option>
             <% }) } else { %>
               <option value="<%= it.code %>" data-label=""><%= it.name %> (whole section)</option>
             <% } %>

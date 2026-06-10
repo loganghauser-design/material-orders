@@ -696,12 +696,18 @@ async function readScheduleRows(scheduleUrl) {
 async function readScheduleByCategory(scheduleUrl, opts = {}) {
   const rows = await fetchScheduleValues(scheduleUrl);
   const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
+  const ROOMRE = /\s-\s[A-Za-z]{1,4}\d*\s*$/;   // a room header like "Bath 1 - BA", "Kitchen - KT"
   const byCode = {};
+  let currentRoom = '';
   for (let i = 5; i < rows.length; i++) {
     const row = rows[i];
     const { cat, supplier } = applyRowOverrides(row, opts);
     const m = cat.match(CATRE);
-    if (!m) continue;
+    if (!m) {
+      const c0 = (row[0] || '').replace(/\n/g, ' ').trim();
+      if (c0 && ROOMRE.test(c0)) currentRoom = c0.replace(ROOMRE, '').trim();   // remember which room we're in
+      continue;
+    }
     const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
     if (!name) continue;
     const code = m[1].toLowerCase();
@@ -712,7 +718,7 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
     const model = (row[7] || '').trim();
     const held = isHeldSupplier(supplier);
     (byCode[code] = byCode[code] || []).push({
-      name, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
+      name, room: currentRoom, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
       finishColor: (row[8] || '').trim(),
       model, qty: (row[9] || '').trim() || '1', supplier,
       hood, jedco, defaultSupplier: (hood || jedco) ? origSupplier : undefined,
