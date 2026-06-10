@@ -2000,6 +2000,16 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         if (!requestedByCode[c]) requestedByCode[c] = { sup: sName, needed_by: rq.needed_by };
       });
     }
+    // Open issues for this project → label the affected lines
+    const { rows: issueRows } = await pool.query(
+      "SELECT id, super_email, item_code, item_label, note FROM material_issues WHERE project_id=$1 AND status='pending' AND item_code IS NOT NULL ORDER BY created_at DESC", [project.id]);
+    const issueByCode = {};
+    for (const iss of issueRows) {
+      if (!issueByCode[iss.item_code]) issueByCode[iss.item_code] = {
+        sup: (findSuper(iss.super_email) || {}).name || 'Super',
+        note: iss.note || iss.item_label || '',
+      };
+    }
     const suppliers = await getSuppliers();
     const { rows: documents } = await pool.query('SELECT id, filename, uploaded_at FROM project_documents WHERE project_id=$1 ORDER BY uploaded_at DESC', [project.id]);
     const { rows: payments } = await pool.query('SELECT * FROM milestone_payments WHERE project_id=$1 ORDER BY requested_at DESC', [project.id]);
@@ -2065,7 +2075,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    res.render('project', { project, STAGES, itemMap, requestedByCode, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
