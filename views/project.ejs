@@ -60,6 +60,8 @@
     .held-qty.qty-done{background:#6aa84f;color:#fff;border-color:#6aa84f;font-weight:600}
     .held-qty.qty-partial{background:#fde6c8;color:#8a4b00;border-color:#e0a106}
     .held-qty.qty-none{background:#ede0fb;color:#5b2a86}
+    .req-flag{display:inline-block;background:#fde68a;color:#92400e;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;white-space:nowrap;vertical-align:middle;text-decoration:none;cursor:pointer}
+    .req-flag:hover{background:#fcd34d}
     .item-date,.item-date-end{width:122px;font-size:.8rem}
     .item-date-end{opacity:.9}
     .notify-btn{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 7px;cursor:pointer;font-size:.85rem;margin-left:3px;vertical-align:middle}
@@ -276,7 +278,7 @@
         %>
         <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
           <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
-          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
+          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="/requests" class="req-flag" title="Requested from the field — open Requests to manage">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
           <td>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>

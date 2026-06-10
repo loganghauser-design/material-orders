@@ -9,7 +9,15 @@
     .req { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
     .req.done { opacity:.6; }
     .req-top { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
-    .req-items { font-weight:700; font-size:1.05rem; line-height:1.4; }
+    .req-items { font-weight:700; font-size:1.02rem; line-height:1.7; }
+    .ritem { display:inline-flex; align-items:center; gap:.3rem; margin-right:.7rem; white-space:nowrap; }
+    .rpill { font-size:.66rem; font-weight:700; padding:1px 7px; border-radius:9px; }
+    .rpill-deliv { background:#dcfce7; color:#166534; }
+    .rpill-order { background:#dbeafe; color:#1d4ed8; }
+    .rpill-rfq { background:#fef3c7; color:#92400e; }
+    .rpill-inv { background:#ede9fe; color:#5b21b6; }
+    .rpill-issue { background:#fee2e2; color:#b91c1c; }
+    .rpill-none { background:#e5e7eb; color:#555; }
     .req-meta { color:var(--muted); font-size:.83rem; margin:.2rem 0 .5rem; }
     .req-note { font-size:.94rem; line-height:1.45; white-space:pre-wrap; word-break:break-word; margin-top:.3rem; }
     .req-needed { font-size:.85rem; font-weight:600; color:#b45309; margin-top:.3rem; }
@@ -46,6 +54,7 @@
   </p>
 
   <% const pending = requests.filter(r => !r.fulfilled); const done = requests.filter(r => r.fulfilled); %>
+  <% function pillClass(s){ s=(s||'').toLowerCase(); if(s.includes('delivered'))return 'deliv'; if(s.includes('order'))return 'order'; if(s.includes('rfq'))return 'rfq'; if(s.includes('inventory'))return 'inv'; if(s.includes('issue'))return 'issue'; return 'none'; } %>
 
   <% if (!requests.length) { %>
     <div class="req" style="color:var(--muted)">No requests yet. When a super taps “Request Material” on their phone, it shows up here.</div>
@@ -55,7 +64,9 @@
     <div class="req <%= r.fulfilled ? 'done' : '' %>" id="req_<%= r.id %>">
       <div class="req-top">
         <div style="min-width:0">
-          <div class="req-items"><%= r.items.length ? r.items.join(', ') : 'Material request' %></div>
+          <div class="req-items">
+            <% if (!r.items.length) { %>Material request<% } else { r.items.forEach(it => { %><span class="ritem"><%= it.name %> <span class="rpill rpill-<%= pillClass(it.status) %>"><%= it.status %></span></span><% }) } %>
+          </div>
           <div class="req-meta">
             <strong><%= r.address || 'Project' %></strong> · 👷 <%= r.superName %> ·
             <%= new Date(r.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) %>

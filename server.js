@@ -1806,6 +1806,19 @@ async function getPendingRequestCount() {
   try { const { rows: [r] } = await pool.query('SELECT COUNT(*) c FROM material_requests WHERE fulfilled = FALSE'); return Number(r.c) || 0; }
   catch (e) { return 0; }
 }
+// Mark a project's pending requests fulfilled once all their items are delivered
+async function autoFulfillRequests(projectId) {
+  try {
+    const { rows: reqs } = await pool.query('SELECT id, codes FROM material_requests WHERE project_id=$1 AND fulfilled=FALSE', [projectId]);
+    if (!reqs.length) return;
+    const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [projectId]);
+    const delivered = new Set(pit.filter(i => ['Delivered', 'Delivered from Inv.'].includes(i.status)).map(i => i.item_code));
+    for (const r of reqs) {
+      const codes = String(r.codes || '').split(',').map(c => c.trim()).filter(Boolean);
+      if (codes.length && codes.every(c => delivered.has(c))) await pool.query('UPDATE material_requests SET fulfilled=TRUE WHERE id=$1', [r.id]);
+    }
+  } catch (e) { /* non-fatal */ }
+}
 
 app.get('/requests', requireAuth, async (req, res) => {
   try {
@@ -1815,11 +1828,31 @@ app.get('/requests', requireAuth, async (req, res) => {
              mr.fulfilled, mr.created_at, p.address
       FROM material_requests mr LEFT JOIN projects p ON p.id = mr.project_id
       ORDER BY (mr.fulfilled = FALSE) DESC, mr.created_at DESC`);
-    const requests = rows.map(r => ({
-      ...r,
-      superName: (findSuper(r.super_email) || {}).name || r.super_email || 'Super',
-      items: String(r.codes || '').split(',').filter(Boolean).map(c => CODE_NAME[c.trim()] || c.trim()),
-    }));
+    // Pull live item statuses from the projects involved
+    const projIds = [...new Set(rows.map(r => r.project_id).filter(Boolean))];
+    const statusMap = {};
+    if (projIds.length) {
+      const { rows: pit } = await pool.query('SELECT project_id, item_code, status FROM project_items WHERE project_id = ANY($1::int[])', [projIds]);
+      pit.forEach(i => { statusMap[i.project_id + ':' + i.item_code] = i.status; });
+    }
+    const DELIV = new Set(['Delivered', 'Delivered from Inv.']);
+    const requests = rows.map(r => {
+      const codes = String(r.codes || '').split(',').map(c => c.trim()).filter(Boolean);
+      const items = codes.map(c => ({ code: c, name: CODE_NAME[c] || c, status: statusMap[r.project_id + ':' + c] || 'Not yet placed' }));
+      const allDelivered = items.length > 0 && items.every(it => DELIV.has(it.status));
+      return {
+        ...r,
+        superName: (findSuper(r.super_email) || {}).name || r.super_email || 'Super',
+        items, allDelivered,
+      };
+    });
+    // Auto-fulfill any pending request whose items are now all delivered
+    for (const r of requests) {
+      if (!r.fulfilled && r.allDelivered) {
+        await pool.query('UPDATE material_requests SET fulfilled=TRUE WHERE id=$1', [r.id]);
+        r.fulfilled = true;
+      }
+    }
     res.render('requests', { requests, pendingRequests: requests.filter(r => !r.fulfilled).length });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -1940,6 +1973,16 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     const { rows: items } = await pool.query('SELECT * FROM project_items WHERE project_id=$1', [project.id]);
     const itemMap = {};
     items.forEach(i => itemMap[i.item_code] = i);
+    // Pending material requests for this project → flag the requested items on the grid
+    const { rows: reqRows } = await pool.query(
+      'SELECT super_email, codes, needed_by FROM material_requests WHERE project_id=$1 AND fulfilled=FALSE ORDER BY created_at', [project.id]);
+    const requestedByCode = {};
+    for (const rq of reqRows) {
+      const sName = (findSuper(rq.super_email) || {}).name || rq.super_email || 'Super';
+      String(rq.codes || '').split(',').map(c => c.trim()).filter(Boolean).forEach(c => {
+        if (!requestedByCode[c]) requestedByCode[c] = { sup: sName, needed_by: rq.needed_by };
+      });
+    }
     const suppliers = await getSuppliers();
     const { rows: documents } = await pool.query('SELECT id, filename, uploaded_at FROM project_documents WHERE project_id=$1 ORDER BY uploaded_at DESC', [project.id]);
     const { rows: payments } = await pool.query('SELECT * FROM milestone_payments WHERE project_id=$1 ORDER BY requested_at DESC', [project.id]);
@@ -2005,7 +2048,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    res.render('project', { project, STAGES, itemMap, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -2087,6 +2130,8 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
     );
   }
   // Chat alert is no longer automatic — it's sent on demand via the 📢 button (/notify).
+  // If this item just became delivered, auto-clear any field requests it completes.
+  if (['Delivered', 'Delivered from Inv.'].includes(status)) autoFulfillRequests(req.params.id);
   res.json({ ok: true });
 });
 
