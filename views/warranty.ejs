@@ -48,6 +48,11 @@
     .chip.on { background:var(--ink); color:#fff; box-shadow:0 3px 12px rgba(20,23,26,.22); }
     .chip .ck { display:none; font-size:.78rem; }
     .chip.on .ck { display:inline; }
+    .mfgbox { background:#fff; border-radius:16px; padding:1.05rem 1.15rem; box-shadow:0 1px 3px rgba(20,23,26,.05); }
+    .mfgttl { font-weight:800; font-size:.95rem; margin-bottom:.1rem; }
+    .mfgbox p { font-size:.87rem; color:var(--muted); line-height:1.5; margin:.35rem 0; }
+    .mfgcheck { display:flex; gap:.55rem; align-items:flex-start; font-size:.92rem; font-weight:600; color:var(--ink); margin:.75rem 0 .2rem; cursor:pointer; line-height:1.4; }
+    .mfgcheck input { margin-top:.15rem; width:19px; height:19px; flex:none; accent-color:var(--ink); }
 
     .drop { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; width:100%; padding:1.5rem 1rem; border-radius:18px; background:#fff; color:var(--muted); cursor:pointer; box-shadow:0 1px 3px rgba(20,23,26,.05); transition:box-shadow .16s; text-align:center; }
     .drop:hover { box-shadow:0 4px 14px rgba(20,23,26,.1); }
@@ -155,9 +160,18 @@
           <div class="fld"><label>Best phone or email <span class="opt2">— so we can reach you</span></label><input name="client_contact" placeholder="(555) 123-4567 or you@email.com"></div>
 
           <div class="fld">
-            <label>Which room(s)? <span class="opt2">tap all that apply</span></label>
+            <label>Which room or item? <span class="opt2">tap all that apply</span></label>
             <div id="roomChips" class="chips"></div>
             <input type="hidden" name="rooms" id="f_rooms">
+          </div>
+
+          <div class="fld" id="mfgPanel" style="display:none">
+            <div class="mfgbox">
+              <div class="mfgttl">⚠️ Manufacturer warranty</div>
+              <p>Water heaters, AC units, and appliances are usually covered directly by the <strong>manufacturer's</strong> warranty — that's often the fastest way to get it fixed.</p>
+              <label class="mfgcheck"><input type="checkbox" name="mfg_contacted" value="yes" onchange="onMfgCheck(this)"> Yes — I've already contacted the manufacturer's warranty line.</label>
+              <p class="mfgcall" id="mfgCall">If you haven't yet, please reach out to them first<% if (typeof warrantyPhone !== 'undefined' && warrantyPhone) { %> — or call us and we'll help: <a href="tel:<%= warrantyPhone.replace(/[^0-9+]/g,'') %>" style="color:var(--ink);font-weight:700;text-decoration:none"><%= warrantyPhone %></a><% } %>. The number is usually on a sticker on the unit or in your manual.</p>
+            </div>
           </div>
 
           <div class="fld"><label>Describe the issue</label><textarea name="description" rows="4" placeholder="What's going on? The more detail, the better."></textarea></div>
@@ -184,15 +198,22 @@ function show(id) {
   ['panelChoice','panelEmerg','panelForm'].forEach(p => { var el = document.getElementById(p); if (el) el.style.display = (p === id) ? '' : 'none'; });
   window.scrollTo(0, 0);
 }
-const ROOMS = ['Living Room','Kitchen','Bedroom','Bathroom','Hallway','Exterior'];
+const ROOMS = ['Living Room','Kitchen','Bedroom','Bathroom','Hallway','Exterior','Water Heater','AC','Appliances'];
+const MFG = ['Water Heater','AC','Appliances'];
 let selRooms = [];
 function renderRooms() {
   var box = document.getElementById('roomChips');
   if (!box) return;
   box.innerHTML = ROOMS.map(r => `<span class="chip${selRooms.includes(r)?' on':''}" onclick="togRoom(this.dataset.r)" data-r="${r}"><span class="ck">✓</span>${r}</span>`).join('');
   document.getElementById('f_rooms').value = selRooms.join(', ');
+  updateMfg();
 }
 function togRoom(r) { const i = selRooms.indexOf(r); if (i >= 0) selRooms.splice(i,1); else selRooms.push(r); renderRooms(); }
+function updateMfg() {
+  var show = selRooms.some(function(r){ return MFG.indexOf(r) >= 0; });
+  var p = document.getElementById('mfgPanel'); if (p) p.style.display = show ? '' : 'none';
+}
+function onMfgCheck(cb) { var n = document.getElementById('mfgCall'); if (n) n.style.display = cb.checked ? 'none' : ''; }
 function previewPhotos(input) {
   const box = document.getElementById('thumbs');
   box.innerHTML = '';

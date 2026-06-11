@@ -3327,7 +3327,7 @@ async function getOpenWarrantyCount() {
 app.get('/warranty', async (req, res) => {
   let phone = '';
   try { await initDb(); const { rows: [r] } = await pool.query('SELECT emergency_phone FROM app_settings WHERE id=1'); phone = (r && r.emergency_phone) || ''; } catch (e) {}
-  res.render('warranty', { ok: req.query.ok === '1', err: req.query.err === '1', emergencyPhone: phone });
+  res.render('warranty', { ok: req.query.ok === '1', err: req.query.err === '1', emergencyPhone: phone, warrantyPhone: phone });
 });
 
 app.post('/warranty', upload.array('photos', 12), async (req, res) => {
@@ -3341,11 +3341,19 @@ app.post('/warranty', upload.array('photos', 12), async (req, res) => {
     const rooms = String(b.rooms || '').trim().slice(0, 200);
     const desc = String(b.description || '').trim().slice(0, 2000);
     if (!name || !addr) return res.redirect('/warranty?err=1');   // need a name + address to identify them
+    // Water heater / AC / appliances are manufacturer-warranty items — note whether they've contacted the maker
+    const MFG = ['water heater', 'ac', 'appliances'];
+    const hasMfg = rooms.split(',').map(r => r.trim().toLowerCase()).some(r => MFG.indexOf(r) >= 0);
+    let descFull = desc;
+    if (hasMfg) {
+      const contacted = req.body.mfg_contacted ? 'YES — client already contacted the manufacturer' : 'NO — client has not contacted the manufacturer yet';
+      descFull = (desc ? desc + '\n\n' : '') + '⚙️ Manufacturer-warranty item — ' + contacted + '.';
+    }
     const projectId = await matchProjectByAddress(addr);
     const { rows: [claim] } = await pool.query(
       `INSERT INTO warranty_claims (client_name, client_contact, project_address, project_id, rooms, description, status)
        VALUES ($1,$2,$3,$4,$5,$6,'Open') RETURNING id`,
-      [name, contact || null, addr, projectId, rooms || null, desc || null]);
+      [name, contact || null, addr, projectId, rooms || null, descFull || null]);
     const files = req.files || [];
     for (const f of files) {
       await pool.query('INSERT INTO warranty_photos (claim_id, mime, data) VALUES ($1,$2,$3)', [claim.id, f.mimetype, f.buffer]);
