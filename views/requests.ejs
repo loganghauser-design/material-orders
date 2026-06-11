@@ -39,22 +39,7 @@
   </style>
 </head>
 <body>
-<nav class="nav">
-  <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
-    <a href="/" class="nav-brand" style="text-decoration:none">Buildoly Supply</a>
-    <a href="/deliveries" class="nav-tab">Deliveries</a>
-    <a href="/payments" class="nav-tab">Payments</a>
-    <a href="/driving" class="nav-tab">Driving Log</a>
-    <a href="/inventory" class="nav-tab">Inventory</a>
-    <a href="/requests" class="nav-tab active">Requests<% if (typeof pendingRequests !== 'undefined' && pendingRequests) { %> <span class="navbadge"><%= pendingRequests %></span><% } %></a>
-    <a href="/issues" class="nav-tab">Issues<% if (typeof pendingIssues !== 'undefined' && pendingIssues) { %> <span class="navbadge"><%= pendingIssues %></span><% } %></a>
-    <a href="/warranty-claims" class="nav-tab">Warranty<% if (typeof openWarranty !== 'undefined' && openWarranty) { %> <span class="navbadge"><%= openWarranty %></span><% } %></a>
-    <a href="/suppliers" class="nav-tab">Suppliers</a>
-    <a href="/subs" class="nav-tab">Subs</a>
-    <a href="/settings" class="nav-tab">Settings</a>
-  </div>
-  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
-</nav>
+<%- include('_nav', { active: 'requests' }) %>
 
 <div class="container">
   <div class="page-header"><h1>Material Requests</h1></div>

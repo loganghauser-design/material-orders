@@ -7,21 +7,7 @@
   <link rel="stylesheet" href="/css/app.css">
 </head>
 <body>
-<nav class="nav">
-  <div style="display:flex;align-items:center;gap:1.25rem">
-    <a href="/" class="nav-brand" style="text-decoration:none">Buildoly Supply</a>
-    <a href="/deliveries" class="nav-tab">Deliveries</a>
-    <a href="/payments" class="nav-tab">Payments</a>
-    <a href="/driving" class="nav-tab">Driving Log</a>
-    <a href="/inventory" class="nav-tab">Inventory</a>
-    <a href="/suppliers" class="nav-tab active">Suppliers</a>
-    <a href="/subs" class="nav-tab">Subs</a>
-    <a href="/settings" class="nav-tab">Settings</a>
-  </div>
-  <div class="nav-actions">
-    <a href="/" class="btn btn-ghost">← Back</a>
-  </div>
-</nav>
+<%- include('_nav', { active: 'suppliers' }) %>
 
 <div class="container">
   <div class="page-header"><h1>Suppliers</h1></div>

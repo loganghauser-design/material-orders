@@ -28,6 +28,15 @@ a { color: var(--accent); text-decoration: none; }
 .nav .btn-primary { background: #fff; color: #000; }
 .nav .btn-primary:hover { background: #e6e6e6; }
 
+.nav-left { display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap; }
+.nav-more { position: relative; display: inline-block; }
+.nav-more-btn { background: none; border: none; cursor: pointer; font: inherit; padding: 0; }
+.nav-more-menu { position: absolute; top: 100%; left: 0; margin-top: .5rem; background: #1a1a1d; border: 1px solid #2d2d30; border-radius: 11px; padding: .4rem; min-width: 168px; display: none; z-index: 50; box-shadow: 0 10px 28px rgba(0,0,0,.45); }
+.nav-more-menu.open { display: block; }
+.nav-more-menu a { display: block; padding: .55rem .75rem; color: #cfcfd3; text-decoration: none; border-radius: 8px; font-size: .9rem; }
+.nav-more-menu a:hover { background: #2a2a2e; color: #fff; }
+.nav-more-menu a.on { background: #2a2a2e; color: #fff; }
+
 /* Phone: let the nav wrap onto multiple lines instead of running off the right edge */
 @media (max-width: 760px) {
   .nav { padding: .5rem .8rem; height: auto; flex-wrap: wrap; row-gap: .35rem; }

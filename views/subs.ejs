@@ -101,15 +101,7 @@
 </head>
 <body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
 <% if (isSuper) { %>
-<nav class="nav">
-  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-    <a href="/my" class="nav-brand" style="text-decoration:none">Buildoly</a>
-    <a href="/my" class="nav-tab">My Projects</a>
-    <a href="/subs" class="nav-tab active">Subs</a>
-    <a href="/my/settings" class="nav-tab">⚙ Settings</a>
-  </div>
-  <div class="nav-actions"><form method="POST" action="/logout" style="margin:0"><button type="submit" class="btn btn-ghost">Log out</button></form></div>
-</nav>
+<%- include('_nav', { active: 'subs' }) %>
 <% } else { %>
 <nav class="nav">
   <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
