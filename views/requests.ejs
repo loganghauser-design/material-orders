@@ -28,6 +28,14 @@
     .respond-box { display:flex; gap:.5rem; margin-top:.6rem; }
     .respond-box input { flex:1; padding:.5rem .7rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); font-size:.88rem; }
     .navbadge { background:#cc2222; color:#fff; border-radius:9px; padding:0 6px; font-size:.72rem; }
+    .req.urg-overdue { border-left:5px solid #dc2626; }
+    .req.urg-soon { border-left:5px solid #f59e0b; }
+    .urg-badge { font-size:.7rem; font-weight:800; padding:2px 9px; border-radius:10px; margin-left:.4rem; white-space:nowrap; }
+    .urg-badge.overdue { background:#fee2e2; color:#b91c1c; }
+    .urg-badge.soon { background:#fef3c7; color:#92400e; }
+    .req-toolbar { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-bottom:1.2rem; }
+    .req-toolbar select { padding:.45rem .7rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); font-size:.88rem; }
+    .req-toolbar .clearf { font-size:.84rem; color:var(--muted); text-decoration:none; }
   </style>
 </head>
 <body>
@@ -55,13 +63,41 @@
 
   <% const pending = requests.filter(r => !r.fulfilled); const done = requests.filter(r => r.fulfilled); %>
   <% function pillClass(s){ s=(s||'').toLowerCase(); if(s.includes('delivered'))return 'deliv'; if(s.includes('order'))return 'order'; if(s.includes('rfq'))return 'rfq'; if(s.includes('inventory'))return 'inv'; if(s.includes('issue'))return 'issue'; return 'none'; } %>
+  <%
+    const _today = new Date(); _today.setHours(0,0,0,0);
+    function daysUntil(d){ if(!d) return null; const x = new Date(d); x.setHours(0,0,0,0); return Math.round((x - _today) / 86400000); }
+    function urgencyOf(r){ if (r.fulfilled || !r.needed_by) return ''; const d = daysUntil(r.needed_by); if (d < 0) return 'overdue'; if (d <= 3) return 'soon'; return ''; }
+    // Triage: most time-sensitive first (overdue → soon → later → no date), newest as tiebreak
+    pending.sort((a, b) => {
+      const da = a.needed_by ? daysUntil(a.needed_by) : Infinity;
+      const db = b.needed_by ? daysUntil(b.needed_by) : Infinity;
+      if (da !== db) return da - db;
+      return new Date(b.created_at) - new Date(a.created_at);
+    });
+    const projOpts = [...new Map(requests.filter(r => r.project_id).map(r => [String(r.project_id), r.address || ('Project ' + r.project_id)])).entries()];
+    const supOpts = [...new Set(requests.map(r => r.superName).filter(Boolean))];
+  %>
 
   <% if (!requests.length) { %>
     <div class="req" style="color:var(--muted)">No requests yet. When a super taps “Request Material” on their phone, it shows up here.</div>
   <% } %>
 
-  <% function renderReq(r) { %>
-    <div class="req <%= r.fulfilled ? 'done' : '' %>" id="req_<%= r.id %>">
+  <% if (requests.length) { %>
+  <div class="req-toolbar">
+    <select id="filterProject" onchange="applyReqFilters()">
+      <option value="">All projects</option>
+      <% projOpts.forEach(function(po){ %><option value="<%= po[0] %>"><%= po[1] %></option><% }) %>
+    </select>
+    <select id="filterSuper" onchange="applyReqFilters()">
+      <option value="">All supers</option>
+      <% supOpts.forEach(function(s){ %><option value="<%= s %>"><%= s %></option><% }) %>
+    </select>
+    <a href="#" class="clearf" onclick="document.getElementById('filterProject').value='';document.getElementById('filterSuper').value='';applyReqFilters();return false">Clear</a>
+  </div>
+  <% } %>
+
+  <% function renderReq(r) { var _u = urgencyOf(r); %>
+    <div class="req <%= r.fulfilled ? 'done' : '' %> <%= _u ? 'urg-' + _u : '' %>" id="req_<%= r.id %>" data-project="<%= r.project_id || '' %>" data-super="<%= r.superName %>">
       <div class="req-top">
         <div style="min-width:0">
           <div class="req-items">
@@ -71,7 +107,7 @@
             <strong><%= r.address || 'Project' %></strong> · 👷 <%= r.superName %> ·
             <%= new Date(r.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) %>
           </div>
-          <% if (r.needed_by) { %><div class="req-needed">📅 Needed by <%= new Date(r.needed_by).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) %></div><% } %>
+          <% if (r.needed_by) { %><div class="req-needed">📅 Needed by <%= new Date(r.needed_by).toLocaleDateString('en-US', { weekday:'short', month:'short', day:'numeric' }) %><% if (_u === 'overdue') { %><span class="urg-badge overdue">OVERDUE</span><% } else if (_u === 'soon') { %><span class="urg-badge soon">DUE SOON</span><% } %></div><% } %>
           <% if (r.note) { %><div class="req-note"><%= r.note %></div><% } %>
         </div>
         <span class="badge-<%= r.fulfilled ? 'done' : 'pending' %>"><%= r.fulfilled ? 'FULFILLED' : 'PENDING' %></span>
@@ -126,6 +162,24 @@ async function del(id) {
   const r = await fetch('/requests/' + id + '/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
   const d = await r.json();
   if (d.ok) document.getElementById('req_' + id).remove(); else alert('Could not delete.');
+}
+function applyReqFilters() {
+  const pEl = document.getElementById('filterProject'), sEl = document.getElementById('filterSuper');
+  const p = pEl ? pEl.value : '', s = sEl ? sEl.value : '';
+  document.querySelectorAll('.req[data-super]').forEach(c => {
+    const okP = !p || c.dataset.project === p;
+    const okS = !s || c.dataset.super === s;
+    c.style.display = (okP && okS) ? '' : 'none';
+  });
+  // Hide a section divider when every card under it is filtered out
+  document.querySelectorAll('.sec-divider').forEach(div => {
+    let any = false, el = div.nextElementSibling;
+    while (el && !el.classList.contains('sec-divider')) {
+      if (el.classList.contains('req') && el.style.display !== 'none') { any = true; break; }
+      el = el.nextElementSibling;
+    }
+    div.style.display = any ? '' : 'none';
+  });
 }
 </script>
 </body>
