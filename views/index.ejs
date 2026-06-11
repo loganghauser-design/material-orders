@@ -141,8 +141,10 @@ async function saveGridItem(sel) {
   STATUS_CLASSES.forEach(c => sel.classList.remove(c));
   sel.classList.add(statusToClass(status));
   try {
-    await postJson(`/projects/${projectId}/items/${code}`, { status, statusOnly: true });
-    showToast('Saved');
+    const data = await postJson(`/projects/${projectId}/items/${code}`, { status, statusOnly: true });
+    if (data.inv && data.inv.drewDown) showToast('✓ Drew down ' + data.inv.drewDown + ' from inventory');
+    else if (data.inv && data.inv.restored) showToast('↩ Restored ' + data.inv.restored + ' to inventory');
+    else showToast('Saved');
   } catch(e) {
     handleSaveError(e);
   }

@@ -2230,9 +2230,10 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
   // If this item just became delivered, auto-clear any field requests it completes.
   if (['Delivered', 'Delivered from Inv.'].includes(status)) autoFulfillRequests(req.params.id);
   // Keep inventory in sync: "Delivered from Inv." draws the held stock down; "In Inventory" restores it.
-  if (status === 'Delivered from Inv.') syncHeldStockForCode(req.params.id, req.params.code, true);
-  else if (status === 'In Inventory') syncHeldStockForCode(req.params.id, req.params.code, false);
-  res.json({ ok: true });
+  let inv = null;
+  if (status === 'Delivered from Inv.') { const n = await syncHeldStockForCode(req.params.id, req.params.code, true); if (n) inv = { drewDown: n }; }
+  else if (status === 'In Inventory') { const n = await syncHeldStockForCode(req.params.id, req.params.code, false); if (n) inv = { restored: n }; }
+  res.json({ ok: true, inv });
 });
 
 // Format a YYYY-MM-DD as a friendly chat date (Tue, Jun 9). Short form omits the weekday.

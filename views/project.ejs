@@ -1354,7 +1354,9 @@ async function saveItem(el) {
     let data = null;
     try { data = await r.json(); } catch(e) { throw new Error('LOGGED_OUT'); }
     if (!r.ok || !data.ok) throw new Error('SAVE_FAILED');
-    showToast('Saved');
+    if (data.inv && data.inv.drewDown) showToast('✓ Drew down ' + data.inv.drewDown + ' from inventory');
+    else if (data.inv && data.inv.restored) showToast('↩ Restored ' + data.inv.restored + ' to inventory');
+    else showToast('Saved');
   } catch(e) {
     if (e.message === 'LOGGED_OUT') {
       showToast('Not saved — you were signed out. Reloading…', true);
