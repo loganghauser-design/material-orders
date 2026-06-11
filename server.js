@@ -1400,6 +1400,9 @@ async function initDb() {
 
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS home_address VARCHAR(500);
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS emergency_phone VARCHAR(40);
+    ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS warranty_doc_name VARCHAR(255);
+    ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS warranty_doc_mime VARCHAR(255);
+    ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS warranty_doc_data BYTEA;
 
     -- Client-facing warranty claims (submitted via the public /warranty page)
     CREATE TABLE IF NOT EXISTS warranty_claims (
@@ -2493,11 +2496,11 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
 app.get('/settings', requireAuth, async (req, res) => {
   try {
     await initDb();
-    const { rows: [r] } = await pool.query('SELECT attachment_name, updated_at, emergency_phone FROM app_settings WHERE id=1');
+    const { rows: [r] } = await pool.query('SELECT attachment_name, updated_at, emergency_phone, warranty_doc_name FROM app_settings WHERE id=1');
     const suppliers = await getSuppliers();
     const phones = await getSuperPhones();
     const supers = SUPERS.map(s => ({ email: s.email, name: s.name, phone: phones[s.email.toLowerCase()] || '' }));
-    res.render('settings', { attachmentName: r ? r.attachment_name : null, updatedAt: r ? r.updated_at : null, emergencyPhone: r ? (r.emergency_phone || '') : '', STAGES, suppliers, supers, savedSupers: req.query.savedSupers === '1', savedEmergency: req.query.savedEmergency === '1' });
+    res.render('settings', { attachmentName: r ? r.attachment_name : null, updatedAt: r ? r.updated_at : null, emergencyPhone: r ? (r.emergency_phone || '') : '', warrantyDocName: r ? (r.warranty_doc_name || '') : '', STAGES, suppliers, supers, savedSupers: req.query.savedSupers === '1', savedEmergency: req.query.savedEmergency === '1', savedDoc: req.query.savedDoc === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -2534,6 +2537,22 @@ app.post('/settings/emergency-phone', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// Upload the manufacturer-warranty document shown to clients who tap "No"
+app.post('/settings/warranty-doc', requireAuth, upload.single('warranty_doc'), async (req, res) => {
+  if (!req.file) return res.redirect('/settings#warranty');
+  await pool.query(
+    `INSERT INTO app_settings (id, warranty_doc_name, warranty_doc_mime, warranty_doc_data, updated_at)
+     VALUES (1, $1, $2, $3, NOW())
+     ON CONFLICT (id) DO UPDATE SET warranty_doc_name=EXCLUDED.warranty_doc_name,
+       warranty_doc_mime=EXCLUDED.warranty_doc_mime, warranty_doc_data=EXCLUDED.warranty_doc_data, updated_at=NOW()`,
+    [req.file.originalname, req.file.mimetype, req.file.buffer]);
+  res.redirect('/settings?savedDoc=1#warranty');
+});
+app.post('/settings/warranty-doc/delete', requireAuth, async (req, res) => {
+  await pool.query('UPDATE app_settings SET warranty_doc_name=NULL, warranty_doc_mime=NULL, warranty_doc_data=NULL WHERE id=1');
+  res.redirect('/settings#warranty');
 });
 
 app.post('/settings/attachment', requireAuth, upload.single('attachment'), async (req, res) => {
@@ -3325,9 +3344,21 @@ async function getOpenWarrantyCount() {
 
 // Public landing + form (share this link with clients)
 app.get('/warranty', async (req, res) => {
-  let phone = '';
-  try { await initDb(); const { rows: [r] } = await pool.query('SELECT emergency_phone FROM app_settings WHERE id=1'); phone = (r && r.emergency_phone) || ''; } catch (e) {}
-  res.render('warranty', { ok: req.query.ok === '1', err: req.query.err === '1', emergencyPhone: phone, warrantyPhone: phone });
+  let phone = '', hasDoc = false;
+  try { await initDb(); const { rows: [r] } = await pool.query('SELECT emergency_phone, (warranty_doc_data IS NOT NULL) AS has_doc FROM app_settings WHERE id=1'); phone = (r && r.emergency_phone) || ''; hasDoc = !!(r && r.has_doc); } catch (e) {}
+  res.render('warranty', { ok: req.query.ok === '1', err: req.query.err === '1', emergencyPhone: phone, warrantyPhone: phone, hasWarrantyDoc: hasDoc });
+});
+
+// Public: serve the manufacturer-warranty document clients view when they tap "No"
+app.get('/warranty-doc', async (req, res) => {
+  try {
+    await initDb();
+    const { rows: [r] } = await pool.query('SELECT warranty_doc_name, warranty_doc_mime, warranty_doc_data FROM app_settings WHERE id=1');
+    if (!r || !r.warranty_doc_data) return res.status(404).send('No document available.');
+    res.setHeader('Content-Type', r.warranty_doc_mime || 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="' + String(r.warranty_doc_name || 'warranty.pdf').replace(/[^\w.\- ]/g, '_') + '"');
+    res.send(r.warranty_doc_data);
+  } catch (err) { res.status(500).send('Error'); }
 });
 
 app.post('/warranty', upload.array('photos', 12), async (req, res) => {
@@ -3346,7 +3377,9 @@ app.post('/warranty', upload.array('photos', 12), async (req, res) => {
     const hasMfg = rooms.split(',').map(r => r.trim().toLowerCase()).some(r => MFG.indexOf(r) >= 0);
     let descFull = desc;
     if (hasMfg) {
-      const contacted = req.body.mfg_contacted ? 'YES — client already contacted the manufacturer' : 'NO — client has not contacted the manufacturer yet';
+      const mc = String(req.body.mfg_contacted || '').toLowerCase();
+      const contacted = mc === 'yes' ? 'YES — client already contacted the manufacturer'
+        : (mc === 'no' ? 'NO — client has not contacted the manufacturer (was shown the document)' : 'not answered');
       descFull = (desc ? desc + '\n\n' : '') + '⚙️ Manufacturer-warranty item — ' + contacted + '.';
     }
     const projectId = await matchProjectByAddress(addr);

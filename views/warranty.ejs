@@ -51,8 +51,11 @@
     .mfgbox { background:#fff; border-radius:16px; padding:1.05rem 1.15rem; box-shadow:0 1px 3px rgba(20,23,26,.05); }
     .mfgttl { font-weight:800; font-size:.95rem; margin-bottom:.1rem; }
     .mfgbox p { font-size:.87rem; color:var(--muted); line-height:1.5; margin:.35rem 0; }
-    .mfgcheck { display:flex; gap:.55rem; align-items:flex-start; font-size:.92rem; font-weight:600; color:var(--ink); margin:.75rem 0 .2rem; cursor:pointer; line-height:1.4; }
-    .mfgcheck input { margin-top:.15rem; width:19px; height:19px; flex:none; accent-color:var(--ink); }
+    .mfgyn { display:flex; gap:.6rem; margin:.55rem 0 .3rem; }
+    .ynbtn { flex:1; max-width:140px; padding:.7rem; border:1.5px solid #e3e3e6; border-radius:13px; background:#fff; font-size:1rem; font-weight:800; cursor:pointer; color:var(--ink); transition:all .12s; }
+    .ynbtn:hover { border-color:#15161a; }
+    .ynbtn.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+    .mfgdocbtn { display:inline-flex; align-items:center; gap:.45rem; margin-top:.3rem; padding:.75rem 1.15rem; background:var(--ink); color:#fff; border-radius:13px; text-decoration:none; font-weight:800; font-size:.95rem; }
 
     .drop { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; width:100%; padding:1.5rem 1rem; border-radius:18px; background:#fff; color:var(--muted); cursor:pointer; box-shadow:0 1px 3px rgba(20,23,26,.05); transition:box-shadow .16s; text-align:center; }
     .drop:hover { box-shadow:0 4px 14px rgba(20,23,26,.1); }
@@ -169,8 +172,22 @@
             <div class="mfgbox">
               <div class="mfgttl">⚠️ Manufacturer warranty</div>
               <p>Water heaters, AC units, and appliances are usually covered directly by the <strong>manufacturer's</strong> warranty — that's often the fastest way to get it fixed.</p>
-              <label class="mfgcheck"><input type="checkbox" name="mfg_contacted" value="yes" onchange="onMfgCheck(this)"> Yes — I've already contacted the manufacturer's warranty line.</label>
-              <p class="mfgcall" id="mfgCall">If you haven't yet, please reach out to them first<% if (typeof warrantyPhone !== 'undefined' && warrantyPhone) { %> — or call us and we'll help: <a href="tel:<%= warrantyPhone.replace(/[^0-9+]/g,'') %>" style="color:var(--ink);font-weight:700;text-decoration:none"><%= warrantyPhone %></a><% } %>. The number is usually on a sticker on the unit or in your manual.</p>
+              <p style="font-weight:700;color:var(--ink);margin-top:.55rem">Have you contacted the manufacturer's warranty line yet?</p>
+              <div class="mfgyn">
+                <button type="button" class="ynbtn" data-v="yes" onclick="setMfg('yes')">Yes</button>
+                <button type="button" class="ynbtn" data-v="no" onclick="setMfg('no')">No</button>
+              </div>
+              <input type="hidden" name="mfg_contacted" id="mfgVal" value="">
+              <div id="mfgYesNote" style="display:none"><p style="color:#1a8a4f;font-weight:600">Great — go ahead and send your request below.</p></div>
+              <div id="mfgNoNote" style="display:none">
+                <% if (typeof hasWarrantyDoc !== 'undefined' && hasWarrantyDoc) { %>
+                  <p>No problem — please review this first, it explains how to reach the manufacturer:</p>
+                  <a class="mfgdocbtn" href="/warranty-doc" target="_blank">📄 View the document</a>
+                <% } else { %>
+                  <p>No problem — please reach out to the manufacturer first<% if (typeof warrantyPhone !== 'undefined' && warrantyPhone) { %>, or call us and we'll help: <a href="tel:<%= warrantyPhone.replace(/[^0-9+]/g,'') %>" style="color:var(--ink);font-weight:700;text-decoration:none"><%= warrantyPhone %></a><% } %>. The number is usually on a sticker on the unit or in your manual.</p>
+                <% } %>
+                <p style="font-size:.8rem;color:var(--muted);margin-top:.5rem">You can still send your request below and we'll help coordinate.</p>
+              </div>
             </div>
           </div>
 
@@ -212,8 +229,14 @@ function togRoom(r) { const i = selRooms.indexOf(r); if (i >= 0) selRooms.splice
 function updateMfg() {
   var show = selRooms.some(function(r){ return MFG.indexOf(r) >= 0; });
   var p = document.getElementById('mfgPanel'); if (p) p.style.display = show ? '' : 'none';
+  if (!show) setMfg('');   // reset the yes/no answer when no manufacturer item is selected
 }
-function onMfgCheck(cb) { var n = document.getElementById('mfgCall'); if (n) n.style.display = cb.checked ? 'none' : ''; }
+function setMfg(v) {
+  var val = document.getElementById('mfgVal'); if (val) val.value = v;
+  document.querySelectorAll('.mfgyn .ynbtn').forEach(function(b){ b.classList.toggle('on', b.dataset.v === v); });
+  var yes = document.getElementById('mfgYesNote'); if (yes) yes.style.display = (v === 'yes') ? '' : 'none';
+  var no = document.getElementById('mfgNoNote'); if (no) no.style.display = (v === 'no') ? '' : 'none';
+}
 function previewPhotos(input) {
   const box = document.getElementById('thumbs');
   box.innerHTML = '';

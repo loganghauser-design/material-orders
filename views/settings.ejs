@@ -132,6 +132,34 @@
       </div>
       <div class="form-actions"><button type="submit" class="btn btn-primary">Save emergency number</button></div>
     </form>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:1.4rem 0">
+
+    <h3 style="font-size:1rem;font-weight:700;margin-bottom:.3rem">📄 Manufacturer warranty document</h3>
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:.9rem">
+      Shown to clients who select a manufacturer-warranty item (Water Heater / AC / Appliances) on the warranty form and tap <strong>“No”</strong> when asked if they've contacted the manufacturer.
+    </p>
+    <% if (typeof savedDoc !== 'undefined' && savedDoc) { %>
+      <div class="error-msg" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a">✓ Document saved.</div>
+    <% } %>
+    <% if (typeof warrantyDocName !== 'undefined' && warrantyDocName) { %>
+      <div class="current-attachment" style="margin-bottom:1rem">
+        <div>
+          <div style="font-weight:600">📄 <%= warrantyDocName %></div>
+          <div style="font-size:.8rem;color:var(--muted)"><a href="/warranty-doc" target="_blank">View current document →</a></div>
+        </div>
+        <form method="POST" action="/settings/warranty-doc/delete" onsubmit="return confirm('Remove the warranty document?')">
+          <button type="submit" class="btn btn-danger btn-sm">Remove</button>
+        </form>
+      </div>
+    <% } %>
+    <form method="POST" action="/settings/warranty-doc" enctype="multipart/form-data">
+      <div class="form-group">
+        <label><%= (typeof warrantyDocName !== 'undefined' && warrantyDocName) ? 'Replace the document' : 'Upload a PDF' %></label>
+        <input type="file" name="warranty_doc" accept="application/pdf,image/*" required>
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary"><%= (typeof warrantyDocName !== 'undefined' && warrantyDocName) ? 'Replace document' : 'Upload document' %></button></div>
+    </form>
   </div>
 
   <div class="card" style="margin-top:1.5rem">
