@@ -3417,20 +3417,26 @@ async function bucketSortOrder(category, group) {
 }
 
 // Add a subcontractor
-app.post('/subs', requireAuth, async (req, res) => {
+app.post('/subs', requireAuth, upload.array('photos', 12), async (req, res) => {
   try {
     const b = req.body;
     if (!(b.company || b.owner || '').trim()) return res.redirect('/subs');
     // Use the chosen Section if provided, else infer from the Type
     const cat = (b.category === 'gc' || b.category === 'sub') ? b.category : (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
-    const grp = bucketForStatus(cat, b.status);
+    // New contractors start as "Under Review" unless a status was explicitly chosen
+    const status = (b.status && b.status.trim()) ? b.status.trim() : 'Under Review';
+    const grp = bucketForStatus(cat, status);
     const so = await bucketSortOrder(cat, grp);
-    await pool.query(
+    const { rows: [sub] } = await pool.query(
       `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, notes, group_label, category, sort_order, referenced_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-      [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
+      [b.company || null, b.location || null, b.type || null, status, b.owner || null,
        b.email || null, b.phone || null, b.notes || null, grp, cat, so, b.referenced_by || null]
     );
+    for (const f of (req.files || [])) {
+      await pool.query('INSERT INTO sub_photos (sub_id, filename, mime, data) VALUES ($1,$2,$3,$4)',
+        [sub.id, f.originalname, f.mimetype, f.buffer]);
+    }
     res.redirect('/subs?added=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });

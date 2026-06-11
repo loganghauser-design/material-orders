@@ -43,6 +43,31 @@
     #modalPhotos img { width:60px; height:60px; }
     .addphotos { display:inline-flex; align-items:center; gap:.4rem; padding:.55rem 1rem; border:1.5px dashed var(--border); border-radius:9px; cursor:pointer; font-size:.92rem; font-weight:600; background:var(--bg); }
     .addphotos:hover { border-color:#111; }
+
+    /* ── Phone: stack each contractor into a readable card ── */
+    @media (max-width: 760px) {
+      .subs-toolbar { flex-wrap:wrap; }
+      .subs-toolbar input[type="search"] { flex:1 1 100%; }
+      .tbl-wrap { overflow-x:visible; }
+      .subs-table { border:none; }
+      .subs-table thead { display:none; }
+      .subs-table, .subs-table tbody { display:block; width:100%; }
+      .subs-table tr.subhdr { display:block; margin:1.1rem 0 .5rem; }
+      .subs-table tr.subhdr td { display:block; padding:.4rem .2rem; }
+      .subs-table tr:not(.subhdr) { display:block; border:1px solid var(--border); border-radius:13px; padding:.8rem .95rem; margin:0 0 .8rem; background:var(--surface); box-shadow:0 1px 4px rgba(0,0,0,.04); }
+      .subs-table tr:not(.subhdr) td { display:block; border:none; padding:.14rem 0; font-size:.95rem; }
+      .subs-table .drag-h { display:none; }
+      .subs-table .co { font-size:1.15rem; font-weight:800; margin-bottom:.2rem; }
+      .subs-table td[data-label]:not(:empty)::before { content:attr(data-label) ": "; font-weight:700; color:var(--muted); font-size:.76rem; text-transform:uppercase; letter-spacing:.03em; }
+      .subs-table .notes { white-space:normal; }
+      .subs-table .note-clip { -webkit-line-clamp:unset; max-height:none; }
+      .subs-table .spill { font-size:1rem; padding:.4rem .6rem; }
+      .subs-table .row-actions { display:flex; flex-wrap:wrap; align-items:center; gap:.7rem; margin-top:.7rem; padding-top:.6rem; border-top:1px dashed var(--border); }
+      .subs-table .moveSel { max-width:60%; font-size:.85rem; }
+      .subs-table .row-actions button, .subs-table .row-actions label.upl { font-size:1.25rem; padding:.45rem .7rem; }
+      .thumbs img { width:64px; height:64px; }
+      .modal-card { width:96vw; max-width:96vw; max-height:92vh; overflow-y:auto; }
+    }
     .row-actions { white-space:nowrap; }
     .row-actions button, .row-actions label.upl { font-size:.85rem; padding:.2rem .4rem; border:1px solid var(--border); background:var(--surface); border-radius:6px; cursor:pointer; line-height:1; }
     .moveSel { font-size:.74rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); cursor:pointer; max-width:130px; }
@@ -192,20 +217,20 @@
                 <td class="co"><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
                 </td>
-                <td><%= s.location || '' %></td>
-                <td><%= s.type || '' %></td>
-                <td>
+                <td data-label="Location"><%= s.location || '' %></td>
+                <td data-label="Trade"><%= s.type || '' %></td>
+                <td data-label="Status">
                   <select class="spill <%= pillClass(s.status) %>" data-id="<%= s.id %>" onchange="changeStatus(this)">
                     <option value="">—</option>
                     <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>" <%= s.status===o?'selected':'' %>><%= o %></option><% }) %>
                     <% if (s.status && STATUS_OPTS.indexOf(s.status) < 0) { %><option value="<%= s.status %>" selected><%= s.status %></option><% } %>
                   </select>
                 </td>
-                <td><%= s.owner || '' %></td>
-                <td><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
-                <td><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
-                <td class="refby"><%= s.referenced_by || '' %></td>
-                <td class="notes"><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
+                <td data-label="Contact"><%= s.owner || '' %></td>
+                <td data-label="Email"><% if (s.email) { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %></td>
+                <td data-label="Phone"><% if (s.phone) { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %></td>
+                <td class="refby" data-label="Ref. by"><%= s.referenced_by || '' %></td>
+                <td class="notes" data-label="Notes"><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
                 <td class="row-actions">
                   <select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
                     <option value="">Move…</option>
@@ -239,7 +264,7 @@
 <div class="modal-bk" id="subModal">
   <div class="modal-card">
     <h2 id="modalTitle">Add Subcontractor</h2>
-    <form id="subForm" method="POST" action="/subs">
+    <form id="subForm" method="POST" action="/subs" enctype="multipart/form-data">
       <input type="hidden" id="editId" value="">
       <div class="mg"><label>Adding to which list?</label>
         <div class="seg" id="catSeg">
@@ -275,9 +300,9 @@
       <div class="mg"><label>Referenced by <span style="font-weight:400;color:var(--muted)">— how you found them</span></label><input name="referenced_by" id="f_referenced_by" placeholder="e.g. Referral from Bobby · Google · past project"></div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
       <div class="mg" id="photosField" style="display:none">
-        <label>Photos <span style="font-weight:400;color:var(--muted)">— work, vehicle, job site. Add several at once, or come back and add more anytime.</span></label>
+        <label>Photos <span id="photosHint" style="font-weight:400;color:var(--muted)">— work, vehicle, job site.</span></label>
         <div id="modalPhotos" class="thumbs" style="margin-bottom:.55rem"></div>
-        <label class="addphotos">📷 Add photos<input type="file" id="modalPhotoInput" accept="image/*" multiple style="display:none" onchange="uploadModalPhotos()"></label>
+        <label class="addphotos">📷 Add photos<input type="file" name="photos" id="modalPhotoInput" accept="image/*" multiple style="display:none" onchange="onPhotoInput()"></label>
         <span id="photoUploading" style="display:none;font-size:.82rem;color:var(--muted);margin-left:.6rem">Uploading…</span>
       </div>
       <input type="hidden" name="group_label" id="f_group">
@@ -458,8 +483,12 @@ function openAdd() {
   setLocsFromString('');
   setTradesFromString('');
   setCat('sub');   // default new entries to Subcontractor — tap the toggle for GC
+  document.getElementById('f_status').value = 'Under Review';   // new contractors start Under Review
   document.getElementById('delBtn').style.display = 'none';   // no delete when adding
-  document.getElementById('photosField').style.display = 'none';   // save first, then add photos
+  document.getElementById('photosField').style.display = '';   // can attach photos while adding
+  document.getElementById('photosHint').textContent = '— work, vehicle, job site. They upload when you tap Save.';
+  document.getElementById('modalPhotos').innerHTML = '';
+  document.getElementById('modalPhotoInput').value = '';
   document.getElementById('subModal').classList.add('show');
 }
 function openEdit(s, photos) {
@@ -478,9 +507,26 @@ function openEdit(s, photos) {
   document.getElementById('f_group').value = s.group_label || '';
   document.getElementById('delBtn').style.display = '';   // allow deleting when editing
   document.getElementById('photosField').style.display = '';
+  document.getElementById('photosHint').textContent = '— work, vehicle, job site. Add several at once, or come back and add more anytime.';
   renderModalPhotos(photos || []);
   document.getElementById('modalPhotoInput').value = '';
   document.getElementById('subModal').classList.add('show');
+}
+// In edit mode photos upload immediately; in add mode they ride along with the form on Save.
+function onPhotoInput() {
+  if (document.getElementById('editId').value) uploadModalPhotos();
+  else previewAddPhotos();
+}
+function previewAddPhotos() {
+  const input = document.getElementById('modalPhotoInput');
+  const box = document.getElementById('modalPhotos');
+  box.innerHTML = '';
+  Array.from(input.files || []).forEach(f => {
+    const span = document.createElement('span'); span.className = 'thumb';
+    const img = document.createElement('img'); img.src = URL.createObjectURL(f);
+    span.appendChild(img);
+    box.appendChild(span);
+  });
 }
 function photoThumbHtml(pid) {
   return `<span class="thumb"><a href="/sub-photo/${pid}" target="_blank"><img src="/sub-photo/${pid}"></a><span class="thx" onclick="delPhoto(${pid}, this)" title="Remove photo">✕</span></span>`;
