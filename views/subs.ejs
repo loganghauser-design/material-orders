@@ -61,6 +61,7 @@
     .trade-chip.on { background:#111; color:#fff; border-color:#111; }
     .sortbtn { font-size:.82rem; padding:.32rem .8rem; border:1px solid var(--border); border-radius:8px; text-decoration:none; color:var(--text); background:var(--surface); }
     .sortbtn.on { background:#111; color:#fff; border-color:#111; }
+    .vetsel { font-size:.82rem; padding:.3rem .5rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
     .subs-table .refby { color:var(--muted); font-size:.8rem; max-width:160px; }
   </style>
 </head>
@@ -143,8 +144,14 @@
     <div class="sub-section" data-section>
       <div class="sec-title sec-<%= sec.key %>"><%= sec.title %> <span class="cnt">(<%= sec.list.length %>)</span></div>
       <% if (sec.list.length) { %>
-      <div style="display:flex;align-items:center;gap:.5rem;margin:.1rem 0 .7rem">
-        <span style="font-size:.82rem;color:var(--muted)">Group by:</span>
+      <div style="display:flex;align-items:center;gap:.5rem;margin:.1rem 0 .7rem;flex-wrap:wrap">
+        <span style="font-size:.82rem;color:var(--muted)">Vetting:</span>
+        <% var vetOpts = [...new Set(sec.list.map(s => s.status).filter(Boolean))].sort(); %>
+        <select id="vetFilter_<%= sec.key %>" class="vetsel" onchange="filterSubs()">
+          <option value="">All</option>
+          <% vetOpts.forEach(v => { %><option value="<%= v %>"><%= v %></option><% }) %>
+        </select>
+        <span style="font-size:.82rem;color:var(--muted);margin-left:.7rem">Group by:</span>
         <a href="/subs?<%= sec.key === 'gc' ? ('gcSort=status&subSort=' + subSort) : ('gcSort=' + gcSort + '&subSort=status') %>" class="sortbtn <%= secSort !== 'trade' ? 'on' : '' %>">Status</a>
         <a href="/subs?<%= sec.key === 'gc' ? ('gcSort=trade&subSort=' + subSort) : ('gcSort=' + gcSort + '&subSort=trade') %>" class="sortbtn <%= secSort === 'trade' ? 'on' : '' %>">Trade</a>
       </div>
@@ -168,7 +175,7 @@
             <% groups.forEach(g => { %>
               <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11"><%= g %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; %>
-              <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+              <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
                 <td class="co"><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><% }) %></div><% } %>
@@ -281,10 +288,14 @@
 function filterSubs() {
   const q = document.getElementById('subSearch').value.toLowerCase().trim();
   const tf = document.getElementById('typeFilter').value;
+  const vg = document.getElementById('vetFilter_gc'), vs = document.getElementById('vetFilter_sub');
+  const vet = { gc: vg ? vg.value.toLowerCase() : '', sub: vs ? vs.value.toLowerCase() : '' };
   document.querySelectorAll('tr[data-search]').forEach(r => {
     const okQ = !q || r.dataset.search.includes(q);
     const okT = !tf || r.dataset.type.split(',').map(x => x.trim()).includes(tf);
-    r.style.display = (okQ && okT) ? '' : 'none';
+    const v = vet[r.dataset.cat] || '';
+    const okV = !v || (r.dataset.status || '') === v;
+    r.style.display = (okQ && okT && okV) ? '' : 'none';
   });
   // Hide sub-section headers that have no visible rows beneath them
   document.querySelectorAll('.subs-table tbody').forEach(tb => {
