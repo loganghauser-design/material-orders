@@ -15,6 +15,7 @@
     <a href="/driving" class="nav-tab">Driving Log</a>
     <a href="/inventory" class="nav-tab">Inventory</a>
     <a href="/requests" class="nav-tab">Requests<% if (typeof pendingRequests !== 'undefined' && pendingRequests) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= pendingRequests %></span><% } %></a>
+    <a href="/warranty-claims" class="nav-tab">Warranty<% if (typeof openWarranty !== 'undefined' && openWarranty) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= openWarranty %></span><% } %></a>
     <a href="/suppliers" class="nav-tab">Suppliers</a>
     <a href="/subs" class="nav-tab">Subs</a>
     <a href="/settings" class="nav-tab active">Settings</a>
@@ -78,6 +79,25 @@
     </form>
   </div>
 
+  <div class="card" style="margin-top:1.5rem" id="warranty">
+    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">🏠 Warranty</h2>
+    <p style="color:var(--muted);font-size:.875rem;margin-bottom:1rem">
+      Share this link with clients to report warranty issues (or reach you in an emergency):
+      <br><a href="/warranty" target="_blank" style="font-weight:700">Open the client warranty page →</a>
+      <br><span style="font-size:.8rem">Link: <code id="warrantyUrl">/warranty</code> <button type="button" class="btn btn-ghost btn-sm" onclick="copyWarranty()">Copy</button></span>
+    </p>
+    <% if (typeof savedEmergency !== 'undefined' && savedEmergency) { %>
+      <div class="error-msg" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a">✓ Emergency number saved.</div>
+    <% } %>
+    <form method="POST" action="/settings/emergency-phone">
+      <div class="form-group">
+        <label>Emergency phone <span style="color:var(--muted);font-weight:400">— shown to clients who tap “Emergency” to call or text</span></label>
+        <input type="tel" name="emergency_phone" value="<%= emergencyPhone || '' %>" placeholder="(555) 123-4567" style="max-width:280px">
+      </div>
+      <div class="form-actions"><button type="submit" class="btn btn-primary">Save emergency number</button></div>
+    </form>
+  </div>
+
   <div class="card" style="margin-top:1.5rem">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">Suppliers</h2>
     <p style="color:var(--muted);font-size:.875rem">
@@ -85,5 +105,9 @@
     </p>
   </div>
 </div>
+<script>
+  (function(){ var u = location.origin + '/warranty'; var el = document.getElementById('warrantyUrl'); if (el) el.textContent = u; })();
+  function copyWarranty(){ navigator.clipboard.writeText(location.origin + '/warranty').then(function(){}, function(){}); }
+</script>
 </body>
 </html>

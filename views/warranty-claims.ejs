@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Warranty — Buildoly Supply</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .wc { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1rem; }
+    .wc.resolved { opacity:.6; }
+    .wc-top { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; flex-wrap:wrap; }
+    .wc-who { font-weight:800; font-size:1.05rem; }
+    .wc-proj { color:var(--muted); font-size:.86rem; margin-top:.15rem; }
+    .wc-proj a { color:var(--accent); }
+    .wc-unmatched { color:#b45309; font-style:italic; }
+    .wc-rooms { margin:.55rem 0 .2rem; }
+    .room-pill { display:inline-block; background:#eef2ff; color:#3730a3; font-size:.74rem; font-weight:700; padding:2px 9px; border-radius:10px; margin:0 .35rem .35rem 0; }
+    .wc-desc { font-size:.95rem; line-height:1.5; white-space:pre-wrap; word-break:break-word; margin:.3rem 0; }
+    .wc-contact { font-size:.88rem; margin-top:.3rem; }
+    .wc-contact a { color:var(--accent); }
+    .wc-photos { display:flex; flex-wrap:wrap; gap:.5rem; margin:.6rem 0 .2rem; }
+    .wc-photos a img { width:96px; height:96px; object-fit:cover; border-radius:9px; border:1px solid var(--border); }
+    .wc-actions { margin-top:.7rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+    .wc-actions select { padding:.4rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); font-size:.86rem; }
+    .badge { padding:2px 11px; border-radius:11px; font-size:.74rem; font-weight:700; white-space:nowrap; }
+    .badge-open { background:#fee2e2; color:#b91c1c; }
+    .badge-progress { background:#fef3c7; color:#92400e; }
+    .badge-resolved { background:#dcfce7; color:#166534; }
+    .sec-divider { font-size:.8rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:700; margin:1.5rem 0 .7rem; }
+    .navbadge { background:#cc2222; color:#fff; border-radius:9px; padding:0 6px; font-size:.72rem; }
+    .superhead { display:flex; align-items:center; justify-content:space-between; padding:1rem 1.2rem; background:#111; color:#fff; }
+    .superhead .brand { font-weight:800; font-size:1.1rem; }
+    .superhead a { color:#fff; text-decoration:none; font-size:.9rem; }
+  </style>
+</head>
+<body>
+<% if (isSuper) { %>
+<div class="superhead">
+  <span class="brand">Buildoly — Warranty</span>
+  <span><a href="/my">← My projects</a> &nbsp;·&nbsp; <a href="/logout">Sign out</a></span>
+</div>
+<% } else { %>
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
+    <a href="/" class="nav-brand" style="text-decoration:none">Buildoly Supply</a>
+    <a href="/deliveries" class="nav-tab">Deliveries</a>
+    <a href="/payments" class="nav-tab">Payments</a>
+    <a href="/inventory" class="nav-tab">Inventory</a>
+    <a href="/requests" class="nav-tab">Requests<% if (typeof pendingRequests !== 'undefined' && pendingRequests) { %> <span class="navbadge"><%= pendingRequests %></span><% } %></a>
+    <a href="/issues" class="nav-tab">Issues<% if (typeof pendingIssues !== 'undefined' && pendingIssues) { %> <span class="navbadge"><%= pendingIssues %></span><% } %></a>
+    <a href="/warranty-claims" class="nav-tab active">Warranty<% if (typeof openWarranty !== 'undefined' && openWarranty) { %> <span class="navbadge"><%= openWarranty %></span><% } %></a>
+    <a href="/suppliers" class="nav-tab">Suppliers</a>
+    <a href="/subs" class="nav-tab">Subs</a>
+    <a href="/settings" class="nav-tab">Settings</a>
+  </div>
+  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
+</nav>
+<% } %>
+
+<div class="container">
+  <div class="page-header"><h1>Warranty Claims</h1></div>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:720px">
+    Submitted by clients through the public warranty link. Share the link from Settings.
+  </p>
+
+  <% const open = claims.filter(c => c.status !== 'Resolved'); const done = claims.filter(c => c.status === 'Resolved'); %>
+  <% if (!claims.length) { %>
+    <div class="wc" style="color:var(--muted)">No warranty claims yet. When a client submits one through the warranty link, it shows up here.</div>
+  <% } %>
+
+  <% function badgeClass(s){ if(s==='Resolved')return 'resolved'; if(s==='In Progress')return 'progress'; return 'open'; } %>
+
+  <% function renderClaim(c) { %>
+    <div class="wc <%= c.status === 'Resolved' ? 'resolved' : '' %>" id="wc_<%= c.id %>">
+      <div class="wc-top">
+        <div style="min-width:0">
+          <div class="wc-who">🏠 <%= c.client_name || 'Client' %></div>
+          <div class="wc-proj">
+            <% if (c.project_id && c.matched_address) { %>
+              <a href="/projects/<%= c.project_id %>"><%= c.matched_address %></a>
+            <% } else { %>
+              <span class="wc-unmatched">Typed: <%= c.project_address || '—' %> (no project match)</span>
+            <% } %>
+            · <%= new Date(c.created_at).toLocaleString('en-US', { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }) %>
+          </div>
+        </div>
+        <span class="badge badge-<%= badgeClass(c.status) %>"><%= (c.status || 'Open').toUpperCase() %></span>
+      </div>
+
+      <% if (c.rooms) { %><div class="wc-rooms"><% c.rooms.split(',').map(r => r.trim()).filter(Boolean).forEach(r => { %><span class="room-pill"><%= r %></span><% }) %></div><% } %>
+      <% if (c.description) { %><div class="wc-desc"><%= c.description %></div><% } %>
+      <% if (c.client_contact) { %><div class="wc-contact">📞 <a href="tel:<%= c.client_contact.replace(/[^0-9+]/g,'') %>"><%= c.client_contact %></a></div><% } %>
+
+      <% const pics = photosByClaim[c.id] || []; %>
+      <% if (pics.length) { %>
+        <div class="wc-photos">
+          <% pics.forEach(pid => { %><a href="/warranty-claims/<%= c.id %>/photo/<%= pid %>" target="_blank"><img src="/warranty-claims/<%= c.id %>/photo/<%= pid %>" alt="photo"></a><% }) %>
+        </div>
+      <% } %>
+
+      <div class="wc-actions">
+        <label style="font-size:.82rem;color:var(--muted)">Status:</label>
+        <select onchange="setStatus(<%= c.id %>, this.value)">
+          <% ['Open','In Progress','Resolved'].forEach(s => { %><option value="<%= s %>" <%= c.status === s ? 'selected' : '' %>><%= s %></option><% }) %>
+        </select>
+        <button class="btn btn-ghost btn-sm" style="color:#cc2222" onclick="del(<%= c.id %>)">Delete</button>
+      </div>
+    </div>
+  <% } %>
+
+  <% if (open.length) { %>
+    <div class="sec-divider">🔴 Open (<%= open.length %>)</div>
+    <% open.forEach(c => renderClaim(c)) %>
+  <% } %>
+  <% if (done.length) { %>
+    <div class="sec-divider">✓ Resolved (<%= done.length %>)</div>
+    <% done.forEach(c => renderClaim(c)) %>
+  <% } %>
+</div>
+
+<script>
+async function setStatus(id, status) {
+  const r = await fetch('/warranty-claims/' + id + '/status', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ status }) });
+  const d = await r.json();
+  if (d.ok) location.reload(); else alert('Could not update.');
+}
+async function del(id) {
+  if (!confirm('Delete this warranty claim?')) return;
+  const r = await fetch('/warranty-claims/' + id + '/delete', { method:'POST', headers:{'Content-Type':'application/json'}, body:'{}' });
+  const d = await r.json();
+  if (d.ok) document.getElementById('wc_' + id).remove(); else alert('Could not delete.');
+}
+</script>
+</body>
+</html>

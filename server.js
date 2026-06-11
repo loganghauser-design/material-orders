@@ -1152,6 +1152,11 @@ const ALL_PROJECTS_SUPER_EMAILS = ['bobby@buildoly.com'];
 function canSuperViewAllProjects(email) {
   return ALL_PROJECTS_SUPER_EMAILS.includes(String(email || '').trim().toLowerCase());
 }
+// Which supers may see the Warranty claims tab. Bobby (add Aziz's email here once he has a login).
+const WARRANTY_SUPER_EMAILS = ['bobby@buildoly.com'];
+function canSuperViewWarranty(email) {
+  return WARRANTY_SUPER_EMAILS.includes(String(email || '').trim().toLowerCase());
+}
 // A project's super_email holds a comma-separated list (multiple supers per project).
 function parseSuperEmails(str) {
   const set = String(str || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
@@ -1394,6 +1399,26 @@ async function initDb() {
     );
 
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS home_address VARCHAR(500);
+    ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS emergency_phone VARCHAR(40);
+
+    -- Client-facing warranty claims (submitted via the public /warranty page)
+    CREATE TABLE IF NOT EXISTS warranty_claims (
+      id SERIAL PRIMARY KEY,
+      client_name TEXT,
+      client_contact TEXT,
+      project_address TEXT,
+      project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+      rooms TEXT,
+      description TEXT,
+      status TEXT DEFAULT 'Open',
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS warranty_photos (
+      id SERIAL PRIMARY KEY,
+      claim_id INTEGER REFERENCES warranty_claims(id) ON DELETE CASCADE,
+      mime TEXT, data BYTEA,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS driving_trips (
       id SERIAL PRIMARY KEY,
@@ -1526,8 +1551,10 @@ app.use((req, res, next) => {
   if (req.session && req.session.role === 'super') {
     const p = req.path;
     const subsArea = p === '/subs' || p.startsWith('/subs/') || p.startsWith('/sub-photo');
+    const warrantyArea = p === '/warranty-claims' || p.startsWith('/warranty-claims/');
     const ok = p === '/my' || p.startsWith('/my/') || p === '/logout' || p === '/login'
-      || (subsArea && canSuperViewSubs(req.session.superEmail));   // Bobby: full edit access to the Subs directory
+      || (subsArea && canSuperViewSubs(req.session.superEmail))        // Bobby: full edit access to the Subs directory
+      || (warrantyArea && canSuperViewWarranty(req.session.superEmail)); // Bobby/Aziz: the Warranty tab
     if (!ok) return res.redirect('/my');
   }
   next();
@@ -1539,6 +1566,7 @@ app.use(async (req, res, next) => {
     try {
       res.locals.pendingIssues = await getPendingIssueCount();
       res.locals.pendingRequests = await getPendingRequestCount();
+      res.locals.openWarranty = await getOpenWarrantyCount();
     } catch (e) { /* tables may not exist yet */ }
   }
   next();
@@ -1614,7 +1642,7 @@ app.get('/my', requireSuper, async (req, res) => {
         });
       }
     }
-    res.render('my-projects', { sup, projects: mine, itemsByProject, canViewSubs: canSuperViewSubs(email), requested: req.query.requested === '1', issued: req.query.issued === '1', pw: req.query.pw || '' });
+    res.render('my-projects', { sup, projects: mine, itemsByProject, canViewSubs: canSuperViewSubs(email), canViewWarranty: canSuperViewWarranty(email), requested: req.query.requested === '1', issued: req.query.issued === '1', pw: req.query.pw || '' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -2465,11 +2493,11 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
 app.get('/settings', requireAuth, async (req, res) => {
   try {
     await initDb();
-    const { rows: [r] } = await pool.query('SELECT attachment_name, updated_at FROM app_settings WHERE id=1');
+    const { rows: [r] } = await pool.query('SELECT attachment_name, updated_at, emergency_phone FROM app_settings WHERE id=1');
     const suppliers = await getSuppliers();
     const phones = await getSuperPhones();
     const supers = SUPERS.map(s => ({ email: s.email, name: s.name, phone: phones[s.email.toLowerCase()] || '' }));
-    res.render('settings', { attachmentName: r ? r.attachment_name : null, updatedAt: r ? r.updated_at : null, STAGES, suppliers, supers, savedSupers: req.query.savedSupers === '1' });
+    res.render('settings', { attachmentName: r ? r.attachment_name : null, updatedAt: r ? r.updated_at : null, emergencyPhone: r ? (r.emergency_phone || '') : '', STAGES, suppliers, supers, savedSupers: req.query.savedSupers === '1', savedEmergency: req.query.savedEmergency === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -2488,6 +2516,21 @@ app.post('/settings/supers', requireAuth, async (req, res) => {
       );
     }
     res.redirect('/settings?savedSupers=1#supers');
+  } catch (err) {
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// Emergency phone shown to clients on the public warranty page
+app.post('/settings/emergency-phone', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const phone = String(req.body.emergency_phone || '').trim().slice(0, 40);
+    await pool.query(
+      `INSERT INTO app_settings (id, emergency_phone, updated_at) VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET emergency_phone = EXCLUDED.emergency_phone, updated_at = NOW()`,
+      [phone || null]);
+    res.redirect('/settings?savedEmergency=1#warranty');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -3251,6 +3294,112 @@ app.post('/apply', async (req, res) => {
     postToChat(`📝 *New contractor submission* <users/${LOGAN}>\n${company || owner} (${cat === 'gc' ? 'GC' : (type || 'Sub')})${b.phone ? ' · ' + String(b.phone).trim() : ''}\nReview in Subs → Under Vetting`);
     res.redirect('/apply?ok=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// ── Warranty: public client submission + internal claims tab ──────────────────
+// Fuzzy-match a client-typed address to one of our projects (so the team sees the job).
+async function matchProjectByAddress(typed) {
+  const raw = String(typed || '').toLowerCase().trim();
+  if (raw.length < 4) return null;
+  const tNorm = raw.replace(/[^a-z0-9]/g, '');
+  const tNum = (raw.match(/\d+/) || [])[0] || '';
+  const { rows } = await pool.query('SELECT id, COALESCE(full_address, address) AS address FROM projects');
+  for (const p of rows) {
+    const aNorm = String(p.address || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (aNorm && (aNorm.includes(tNorm) || tNorm.includes(aNorm))) return p.id;
+  }
+  if (tNum) {   // fallback: same house number + a shared street word
+    const tWords = raw.split(/\s+/).filter(w => w.length >= 4 && !/^\d+$/.test(w));
+    for (const p of rows) {
+      const a = String(p.address || '').toLowerCase();
+      const aNum = (a.match(/\d+/) || [])[0] || '';
+      if (aNum === tNum && tWords.some(w => a.includes(w))) return p.id;
+    }
+  }
+  return null;
+}
+async function getOpenWarrantyCount() {
+  try { const { rows: [r] } = await pool.query("SELECT COUNT(*) c FROM warranty_claims WHERE status <> 'Resolved'"); return Number(r.c) || 0; }
+  catch (e) { return 0; }
+}
+
+// Public landing + form (share this link with clients)
+app.get('/warranty', async (req, res) => {
+  let phone = '';
+  try { await initDb(); const { rows: [r] } = await pool.query('SELECT emergency_phone FROM app_settings WHERE id=1'); phone = (r && r.emergency_phone) || ''; } catch (e) {}
+  res.render('warranty', { ok: req.query.ok === '1', err: req.query.err === '1', emergencyPhone: phone });
+});
+
+app.post('/warranty', upload.array('photos', 12), async (req, res) => {
+  try {
+    await initDb();
+    const b = req.body;
+    if (b.website) return res.redirect('/warranty?ok=1');   // honeypot
+    const name = String(b.client_name || '').trim().slice(0, 120);
+    const addr = String(b.project_address || '').trim().slice(0, 300);
+    const contact = String(b.client_contact || '').trim().slice(0, 120);
+    const rooms = String(b.rooms || '').trim().slice(0, 200);
+    const desc = String(b.description || '').trim().slice(0, 2000);
+    if (!name || !addr) return res.redirect('/warranty?err=1');   // need a name + address to identify them
+    const projectId = await matchProjectByAddress(addr);
+    const { rows: [claim] } = await pool.query(
+      `INSERT INTO warranty_claims (client_name, client_contact, project_address, project_id, rooms, description, status)
+       VALUES ($1,$2,$3,$4,$5,$6,'Open') RETURNING id`,
+      [name, contact || null, addr, projectId, rooms || null, desc || null]);
+    const files = req.files || [];
+    for (const f of files) {
+      await pool.query('INSERT INTO warranty_photos (claim_id, mime, data) VALUES ($1,$2,$3)', [claim.id, f.mimetype, f.buffer]);
+    }
+    let projAddr = '';
+    if (projectId) { try { const { rows: [p] } = await pool.query('SELECT COALESCE(full_address, address) a FROM projects WHERE id=$1', [projectId]); projAddr = p ? p.a : ''; } catch (e) {} }
+    const LOGAN = '106404376271648731086', BOBBY = '111280454403124522893';
+    const lines = [`🏠 *New warranty claim* <users/${LOGAN}> <users/${BOBBY}>`,
+      `*${name}*` + (projAddr ? ' — ' + shortAddress(projAddr) : (addr ? ' — ' + addr : '')),
+      rooms ? 'Room(s): ' + rooms : null,
+      desc ? 'Issue: ' + (desc.length > 140 ? desc.slice(0, 140) + '…' : desc) : null,
+      files.length ? `📷 ${files.length} photo(s)` : null,
+      'Open the Warranty tab to view'].filter(Boolean);
+    postToChat(lines.join('\n'), 'warranty-' + claim.id);
+    res.redirect('/warranty?ok=1');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Internal warranty claims tab (Logan + Bobby/Aziz)
+app.get('/warranty-claims', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: claims } = await pool.query(`
+      SELECT wc.*, p.address AS matched_address,
+             (SELECT COUNT(*) FROM warranty_photos wp WHERE wp.claim_id = wc.id) AS photo_count
+      FROM warranty_claims wc LEFT JOIN projects p ON p.id = wc.project_id
+      ORDER BY (wc.status <> 'Resolved') DESC, wc.created_at DESC`);
+    const { rows: photoRows } = await pool.query('SELECT id, claim_id FROM warranty_photos ORDER BY id');
+    const photosByClaim = {};
+    photoRows.forEach(p => (photosByClaim[p.claim_id] = photosByClaim[p.claim_id] || []).push(p.id));
+    res.render('warranty-claims', { claims, photosByClaim, isSuper: req.session.role === 'super' });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+app.get('/warranty-claims/:cid/photo/:pid', requireAuth, async (req, res) => {
+  try {
+    const { rows: [r] } = await pool.query('SELECT mime, data FROM warranty_photos WHERE id=$1 AND claim_id=$2', [req.params.pid, req.params.cid]);
+    if (!r || !r.data) return res.status(404).send('No photo.');
+    res.setHeader('Content-Type', r.mime || 'image/jpeg');
+    res.send(r.data);
+  } catch (err) { res.status(500).send('Error'); }
+});
+
+app.post('/warranty-claims/:id/status', requireAuth, async (req, res) => {
+  try {
+    const st = ['Open', 'In Progress', 'Resolved'].includes(req.body.status) ? req.body.status : 'Open';
+    await pool.query('UPDATE warranty_claims SET status=$1 WHERE id=$2', [st, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.post('/warranty-claims/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM warranty_claims WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Map a status to the matching section bucket, so status and section stay in sync.

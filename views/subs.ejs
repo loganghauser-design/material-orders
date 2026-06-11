@@ -88,6 +88,7 @@
     <a href="/driving" class="nav-tab">Driving Log</a>
     <a href="/inventory" class="nav-tab">Inventory</a>
     <a href="/requests" class="nav-tab">Requests<% if (typeof pendingRequests !== 'undefined' && pendingRequests) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= pendingRequests %></span><% } %></a>
+    <a href="/warranty-claims" class="nav-tab">Warranty<% if (typeof openWarranty !== 'undefined' && openWarranty) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= openWarranty %></span><% } %></a>
     <a href="/suppliers" class="nav-tab">Suppliers</a>
     <a href="/subs" class="nav-tab active">Subs</a>
     <a href="/settings" class="nav-tab">Settings</a>
