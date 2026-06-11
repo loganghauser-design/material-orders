@@ -62,6 +62,9 @@
     .sortbtn { font:inherit; font-size:.82rem; padding:.32rem .8rem; border:1px solid var(--border); border-radius:8px; text-decoration:none; color:var(--text); background:var(--surface); cursor:pointer; }
     .sortbtn.on { background:#111; color:#fff; border-color:#111; }
     .vetsel { font-size:.82rem; padding:.3rem .5rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+    .seg { display:flex; gap:.5rem; }
+    .segbtn { flex:1; font:inherit; font-size:.95rem; font-weight:700; padding:.6rem; border:2px solid var(--border); border-radius:10px; background:var(--bg); color:var(--text); cursor:pointer; }
+    .segbtn.on { background:#111; color:#fff; border-color:#111; }
     .subs-table .refby { color:var(--muted); font-size:.8rem; max-width:160px; }
   </style>
 </head>
@@ -231,6 +234,13 @@
     <h2 id="modalTitle">Add Subcontractor</h2>
     <form id="subForm" method="POST" action="/subs">
       <input type="hidden" id="editId" value="">
+      <div class="mg"><label>Adding to which list?</label>
+        <div class="seg" id="catSeg">
+          <button type="button" class="segbtn" data-cat="gc" onclick="setCat('gc')">🏗️ Outside GC</button>
+          <button type="button" class="segbtn on" data-cat="sub" onclick="setCat('sub')">🔧 Subcontractor</button>
+        </div>
+        <input type="hidden" name="category" id="f_category" value="sub">
+      </div>
       <div class="mg"><label>Company</label><input name="company" id="f_company" placeholder="e.g. Pyramid Drywall"></div>
       <div class="mg"><label>Contact / Owner</label><input name="owner" id="f_owner"></div>
       <div class="mg"><label>Trade / Type <span style="font-weight:400;color:var(--muted)">— tap all that apply</span></label>
@@ -245,19 +255,11 @@
         <div class="mg"><label>Phone</label><input name="phone" id="f_phone"></div>
         <div class="mg"><label>Email</label><input name="email" id="f_email"></div>
       </div>
-      <div class="mg2">
-        <div class="mg"><label>Section</label>
-          <select name="category" id="f_category">
-            <option value="gc">General Contractor (GC)</option>
-            <option value="sub">Subcontractor</option>
-          </select>
-        </div>
-        <div class="mg"><label>Status</label>
-          <select name="status" id="f_status">
-            <option value="">—</option>
-            <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>"><%= o %></option><% }) %>
-          </select>
-        </div>
+      <div class="mg"><label>Status</label>
+        <select name="status" id="f_status">
+          <option value="">—</option>
+          <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>"><%= o %></option><% }) %>
+        </select>
       </div>
       <div class="mg"><label>Location <span style="font-weight:400;color:var(--muted)">— tap all that apply</span></label>
         <div id="locChips" class="trade-chips"></div>
@@ -387,6 +389,8 @@ function toggleTrade(t) {
   const i = selectedTrades.indexOf(t);
   if (i >= 0) selectedTrades.splice(i, 1); else selectedTrades.push(t);
   renderTradeChips();
+  // Picking the "General Contractor" trade nudges the entry into the GC list
+  if (i < 0 && /general\s*contractor/i.test(t)) setCat('gc');
 }
 function addTradeOther() {
   const inp = document.getElementById('tradeOther');
@@ -426,13 +430,18 @@ function fillSelect(id, val) {
   }
   sel.value = val || '';
 }
+function setCat(c) {
+  c = (c === 'gc') ? 'gc' : 'sub';
+  document.getElementById('f_category').value = c;
+  document.querySelectorAll('#catSeg .segbtn').forEach(b => b.classList.toggle('on', b.dataset.cat === c));
+}
 function openAdd() {
-  document.getElementById('modalTitle').textContent = 'Add Subcontractor';
+  document.getElementById('modalTitle').textContent = 'Add Contractor';
   document.getElementById('editId').value = '';
   ['company','owner','phone','email','status','notes','group','referenced_by'].forEach(k => document.getElementById('f_' + k).value = '');
   setLocsFromString('');
   setTradesFromString('');
-  document.getElementById('f_category').value = 'sub';   // default new entries to Subcontractor
+  setCat('sub');   // default new entries to Subcontractor — tap the toggle for GC
   document.getElementById('subModal').classList.add('show');
 }
 function openEdit(s) {
@@ -445,7 +454,7 @@ function openEdit(s) {
   document.getElementById('f_email').value = s.email || '';
   setLocsFromString(s.location || '');
   document.getElementById('f_status').value = s.status || '';
-  document.getElementById('f_category').value = (s.category === 'gc' || s.category === 'sub') ? s.category : (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub');
+  setCat((s.category === 'gc' || s.category === 'sub') ? s.category : (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'));
   document.getElementById('f_notes').value = s.notes || '';
   document.getElementById('f_referenced_by').value = s.referenced_by || '';
   document.getElementById('f_group').value = s.group_label || '';
