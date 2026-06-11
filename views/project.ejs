@@ -60,6 +60,19 @@
     .held-qty.qty-done{background:#6aa84f;color:#fff;border-color:#6aa84f;font-weight:600}
     .held-qty.qty-partial{background:#fde6c8;color:#8a4b00;border-color:#e0a106}
     .held-qty.qty-none{background:#ede0fb;color:#5b2a86}
+    .field-requests{background:#fffbeb;border:1px solid #f6c886;border-radius:12px;padding:.9rem 1rem;margin:0 0 1.2rem}
+    .fr-title{font-weight:800;font-size:1rem;color:#8a5300;margin-bottom:.3rem}
+    .fr-count{background:#e0531f;color:#fff;border-radius:9px;padding:0 8px;font-size:.78rem;vertical-align:middle}
+    .fr-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.7rem .85rem;margin-top:.6rem}
+    .fr-head{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+    .fr-need{font-size:.78rem;font-weight:700;color:#b45309;margin-left:.4rem}
+    .fr-items{margin:.5rem 0 .2rem;line-height:1.9}
+    .fr-item{display:inline-flex;align-items:center;gap:.3rem;margin-right:.7rem;font-weight:600;font-size:.92rem;white-space:nowrap}
+    .fr-pill{font-size:.64rem;font-weight:700;padding:1px 7px;border-radius:9px}
+    .fr-pill-deliv{background:#dcfce7;color:#166534}.fr-pill-order{background:#dbeafe;color:#1d4ed8}.fr-pill-rfq{background:#fef3c7;color:#92400e}.fr-pill-issue{background:#fee2e2;color:#b91c1c}.fr-pill-none{background:#e5e7eb;color:#555}
+    .fr-note{font-size:.9rem;line-height:1.45;white-space:pre-wrap;margin:.35rem 0 .1rem;color:var(--text)}
+    .fr-respond{display:flex;gap:.5rem;margin-top:.55rem}
+    .fr-respond input{flex:1;padding:.45rem .65rem;border:1px solid var(--border);border-radius:8px;background:var(--surface);font-size:.86rem}
     .req-flag{display:inline-block;background:#fde68a;color:#92400e;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;white-space:nowrap;vertical-align:middle;text-decoration:none;cursor:pointer}
     .req-flag:hover{background:#fcd34d}
     .iss-flag{display:inline-block;background:#fee2e2;color:#b91c1c;font-size:.7rem;font-weight:700;padding:1px 8px;border-radius:10px;white-space:nowrap;vertical-align:middle;text-decoration:none;cursor:pointer;max-width:260px;overflow:hidden;text-overflow:ellipsis}
@@ -251,6 +264,34 @@
 
   </div><!-- /orders -->
   <div class="tab-panel" data-tab="materials">
+  <% if (typeof projectRequests !== 'undefined' && projectRequests.length) { %>
+  <div id="fieldRequests" class="field-requests">
+    <div class="fr-title">📥 Field Requests <span class="fr-count"><%= projectRequests.length %></span></div>
+    <div style="font-size:.82rem;color:var(--muted);margin:-.2rem 0 .7rem">Material your supers asked for. Work it on the grid below (RFQ → Order → Delivered auto-closes it), or reply / mark done here.</div>
+    <% projectRequests.forEach(r => { %>
+      <div class="fr-card" id="frq_<%= r.id %>">
+        <div class="fr-head">
+          <div>
+            <strong>👷 <%= r.superName %></strong>
+            <span style="color:var(--muted);font-size:.83rem">· <%= new Date(r.created_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %></span>
+            <% if (r.needed_by) { %><span class="fr-need">📅 need by <%= new Date(r.needed_by).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'}) %></span><% } %>
+          </div>
+          <button type="button" class="btn btn-ghost btn-sm" onclick="frFulfill(<%= r.id %>)">✓ Mark done</button>
+        </div>
+        <div class="fr-items">
+          <% r.items.forEach(it => { var s=(it.status||'').toLowerCase(); var cl = s.indexOf('delivered')>=0?'deliv':(s.indexOf('order')>=0?'order':(s.indexOf('rfq')>=0?'rfq':(s.indexOf('issue')>=0?'issue':'none'))); %>
+            <span class="fr-item"><%= it.name %> <span class="fr-pill fr-pill-<%= cl %>"><%= it.status %></span></span>
+          <% }) %>
+        </div>
+        <% if (r.note) { %><div class="fr-note"><%= r.note %></div><% } %>
+        <div class="fr-respond">
+          <input type="text" id="frresp_<%= r.id %>" placeholder="Reply to <%= r.superName %> (pings them in chat)…" onkeydown="if(event.key==='Enter')frRespond(<%= r.id %>)">
+          <button type="button" class="btn btn-primary btn-sm" onclick="frRespond(<%= r.id %>)">Send</button>
+        </div>
+      </div>
+    <% }) %>
+  </div>
+  <% } %>
   <div id="bulkStockBar" style="display:none;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0 0 1rem;padding:.6rem .8rem;background:var(--bg);border:1px solid var(--border);border-radius:10px">
     <strong style="font-size:.85rem">Office stock (Jedco + hoods):</strong>
     <button type="button" class="btn btn-primary btn-sm" onclick="markAllStock('all','office')">✓ Mark all delivered</button>
@@ -280,7 +321,7 @@
         %>
         <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
           <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
-          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="/requests" class="req-flag" title="Requested from the field — open Requests to manage">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %><% var _iss = (typeof issueByCode !== 'undefined') && issueByCode[item.code]; if (_iss) { %> <a href="/issues" class="iss-flag" title="Reported by <%= _iss.sup %><%= _iss.label ? ' (' + _iss.label + ')' : '' %><%= _iss.note ? ': ' + _iss.note : '' %>">⚠ <%= _iss.label || 'Issue' %><% if (_iss.note) { %>: <%= _iss.note.length > 30 ? _iss.note.slice(0,30) + '…' : _iss.note %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
+          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="#fieldRequests" class="req-flag" title="Requested from the field — jump to the request">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %><% var _iss = (typeof issueByCode !== 'undefined') && issueByCode[item.code]; if (_iss) { %> <a href="/issues" class="iss-flag" title="Reported by <%= _iss.sup %><%= _iss.label ? ' (' + _iss.label + ')' : '' %><%= _iss.note ? ': ' + _iss.note : '' %>">⚠ <%= _iss.label || 'Issue' %><% if (_iss.note) { %>: <%= _iss.note.length > 30 ? _iss.note.slice(0,30) + '…' : _iss.note %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
           <td>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
@@ -592,6 +633,27 @@ function issueBadge(code, name, room) {
   const i = issueForItem(code, name, room);
   if (!i) return '';
   return ` <span class="iss-flag" style="cursor:help" title="${escapeHtmlJs(i.sup + ': ' + (i.note || ''))}">⚠ Issue</span>`;
+}
+// Field Requests panel — act on a super's request without leaving the project
+async function frFulfill(id) {
+  if (!confirm('Mark this field request as done?')) return;
+  try {
+    const r = await fetch('/requests/' + id + '/fulfill', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ action:'fulfill' }) });
+    const d = await r.json();
+    if (d.ok) location.reload(); else alert('Could not update.');
+  } catch (e) { alert('Could not update.'); }
+}
+async function frRespond(id) {
+  const inp = document.getElementById('frresp_' + id);
+  const body = (inp.value || '').trim();
+  if (!body) return;
+  inp.disabled = true;
+  try {
+    const r = await fetch('/requests/' + id + '/respond', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ body }) });
+    const d = await r.json();
+    if (d.ok) { inp.value = ''; inp.disabled = false; inp.placeholder = '✓ Sent — reply again if needed'; }
+    else { alert('Could not send: ' + (d.error || 'error')); inp.disabled = false; }
+  } catch (e) { alert('Could not send.'); inp.disabled = false; }
 }
 const SUPPLIER_EMAILS = <%- JSON.stringify(Object.values(suppliers||{}).reduce((m,s)=>{ if(s&&s.name&&s.email) m[s.name.toLowerCase()]=s.email; return m; }, {})) %>;
 // Forgiving vendor-name match (e.g. "Amerfit Hardware"=="Amerfit", "Tilebar"=="Tile Bar")

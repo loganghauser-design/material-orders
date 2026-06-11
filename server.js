@@ -2011,7 +2011,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     items.forEach(i => itemMap[i.item_code] = i);
     // Pending material requests for this project → flag the requested items on the grid
     const { rows: reqRows } = await pool.query(
-      'SELECT super_email, codes, needed_by FROM material_requests WHERE project_id=$1 AND fulfilled=FALSE ORDER BY created_at', [project.id]);
+      'SELECT id, super_email, codes, needed_by, note, created_at FROM material_requests WHERE project_id=$1 AND fulfilled=FALSE ORDER BY created_at', [project.id]);
     const requestedByCode = {};
     for (const rq of reqRows) {
       const sName = (findSuper(rq.super_email) || {}).name || rq.super_email || 'Super';
@@ -2051,6 +2051,16 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       ORDER BY vo.supplier_name NULLS LAST, vo.confirmed_at DESC`, [project.id]);
     const itemNames = {};
     ALL_ITEMS.forEach(i => itemNames[i.code] = i.name);
+    // Open field requests for this project, with each requested item's live status — rendered as a panel on the project
+    const projectRequests = reqRows.map(rq => {
+      const codes = String(rq.codes || '').split(',').map(c => c.trim()).filter(Boolean);
+      return {
+        id: rq.id,
+        superName: (findSuper(rq.super_email) || {}).name || rq.super_email || 'Super',
+        needed_by: rq.needed_by, note: rq.note || '', created_at: rq.created_at,
+        items: codes.map(c => ({ name: itemNames[c] || c, status: (itemMap[c] || {}).status || 'Not yet placed' })),
+      };
+    });
     const stageOf = {};
     STAGES.forEach(s => s.items.forEach(it => stageOf[it.code] = s.name));
     const ordersByVendor = [];
@@ -2100,7 +2110,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
