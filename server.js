@@ -3166,7 +3166,8 @@ app.get('/subs', requireAuth, async (req, res) => {
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
     const isSuper = req.session.role === 'super';
     const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
-    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit, sort: req.query.sort === 'trade' ? 'trade' : 'status' });
+    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit,
+      gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }

@@ -113,9 +113,6 @@
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
     <select id="typeFilter" onchange="filterSubs()"><option value="">All trades</option></select>
-    <span style="margin-left:auto;font-size:.85rem;color:var(--muted)">Group by:</span>
-    <a href="/subs?sort=status" class="sortbtn <%= sort !== 'trade' ? 'on' : '' %>">Status</a>
-    <a href="/subs?sort=trade" class="sortbtn <%= sort === 'trade' ? 'on' : '' %>">Trade</a>
   </div>
 
   <%
@@ -142,9 +139,16 @@
     <div class="card" style="color:var(--muted)">No subcontractors yet. Click <strong>Import from Sheet</strong> or <strong>+ Add</strong>.</div>
   <% } %>
 
-  <% sections.forEach(sec => { %>
+  <% sections.forEach(sec => { var secSort = (sec.key === 'gc') ? gcSort : subSort; %>
     <div class="sub-section" data-section>
       <div class="sec-title sec-<%= sec.key %>"><%= sec.title %> <span class="cnt">(<%= sec.list.length %>)</span></div>
+      <% if (sec.list.length) { %>
+      <div style="display:flex;align-items:center;gap:.5rem;margin:.1rem 0 .7rem">
+        <span style="font-size:.82rem;color:var(--muted)">Group by:</span>
+        <a href="/subs?<%= sec.key === 'gc' ? ('gcSort=status&subSort=' + subSort) : ('gcSort=' + gcSort + '&subSort=status') %>" class="sortbtn <%= secSort !== 'trade' ? 'on' : '' %>">Status</a>
+        <a href="/subs?<%= sec.key === 'gc' ? ('gcSort=trade&subSort=' + subSort) : ('gcSort=' + gcSort + '&subSort=trade') %>" class="sortbtn <%= secSort === 'trade' ? 'on' : '' %>">Trade</a>
+      </div>
+      <% } %>
       <% if (!sec.list.length) { %>
         <div style="color:var(--muted);font-size:.85rem">None.</div>
       <% } else { %>
@@ -155,7 +159,7 @@
           </tr></thead>
           <tbody>
             <%
-              const byTrade = (typeof sort !== 'undefined' && sort === 'trade');
+              const byTrade = (secSort === 'trade');
               const keyOf = x => byTrade ? ((x.type || '').split(',')[0].trim() || 'Other') : (x.group_label || '');
               const groups = []; const gmap = {};
               sec.list.forEach(x => { const g = keyOf(x); if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
