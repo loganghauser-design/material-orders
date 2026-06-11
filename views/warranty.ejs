@@ -7,88 +7,84 @@
   <link rel="icon" href="/icon.svg">
   <meta name="theme-color" content="#000000">
   <style>
-    :root { --ink:#15171a; --muted:#6b7177; --line:#e8e8eb; --bg:#f4f4f3; --accent:#111; --emerg:#c0392b; }
+    :root { --ink:#15171a; --muted:#73777c; --bg:#f3f3f1; --emerg:#c0392b; }
     * { box-sizing:border-box; margin:0; padding:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; }
     body { background:var(--bg); color:var(--ink); min-height:100vh; -webkit-font-smoothing:antialiased; }
 
-    .hero { background:linear-gradient(165deg,#000 0%,#202024 100%); color:#fff; padding:44px 22px 32px; text-align:center; }
-    .hero .mark { width:48px; height:48px; border-radius:13px; background:#fff; color:#000; font-weight:800; font-size:1.5rem; display:flex; align-items:center; justify-content:center; margin:0 auto 14px; letter-spacing:-.06em; }
+    .hero { background:linear-gradient(165deg,#000 0%,#202024 100%); color:#fff; padding:44px 22px 36px; text-align:center; border-radius:0 0 26px 26px; }
+    .hero .mark { width:48px; height:48px; border-radius:15px; background:#fff; color:#000; font-weight:800; font-size:1.5rem; display:flex; align-items:center; justify-content:center; margin:0 auto 14px; letter-spacing:-.06em; }
     .hero .wm { font-weight:800; font-size:1.95rem; letter-spacing:-.045em; }
     .hero h1 { font-size:1.02rem; font-weight:600; margin-top:.55rem; }
     .hero .sub { color:#a9a9af; font-size:.9rem; margin-top:.3rem; line-height:1.5; }
 
-    .wrap { max-width:580px; margin:0 auto; padding:22px 16px 36px; }
-    .card { background:#fff; border:1px solid var(--line); border-radius:18px; padding:1.7rem 1.5rem; box-shadow:0 10px 30px rgba(20,23,26,.055); }
+    .wrap { max-width:560px; margin:0 auto; padding:24px 18px 40px; }
     .eyebrow { font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.11em; color:var(--muted); }
-    .h2 { font-size:1.45rem; font-weight:800; letter-spacing:-.02em; margin:.35rem 0 .4rem; }
+    .h2 { font-size:1.45rem; font-weight:800; letter-spacing:-.02em; margin:.32rem 0 .4rem; }
     .lead { color:var(--muted); font-size:.96rem; line-height:1.55; margin-bottom:1.4rem; }
 
-    .opt { display:flex; align-items:center; gap:1rem; width:100%; text-align:left; border:1.5px solid var(--line); border-radius:15px; padding:1.15rem; background:#fff; cursor:pointer; transition:border-color .15s, box-shadow .15s, transform .05s; margin-bottom:.9rem; }
-    .opt:hover { border-color:var(--ink); box-shadow:0 6px 18px rgba(20,23,26,.07); }
-    .opt:active { transform:scale(.992); }
-    .opt .ic { flex:none; width:48px; height:48px; border-radius:13px; display:flex; align-items:center; justify-content:center; font-size:1.4rem; background:#f1f1f0; }
+    .opt { display:flex; align-items:center; gap:1rem; width:100%; text-align:left; border:none; border-radius:20px; padding:1.25rem 1.2rem; background:#fff; cursor:pointer; box-shadow:0 3px 16px rgba(20,23,26,.05); transition:transform .07s, box-shadow .16s; margin-bottom:.95rem; }
+    .opt:hover { box-shadow:0 8px 26px rgba(20,23,26,.09); transform:translateY(-1px); }
+    .opt:active { transform:scale(.99); }
+    .opt .ic { flex:none; width:52px; height:52px; border-radius:16px; display:flex; align-items:center; justify-content:center; font-size:1.5rem; background:#f3f3f1; }
     .opt .body { flex:1; min-width:0; }
-    .opt .ttl { font-size:1.12rem; font-weight:800; letter-spacing:-.01em; display:block; }
+    .opt .ttl { font-size:1.15rem; font-weight:800; letter-spacing:-.01em; display:block; }
     .opt .dsc { font-size:.85rem; color:var(--muted); margin-top:.22rem; line-height:1.4; display:block; }
-    .opt .arw { color:#c4c4c9; font-size:1.6rem; flex:none; line-height:1; }
-    .opt.emerg { border-color:#f0cfca; background:#fdf6f5; }
-    .opt.emerg .ic { background:#f6ddd8; }
+    .opt .arw { color:#c6c6cb; font-size:1.6rem; line-height:1; flex:none; }
+    .opt.emerg { background:#fdeeeb; box-shadow:0 3px 16px rgba(192,57,43,.07); }
+    .opt.emerg .ic { background:#f8ddd7; }
     .opt.emerg .ttl { color:var(--emerg); }
-    .opt.emerg:hover { border-color:var(--emerg); }
 
     .fld { margin-bottom:1.15rem; }
-    .fld > label { display:block; font-size:.83rem; font-weight:700; color:var(--ink); margin-bottom:.42rem; }
+    .fld > label { display:block; font-size:.84rem; font-weight:700; margin-bottom:.45rem; }
     .fld .opt2 { font-weight:400; color:var(--muted); }
-    .fld input, .fld textarea { width:100%; padding:.85rem .95rem; font-size:1rem; border:1.5px solid var(--line); border-radius:12px; background:#fcfcfb; color:var(--ink); transition:border-color .15s, box-shadow .15s, background .15s; }
-    .fld input::placeholder, .fld textarea::placeholder { color:#b4b4b9; }
-    .fld input:focus, .fld textarea:focus { outline:none; border-color:var(--ink); background:#fff; box-shadow:0 0 0 3px rgba(20,23,26,.06); }
+    .fld input, .fld textarea { width:100%; padding:.95rem 1.05rem; font-size:1rem; border:none; border-radius:15px; background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(20,23,26,.04); transition:box-shadow .16s, background .16s; }
+    .fld input::placeholder, .fld textarea::placeholder { color:#aeaeb4; }
+    .fld input:focus, .fld textarea:focus { outline:none; box-shadow:0 0 0 4px rgba(20,23,26,.07); }
     .req { color:var(--emerg); }
-    .hint { font-size:.8rem; color:var(--muted); margin-top:.4rem; line-height:1.4; }
+    .hint { font-size:.8rem; color:var(--muted); margin-top:.45rem; line-height:1.45; }
 
-    .chips { display:flex; flex-wrap:wrap; gap:.5rem; }
-    .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.55rem .95rem; border:1.5px solid var(--line); border-radius:22px; font-size:.92rem; cursor:pointer; user-select:none; background:#fcfcfb; transition:all .12s; }
-    .chip:hover { border-color:#c7c7cc; }
-    .chip.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+    .chips { display:flex; flex-wrap:wrap; gap:.55rem; }
+    .chip { display:inline-flex; align-items:center; gap:.35rem; padding:.62rem 1.05rem; border:none; border-radius:24px; font-size:.92rem; cursor:pointer; user-select:none; background:#fff; color:var(--ink); box-shadow:0 1px 3px rgba(20,23,26,.05); transition:all .13s; }
+    .chip:hover { box-shadow:0 2px 8px rgba(20,23,26,.1); }
+    .chip.on { background:var(--ink); color:#fff; box-shadow:0 3px 12px rgba(20,23,26,.22); }
     .chip .ck { display:none; font-size:.78rem; }
     .chip.on .ck { display:inline; }
 
-    .drop { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; width:100%; padding:1.5rem 1rem; border:2px dashed #d4d4d9; border-radius:14px; background:#fafafa; color:var(--muted); cursor:pointer; transition:border-color .15s, background .15s; text-align:center; }
-    .drop:hover { border-color:var(--ink); background:#fff; }
-    .drop .di { font-size:1.7rem; }
-    .drop .dt { font-weight:700; color:var(--ink); font-size:.95rem; }
+    .drop { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:.35rem; width:100%; padding:1.5rem 1rem; border-radius:18px; background:#fff; color:var(--muted); cursor:pointer; box-shadow:0 1px 3px rgba(20,23,26,.05); transition:box-shadow .16s; text-align:center; }
+    .drop:hover { box-shadow:0 4px 14px rgba(20,23,26,.1); }
+    .drop .di { font-size:1.8rem; }
+    .drop .dt { font-weight:700; color:var(--ink); font-size:.96rem; }
     .drop .ds { font-size:.78rem; }
     #photoInput { display:none; }
-    .thumbs { display:flex; flex-wrap:wrap; gap:.55rem; margin-top:.8rem; }
-    .thumbs img { width:76px; height:76px; object-fit:cover; border-radius:11px; border:1px solid var(--line); }
+    .thumbs { display:flex; flex-wrap:wrap; gap:.6rem; margin-top:.85rem; }
+    .thumbs img { width:78px; height:78px; object-fit:cover; border-radius:16px; }
 
-    .submit { width:100%; padding:1.05rem; font-size:1.05rem; font-weight:800; letter-spacing:.01em; background:var(--ink); color:#fff; border:none; border-radius:13px; cursor:pointer; transition:background .15s, transform .05s; }
-    .submit:hover { background:#000; }
+    .submit { width:100%; padding:1.1rem; font-size:1.05rem; font-weight:800; background:var(--ink); color:#fff; border:none; border-radius:17px; cursor:pointer; box-shadow:0 4px 16px rgba(20,23,26,.18); transition:transform .06s, box-shadow .16s; }
+    .submit:hover { box-shadow:0 6px 22px rgba(20,23,26,.26); }
     .submit:active { transform:scale(.99); }
-    .reassure { text-align:center; font-size:.82rem; color:var(--muted); margin-top:.85rem; line-height:1.5; }
-    .back { display:inline-flex; align-items:center; gap:.25rem; background:none; border:none; color:var(--muted); font-size:.92rem; cursor:pointer; margin-top:1.3rem; padding:.2rem 0; }
+    .reassure { text-align:center; font-size:.82rem; color:var(--muted); margin-top:.9rem; line-height:1.5; }
+    .back { display:inline-flex; align-items:center; gap:.25rem; background:none; border:none; color:var(--muted); font-size:.92rem; cursor:pointer; margin-top:1.3rem; padding:.3rem .1rem; }
     .back:hover { color:var(--ink); }
 
-    .callbox { text-align:center; }
-    .callnum { font-size:2rem; font-weight:800; letter-spacing:-.01em; margin:.3rem 0 .1rem; }
+    .callcard { background:#fff; border-radius:20px; padding:1.5rem; text-align:center; box-shadow:0 3px 16px rgba(20,23,26,.05); }
+    .callnum { font-size:2rem; font-weight:800; letter-spacing:-.01em; margin:.1rem 0; }
     .callrow { display:flex; gap:.7rem; margin-top:1.2rem; }
-    .callrow a { flex:1; text-align:center; padding:1rem; border-radius:13px; font-weight:800; font-size:1rem; text-decoration:none; transition:transform .05s; }
+    .callrow a { flex:1; text-align:center; padding:1.05rem; border-radius:16px; font-weight:800; font-size:1rem; text-decoration:none; }
     .callrow a:active { transform:scale(.99); }
-    .callrow .call { background:var(--emerg); color:#fff; }
-    .callrow .text { background:#fff; color:var(--emerg); border:2px solid var(--emerg); }
+    .callrow .call { background:var(--emerg); color:#fff; box-shadow:0 4px 14px rgba(192,57,43,.25); }
+    .callrow .text { background:#fdeeeb; color:var(--emerg); }
 
     .thanks { text-align:center; }
-    .checkbadge { width:74px; height:74px; border-radius:50%; background:#e7f5ee; color:#1a8a4f; display:flex; align-items:center; justify-content:center; font-size:2.3rem; margin:0 auto 1.1rem; }
+    .checkbadge { width:78px; height:78px; border-radius:50%; background:#e7f5ee; color:#1a8a4f; display:flex; align-items:center; justify-content:center; font-size:2.4rem; margin:0 auto 1.1rem; }
     .thanks h2 { font-size:1.5rem; font-weight:800; letter-spacing:-.02em; }
     .thanks .ptext { color:var(--muted); font-size:.96rem; line-height:1.55; margin:.55rem 0 1.5rem; }
-    .steps { text-align:left; border-top:1px solid var(--line); padding-top:1.3rem; }
-    .step { display:flex; gap:.8rem; align-items:flex-start; margin-bottom:.95rem; }
-    .step:last-child { margin-bottom:0; }
-    .step .sn { flex:none; width:28px; height:28px; border-radius:50%; background:var(--ink); color:#fff; font-size:.85rem; font-weight:700; display:flex; align-items:center; justify-content:center; }
-    .step .sl { font-size:.92rem; line-height:1.45; padding-top:.2rem; }
+    .step { display:flex; gap:.85rem; align-items:flex-start; background:#fff; border-radius:16px; padding:.95rem 1.05rem; margin-bottom:.65rem; text-align:left; box-shadow:0 1px 3px rgba(20,23,26,.04); }
+    .step .sn { flex:none; width:30px; height:30px; border-radius:50%; background:var(--ink); color:#fff; font-size:.88rem; font-weight:700; display:flex; align-items:center; justify-content:center; }
+    .step .sl { font-size:.93rem; line-height:1.45; padding-top:.28rem; }
 
-    .foot { text-align:center; color:#9a9aa0; font-size:.76rem; margin-top:1.6rem; line-height:1.7; }
-    .foot b { color:#6b7177; font-weight:800; letter-spacing:-.01em; }
-    .errbox { background:#fdf0f0; border:1px solid #f3c9c9; color:var(--emerg); padding:.8rem 1rem; border-radius:12px; font-size:.9rem; margin-bottom:1.2rem; line-height:1.45; }
+    .foot { text-align:center; color:#a6a6ab; font-size:.76rem; margin-top:1.7rem; line-height:1.7; }
+    .foot b { color:#73777c; font-weight:800; letter-spacing:-.01em; }
+    .errbox { background:#fdeeeb; color:var(--emerg); padding:.9rem 1.1rem; border-radius:15px; font-size:.9rem; margin-bottom:1.2rem; line-height:1.45; }
     .hp { position:absolute; left:-9999px; }
   </style>
 </head>
@@ -102,20 +98,18 @@
 
   <div class="wrap">
     <% if (ok) { %>
-      <div class="card thanks">
+      <div class="thanks">
         <div class="checkbadge">✓</div>
         <h2>Thank you — we've got it.</h2>
         <p class="ptext">Your request is now with our team. We'll review the details and photos and follow up with you directly.</p>
-        <div class="steps">
-          <div class="step"><span class="sn">1</span><span class="sl"><strong>We review</strong> your request and any photos you sent.</span></div>
-          <div class="step"><span class="sn">2</span><span class="sl"><strong>We reach out</strong> to you to schedule a closer look or a fix.</span></div>
-          <div class="step"><span class="sn">3</span><span class="sl"><strong>We make it right.</strong></span></div>
-        </div>
+        <div class="step"><span class="sn">1</span><span class="sl"><strong>We review</strong> your request and any photos you sent.</span></div>
+        <div class="step"><span class="sn">2</span><span class="sl"><strong>We reach out</strong> to schedule a closer look or a fix.</span></div>
+        <div class="step"><span class="sn">3</span><span class="sl"><strong>We make it right.</strong></span></div>
         <% if (emergencyPhone) { %><p class="reassure" style="margin-top:1.3rem">Something urgent in the meantime? Call <a href="tel:<%= emergencyPhone.replace(/[^0-9+]/g,'') %>" style="color:var(--ink);font-weight:700;text-decoration:none"><%= emergencyPhone %></a>.</p><% } %>
       </div>
     <% } else { %>
       <!-- Step 1: choose -->
-      <div class="card" id="panelChoice">
+      <div id="panelChoice">
         <div class="eyebrow">How can we help?</div>
         <div class="h2">What do you need?</div>
         <div class="lead">Pick the option that fits your situation — we'll take it from there.</div>
@@ -132,24 +126,26 @@
       </div>
 
       <!-- Emergency -->
-      <div class="card" id="panelEmerg" style="display:none">
+      <div id="panelEmerg" style="display:none">
         <div class="eyebrow" style="color:var(--emerg)">Emergency</div>
         <div class="h2">Let's get you help now</div>
         <div class="lead">For anything urgent, please contact <strong>Logan</strong> directly — don't wait on the form.</div>
         <% if (emergencyPhone) { %>
-          <div class="callbox"><div class="callnum"><%= emergencyPhone %></div></div>
-          <div class="callrow">
-            <a class="call" href="tel:<%= emergencyPhone.replace(/[^0-9+]/g,'') %>">📞 Call now</a>
-            <a class="text" href="sms:<%= emergencyPhone.replace(/[^0-9+]/g,'') %>">💬 Text us</a>
+          <div class="callcard">
+            <div class="callnum"><%= emergencyPhone %></div>
+            <div class="callrow">
+              <a class="call" href="tel:<%= emergencyPhone.replace(/[^0-9+]/g,'') %>">📞 Call now</a>
+              <a class="text" href="sms:<%= emergencyPhone.replace(/[^0-9+]/g,'') %>">💬 Text us</a>
+            </div>
           </div>
         <% } else { %>
-          <p class="lead" style="text-align:center;margin-bottom:0">Please call your Buildoly project manager directly. If you don't have the number, submit a request below and note that it's urgent.</p>
+          <div class="callcard"><p class="lead" style="margin:0">Please call your Buildoly project manager directly. If you don't have the number, submit a request below and note that it's urgent.</p></div>
         <% } %>
         <button type="button" class="back" onclick="show('panelChoice')">‹ Back</button>
       </div>
 
       <!-- Standard form -->
-      <div class="card" id="panelForm" style="display:none">
+      <div id="panelForm" style="display:none">
         <div class="eyebrow">Warranty Request</div>
         <div class="h2">Tell us about the issue</div>
         <div class="lead">A few quick details and photos help us come prepared.</div>
