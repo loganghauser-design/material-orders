@@ -28,6 +28,15 @@ a { color: var(--accent); text-decoration: none; }
 .nav .btn-primary { background: #fff; color: #000; }
 .nav .btn-primary:hover { background: #e6e6e6; }
 
+/* Phone: let the nav wrap onto multiple lines instead of running off the right edge */
+@media (max-width: 760px) {
+  .nav { padding: .5rem .8rem; height: auto; flex-wrap: wrap; row-gap: .35rem; }
+  .nav > div { flex-wrap: wrap; gap: .5rem .9rem; }
+  .nav-brand { font-size: 1rem; }
+  .nav-tab { font-size: .85rem; }
+  .nav-actions { gap: .5rem; }
+}
+
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem 1rem; border-radius: 6px; border: none; cursor: pointer; font-size: .875rem; font-weight: 500; transition: background .15s; text-decoration: none; }
 .btn-primary { background: var(--accent); color: #fff; }
