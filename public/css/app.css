@@ -18,7 +18,7 @@ a { color: var(--accent); text-decoration: none; }
 
 /* Nav */
 .nav { background: #000; border-bottom: 1px solid #1c1c1c; padding: 0 2rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
-.nav-brand { display: inline-block; width: 108px; height: 26px; background: url(/logo-white.svg) left center / contain no-repeat; text-indent: -2000px; overflow: hidden; white-space: nowrap; flex: none; }
+.nav-brand { display: inline-block; width: 116px; height: 28px; background: url(/logo.png) left center / contain no-repeat; filter: invert(1); text-indent: -2000px; overflow: hidden; white-space: nowrap; flex: none; }
 .nav-tab { font-size: .9rem; color: #9a9a9a; text-decoration: none; padding: .3rem 0; border-bottom: 2px solid transparent; }
 .nav-tab:hover { color: #fff; text-decoration: none; }
 .nav-tab.active { color: #fff; border-bottom-color: #fff; }
