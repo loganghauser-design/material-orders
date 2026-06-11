@@ -3483,14 +3483,21 @@ app.post('/subs/:id/delete', requireAuth, async (req, res) => {
 
 // Upload a photo (business card etc.) for a subcontractor
 app.post('/subs/:id/photo', requireAuth, upload.array('photos', 12), async (req, res) => {
+  const ajax = req.headers['x-requested-with'] === 'fetch';
   try {
     const files = req.files || [];
+    const ids = [];
     for (const f of files) {
-      await pool.query('INSERT INTO sub_photos (sub_id, filename, mime, data) VALUES ($1,$2,$3,$4)',
+      const { rows: [r] } = await pool.query('INSERT INTO sub_photos (sub_id, filename, mime, data) VALUES ($1,$2,$3,$4) RETURNING id',
         [req.params.id, f.originalname, f.mimetype, f.buffer]);
+      ids.push(r.id);
     }
+    if (ajax) return res.json({ ok: true, ids });
     res.redirect('/subs');
-  } catch (err) { res.status(500).send('Error: ' + err.message); }
+  } catch (err) {
+    if (ajax) return res.status(500).json({ ok: false, error: err.message });
+    res.status(500).send('Error: ' + err.message);
+  }
 });
 
 // Delete a GC / sub entirely (photos cascade via ON DELETE CASCADE)

@@ -39,6 +39,10 @@
     .thumb { position:relative; display:inline-block; }
     .thumbs img { width:46px; height:46px; object-fit:cover; border-radius:6px; border:1px solid var(--border); display:block; }
     .thx { position:absolute; top:-6px; right:-6px; width:17px; height:17px; line-height:15px; text-align:center; font-size:.7rem; background:#cc2222; color:#fff; border-radius:50%; cursor:pointer; border:1.5px solid var(--surface); }
+    #modalPhotos .thumbs, #modalPhotos { gap:.4rem; }
+    #modalPhotos img { width:60px; height:60px; }
+    .addphotos { display:inline-flex; align-items:center; gap:.4rem; padding:.55rem 1rem; border:1.5px dashed var(--border); border-radius:9px; cursor:pointer; font-size:.92rem; font-weight:600; background:var(--bg); }
+    .addphotos:hover { border-color:#111; }
     .row-actions { white-space:nowrap; }
     .row-actions button, .row-actions label.upl { font-size:.85rem; padding:.2rem .4rem; border:1px solid var(--border); background:var(--surface); border-radius:6px; cursor:pointer; line-height:1; }
     .moveSel { font-size:.74rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); cursor:pointer; max-width:130px; }
@@ -186,7 +190,7 @@
               <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
                 <td class="co"><%= s.company || '—' %>
-                  <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>)" title="Remove photo">✕</span></span><% }) %></div><% } %>
+                  <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
                 </td>
                 <td><%= s.location || '' %></td>
                 <td><%= s.type || '' %></td>
@@ -212,7 +216,7 @@
                       <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
                     </optgroup>
                   </select>
-                  <button onclick='openEdit(<%- JSON.stringify(s) %>)' title="Edit">✏</button>
+                  <button onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)' title="Edit">✏</button>
                   <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
                     <label class="upl" title="Add photos (pick several at once — work, vehicle, job site)">📷<input type="file" name="photos" accept="image/*" multiple style="display:none" onchange="this.form.submit()"></label>
                   </form>
@@ -270,6 +274,12 @@
       </div>
       <div class="mg"><label>Referenced by <span style="font-weight:400;color:var(--muted)">— how you found them</span></label><input name="referenced_by" id="f_referenced_by" placeholder="e.g. Referral from Bobby · Google · past project"></div>
       <div class="mg"><label>Notes</label><textarea name="notes" id="f_notes" rows="2"></textarea></div>
+      <div class="mg" id="photosField" style="display:none">
+        <label>Photos <span style="font-weight:400;color:var(--muted)">— work, vehicle, job site. Add several at once, or come back and add more anytime.</span></label>
+        <div id="modalPhotos" class="thumbs" style="margin-bottom:.55rem"></div>
+        <label class="addphotos">📷 Add photos<input type="file" id="modalPhotoInput" accept="image/*" multiple style="display:none" onchange="uploadModalPhotos()"></label>
+        <span id="photoUploading" style="display:none;font-size:.82rem;color:var(--muted);margin-left:.6rem">Uploading…</span>
+      </div>
       <input type="hidden" name="group_label" id="f_group">
       <div style="display:flex;gap:.6rem;align-items:center;margin-top:.4rem">
         <button type="button" id="delBtn" class="btn" style="display:none;color:#cc2222;border:1px solid #cc2222;background:none" onclick="delSubFromModal()">🗑 Delete</button>
@@ -449,9 +459,10 @@ function openAdd() {
   setTradesFromString('');
   setCat('sub');   // default new entries to Subcontractor — tap the toggle for GC
   document.getElementById('delBtn').style.display = 'none';   // no delete when adding
+  document.getElementById('photosField').style.display = 'none';   // save first, then add photos
   document.getElementById('subModal').classList.add('show');
 }
-function openEdit(s) {
+function openEdit(s, photos) {
   document.getElementById('modalTitle').textContent = 'Edit Subcontractor';
   document.getElementById('editId').value = s.id;
   document.getElementById('f_company').value = s.company || '';
@@ -466,7 +477,40 @@ function openEdit(s) {
   document.getElementById('f_referenced_by').value = s.referenced_by || '';
   document.getElementById('f_group').value = s.group_label || '';
   document.getElementById('delBtn').style.display = '';   // allow deleting when editing
+  document.getElementById('photosField').style.display = '';
+  renderModalPhotos(photos || []);
+  document.getElementById('modalPhotoInput').value = '';
   document.getElementById('subModal').classList.add('show');
+}
+function photoThumbHtml(pid) {
+  return `<span class="thumb"><a href="/sub-photo/${pid}" target="_blank"><img src="/sub-photo/${pid}"></a><span class="thx" onclick="delPhoto(${pid}, this)" title="Remove photo">✕</span></span>`;
+}
+function renderModalPhotos(photos) {
+  const box = document.getElementById('modalPhotos');
+  box.innerHTML = (photos && photos.length)
+    ? photos.map(photoThumbHtml).join('')
+    : '<span class="noph" style="color:var(--muted);font-size:.82rem">No photos yet — add some below.</span>';
+}
+async function uploadModalPhotos() {
+  const input = document.getElementById('modalPhotoInput');
+  const id = document.getElementById('editId').value;
+  if (!input.files.length || !id) return;
+  document.getElementById('photoUploading').style.display = 'inline';
+  const fd = new FormData();
+  Array.from(input.files).forEach(f => fd.append('photos', f));
+  try {
+    const r = await fetch('/subs/' + id + '/photo', { method: 'POST', headers: { 'X-Requested-With': 'fetch' }, body: fd });
+    const d = await r.json();
+    document.getElementById('photoUploading').style.display = 'none';
+    input.value = '';
+    if (!d.ok) { alert('Could not upload — please try again.'); return; }
+    const box = document.getElementById('modalPhotos');
+    const ph = box.querySelector('.noph'); if (ph) box.innerHTML = '';   // clear the "no photos" note
+    d.ids.forEach(pid => box.insertAdjacentHTML('beforeend', photoThumbHtml(pid)));
+  } catch (e) {
+    document.getElementById('photoUploading').style.display = 'none';
+    alert('Could not upload — please try again.');
+  }
 }
 function delSubFromModal() {
   const id = document.getElementById('editId').value;
@@ -476,12 +520,14 @@ function delSubFromModal() {
   f.method = 'POST'; f.action = '/subs/' + id + '/delete';
   document.body.appendChild(f); f.submit();
 }
-async function delPhoto(id) {
+async function delPhoto(id, el) {
   if (!confirm('Remove this photo?')) return;
   try {
     const r = await fetch('/sub-photo/' + id + '/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const d = await r.json();
-    if (d.ok) location.reload(); else alert('Could not remove photo.');
+    if (!d.ok) { alert('Could not remove photo.'); return; }
+    if (el && el.closest('.thumb')) el.closest('.thumb').remove();   // remove in place (row + modal)
+    else location.reload();
   } catch (e) { alert('Could not remove photo.'); }
 }
 function pillClassJS(st) { st = (st || '').toLowerCase();
