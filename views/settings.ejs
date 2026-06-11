@@ -26,7 +26,59 @@
 <div class="container">
   <div class="page-header"><h1>Settings</h1></div>
 
-  <div class="card">
+  <style>
+    .linkrow { display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap; padding:1rem 0; border-top:1px solid var(--border); }
+    .linkrow:first-of-type { border-top:none; padding-top:.2rem; }
+    .linkname { font-weight:700; font-size:1rem; }
+    .linkdesc { color:var(--muted); font-size:.84rem; margin:.18rem 0 .35rem; line-height:1.45; max-width:440px; }
+    .linkurl { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.82rem; color:var(--accent); word-break:break-all; }
+    .linkbtns { display:flex; gap:.5rem; flex:none; }
+  </style>
+
+  <div class="card" id="links">
+    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">🔗 Shareable Links</h2>
+    <p style="color:var(--muted);font-size:.875rem;margin-bottom:1rem">
+      Public links you — or any employee — can hand out. No login needed. Tap <strong>Copy</strong> to grab one.
+    </p>
+
+    <div class="linkrow">
+      <div>
+        <div class="linkname">🏠 Warranty &amp; Service</div>
+        <div class="linkdesc">Give to <strong>homeowners / clients</strong> to report a warranty issue or reach you in an emergency.</div>
+        <div class="linkurl" data-path="/warranty"></div>
+      </div>
+      <div class="linkbtns">
+        <a class="btn btn-ghost btn-sm" href="/warranty" target="_blank">Open</a>
+        <button type="button" class="btn btn-primary btn-sm" onclick="copyLink('/warranty', this)">Copy</button>
+      </div>
+    </div>
+
+    <div class="linkrow">
+      <div>
+        <div class="linkname">🧰 Contractor Submission</div>
+        <div class="linkdesc">Send to <strong>GCs / subcontractors</strong> to apply — their info lands in Subs → Under Vetting.</div>
+        <div class="linkurl" data-path="/apply"></div>
+      </div>
+      <div class="linkbtns">
+        <a class="btn btn-ghost btn-sm" href="/apply" target="_blank">Open</a>
+        <button type="button" class="btn btn-primary btn-sm" onclick="copyLink('/apply', this)">Copy</button>
+      </div>
+    </div>
+
+    <div class="linkrow">
+      <div>
+        <div class="linkname">🔐 Staff App <span style="color:var(--muted);font-weight:400">— internal</span></div>
+        <div class="linkdesc">For <strong>employees &amp; superintendents</strong> to log in. Don't share this one with clients.</div>
+        <div class="linkurl" data-path="/login"></div>
+      </div>
+      <div class="linkbtns">
+        <a class="btn btn-ghost btn-sm" href="/login" target="_blank">Open</a>
+        <button type="button" class="btn btn-primary btn-sm" onclick="copyLink('/login', this)">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:1.5rem">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">Default Email Attachment</h2>
     <p style="color:var(--muted);font-size:.875rem;margin-bottom:1.5rem">
       This file (e.g. your wire-transfer details PDF) automatically attaches to <strong>every</strong> milestone payment email you send.
@@ -82,9 +134,7 @@
   <div class="card" style="margin-top:1.5rem" id="warranty">
     <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.4rem">🏠 Warranty</h2>
     <p style="color:var(--muted);font-size:.875rem;margin-bottom:1rem">
-      Share this link with clients to report warranty issues (or reach you in an emergency):
-      <br><a href="/warranty" target="_blank" style="font-weight:700">Open the client warranty page →</a>
-      <br><span style="font-size:.8rem">Link: <code id="warrantyUrl">/warranty</code> <button type="button" class="btn btn-ghost btn-sm" onclick="copyWarranty()">Copy</button></span>
+      The number clients see when they tap <strong>“Emergency”</strong> on the warranty page. (The shareable warranty link is up under <a href="#links">🔗 Shareable Links</a>.)
     </p>
     <% if (typeof savedEmergency !== 'undefined' && savedEmergency) { %>
       <div class="error-msg" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a">✓ Emergency number saved.</div>
@@ -106,8 +156,12 @@
   </div>
 </div>
 <script>
-  (function(){ var u = location.origin + '/warranty'; var el = document.getElementById('warrantyUrl'); if (el) el.textContent = u; })();
-  function copyWarranty(){ navigator.clipboard.writeText(location.origin + '/warranty').then(function(){}, function(){}); }
+  document.querySelectorAll('.linkurl').forEach(function(el){ el.textContent = location.origin + el.dataset.path; });
+  function copyLink(path, btn){
+    navigator.clipboard.writeText(location.origin + path).then(function(){
+      var t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(function(){ btn.textContent = t; }, 1500);
+    });
+  }
 </script>
 </body>
 </html>
