@@ -59,7 +59,7 @@
     .trade-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
     .trade-chip { padding:.32rem .7rem; border:1px solid var(--border); border-radius:16px; font-size:.82rem; cursor:pointer; user-select:none; background:var(--bg); white-space:nowrap; }
     .trade-chip.on { background:#111; color:#fff; border-color:#111; }
-    .sortbtn { font-size:.82rem; padding:.32rem .8rem; border:1px solid var(--border); border-radius:8px; text-decoration:none; color:var(--text); background:var(--surface); }
+    .sortbtn { font:inherit; font-size:.82rem; padding:.32rem .8rem; border:1px solid var(--border); border-radius:8px; text-decoration:none; color:var(--text); background:var(--surface); cursor:pointer; }
     .sortbtn.on { background:#111; color:#fff; border-color:#111; }
     .vetsel { font-size:.82rem; padding:.3rem .5rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
     .subs-table .refby { color:var(--muted); font-size:.8rem; max-width:160px; }
@@ -140,7 +140,7 @@
     <div class="card" style="color:var(--muted)">No subcontractors yet. Click <strong>Import from Sheet</strong> or <strong>+ Add</strong>.</div>
   <% } %>
 
-  <% sections.forEach(sec => { var secSort = (sec.key === 'gc') ? gcSort : subSort; %>
+  <% sections.forEach(sec => { %>
     <div class="sub-section" data-section>
       <div class="sec-title sec-<%= sec.key %>"><%= sec.title %> <span class="cnt">(<%= sec.list.length %>)</span></div>
       <% if (sec.list.length) { %>
@@ -152,8 +152,10 @@
           <% vetOpts.forEach(v => { %><option value="<%= v %>"><%= v %></option><% }) %>
         </select>
         <span style="font-size:.82rem;color:var(--muted);margin-left:.7rem">Group by:</span>
-        <a href="/subs?<%= sec.key === 'gc' ? ('gcSort=status&subSort=' + subSort) : ('gcSort=' + gcSort + '&subSort=status') %>" class="sortbtn <%= secSort !== 'trade' ? 'on' : '' %>">Status</a>
-        <a href="/subs?<%= sec.key === 'gc' ? ('gcSort=trade&subSort=' + subSort) : ('gcSort=' + gcSort + '&subSort=trade') %>" class="sortbtn <%= secSort === 'trade' ? 'on' : '' %>">Trade</a>
+        <span id="sortbtns_<%= sec.key %>">
+          <button type="button" class="sortbtn on" data-sort="status" onclick="setGroupBy('<%= sec.key %>','status')">Status</button>
+          <button type="button" class="sortbtn" data-sort="trade" onclick="setGroupBy('<%= sec.key %>','trade')">Trade</button>
+        </span>
       </div>
       <% } %>
       <% if (!sec.list.length) { %>
@@ -164,9 +166,9 @@
           <thead><tr>
             <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Ref. By</th><th>Notes</th><th></th>
           </tr></thead>
-          <tbody>
+          <tbody id="tbody_<%= sec.key %>">
             <%
-              const byTrade = (secSort === 'trade');
+              const byTrade = false;   // initial render is by status; the Group-by toggle re-groups client-side (no reload)
               const keyOf = x => byTrade ? ((x.type || '').split(',')[0].trim() || 'Other') : (x.group_label || '');
               const groups = []; const gmap = {};
               sec.list.forEach(x => { const g = keyOf(x); if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
@@ -175,7 +177,7 @@
             <% groups.forEach(g => { %>
               <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11"><%= g %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; %>
-              <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+              <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
                 <td class="co"><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><% }) %></div><% } %>
@@ -313,6 +315,65 @@ function filterSubs() {
     sec.style.display = vis ? '' : 'none';
   });
 }
+
+// ── Group-by toggle: re-group rows in the browser, no page reload (so no scroll-to-top) ──
+const ORIG_STATUS_ORDER = {};   // {gc:[grp,…], sub:[…]} — the original sheet order of status groups
+function captureStatusOrder() {
+  ['gc','sub'].forEach(key => {
+    const tb = document.getElementById('tbody_' + key);
+    if (!tb) return;
+    const order = [];
+    [...tb.children].forEach(tr => {
+      if (tr.classList.contains('subhdr')) { const g = tr.getAttribute('data-grp') || ''; if (g && order.indexOf(g) < 0) order.push(g); }
+    });
+    ORIG_STATUS_ORDER[key] = order;
+  });
+}
+function makeSubhdr(key, grp, display) {
+  const tr = document.createElement('tr');
+  tr.className = 'subhdr';
+  tr.setAttribute('data-cat', key);
+  tr.setAttribute('data-grp', grp);
+  tr.setAttribute('ondragover', 'onDragOver(event)');
+  tr.setAttribute('ondragleave', 'onDragLeave(event)');
+  tr.setAttribute('ondrop', 'onDrop(event)');
+  const td = document.createElement('td');
+  td.colSpan = 11;
+  td.textContent = (display == null) ? grp : display;
+  tr.appendChild(td);
+  return tr;
+}
+function setGroupBy(key, mode) {
+  const tb = document.getElementById('tbody_' + key);
+  if (!tb) return;
+  const rows = [...tb.querySelectorAll('tr[data-search]')];
+  [...tb.querySelectorAll('tr.subhdr')].forEach(tr => tr.remove());
+  const gmap = {}, display = {}, order = [];
+  rows.forEach(tr => {
+    let g, disp;
+    if (mode === 'trade') { disp = (tr.getAttribute('data-trade') || '').trim() || 'Other'; g = disp.toLowerCase(); }
+    else { g = tr.getAttribute('data-grp') || ''; disp = g; }
+    if (!(g in gmap)) { gmap[g] = []; display[g] = disp; order.push(g); }
+    gmap[g].push(tr);
+  });
+  let groups;
+  if (mode === 'trade') {
+    groups = order.slice().sort((a, b) => display[a].localeCompare(display[b]));
+  } else {
+    const orig = ORIG_STATUS_ORDER[key] || [];
+    groups = orig.filter(g => g in gmap).concat(order.filter(g => orig.indexOf(g) < 0));
+  }
+  tb.innerHTML = '';
+  groups.forEach(g => {
+    if (g) tb.appendChild(makeSubhdr(key, g, display[g]));
+    gmap[g].forEach(tr => tb.appendChild(tr));
+  });
+  const box = document.getElementById('sortbtns_' + key);
+  if (box) box.querySelectorAll('.sortbtn').forEach(b => b.classList.toggle('on', b.dataset.sort === mode));
+  filterSubs();
+}
+captureStatusOrder();
+
 // ── Multi-select trades ──
 const TRADES = ['General Contractor','Electrician','Plumber','Drywall','Framing','Painter','Handyman','HVAC','Flooring','Roofing','Concrete','Demolition','Junk Removal','Landscaping','Tile','Solar','Stucco','Insulation','Fire Sprinklers','Decking','Finishes','Tree Removal'];
 let selectedTrades = [];
