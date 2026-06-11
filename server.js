@@ -3482,14 +3482,21 @@ app.post('/subs/:id/delete', requireAuth, async (req, res) => {
 });
 
 // Upload a photo (business card etc.) for a subcontractor
-app.post('/subs/:id/photo', requireAuth, upload.single('photo'), async (req, res) => {
+app.post('/subs/:id/photo', requireAuth, upload.array('photos', 12), async (req, res) => {
   try {
-    if (req.file) {
+    const files = req.files || [];
+    for (const f of files) {
       await pool.query('INSERT INTO sub_photos (sub_id, filename, mime, data) VALUES ($1,$2,$3,$4)',
-        [req.params.id, req.file.originalname, req.file.mimetype, req.file.buffer]);
+        [req.params.id, f.originalname, f.mimetype, f.buffer]);
     }
     res.redirect('/subs');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Delete a GC / sub entirely (photos cascade via ON DELETE CASCADE)
+app.post('/subs/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM subcontractors WHERE id=$1', [req.params.id]); res.redirect('/subs'); }
+  catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
 app.get('/sub-photo/:id', requireAuth, async (req, res) => {
@@ -3500,8 +3507,8 @@ app.get('/sub-photo/:id', requireAuth, async (req, res) => {
 });
 
 app.post('/sub-photo/:id/delete', requireAuth, async (req, res) => {
-  try { await pool.query('DELETE FROM sub_photos WHERE id=$1', [req.params.id]); res.redirect('/subs'); }
-  catch (err) { res.status(500).send('Error: ' + err.message); }
+  try { await pool.query('DELETE FROM sub_photos WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // One-time import from the Google Sheet — only adds companies not already in the DB.
