@@ -785,6 +785,41 @@ async function computeHeldUsages() {
   return usages;
 }
 
+// When a project grid category is marked "Delivered from Inv." (or moved back to
+// "In Inventory"), sync the matching held-stock items so the Inventory tab draws
+// them down (delivered) / restores them (in office). Reads just this one project's
+// schedule (cached) rather than all of them.
+async function syncHeldStockForCode(projectId, code, delivered) {
+  try {
+    const { rows: [proj] } = await pool.query(
+      'SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [projectId]);
+    if (!proj || !proj.finish_schedule_url) return 0;
+    let rows;
+    try { rows = await fetchScheduleValues(proj.finish_schedule_url); } catch (e) { return 0; }
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source };
+    const keys = new Set();
+    for (let i = 5; i < rows.length; i++) {
+      const row = rows[i];
+      const { cat, supplier } = applyRowOverrides(row, opts);
+      if (!isHeldSupplier(supplier)) continue;
+      const rcode = (String(cat).match(/^(1[a-e]|2[a-e]|3[a-e])\b/i) || [])[1];
+      if (!rcode || rcode.toLowerCase() !== String(code).toLowerCase()) continue;
+      const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
+      keys.add(heldItemKey((row[2] || '').trim(), (row[7] || '').trim(), name));
+    }
+    if (!keys.size) return 0;
+    const status = delivered ? 'Delivered' : 'In Office';
+    for (const k of keys) {
+      await pool.query(
+        `INSERT INTO held_item_status (project_id, item_key, status, delivered_qty, updated_at) VALUES ($1,$2,$3,NULL,NOW())
+         ON CONFLICT (project_id, item_key) DO UPDATE SET status=EXCLUDED.status, delivered_qty=NULL, updated_at=NOW()`,
+        [projectId, k, status]
+      );
+    }
+    return keys.size;
+  } catch (e) { return 0; }
+}
+
 // Load manual inventory items (name · product · qty).
 async function getInventoryItems() {
   const { rows } = await pool.query('SELECT id, name, product, qty, notes FROM inventory_items ORDER BY name');
@@ -2194,6 +2229,9 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
   // Chat alert is no longer automatic — it's sent on demand via the 📢 button (/notify).
   // If this item just became delivered, auto-clear any field requests it completes.
   if (['Delivered', 'Delivered from Inv.'].includes(status)) autoFulfillRequests(req.params.id);
+  // Keep inventory in sync: "Delivered from Inv." draws the held stock down; "In Inventory" restores it.
+  if (status === 'Delivered from Inv.') syncHeldStockForCode(req.params.id, req.params.code, true);
+  else if (status === 'In Inventory') syncHeldStockForCode(req.params.id, req.params.code, false);
   res.json({ ok: true });
 });
 
