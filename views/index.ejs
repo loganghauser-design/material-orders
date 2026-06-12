@@ -13,6 +13,7 @@
   <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
   <style>
     .dash { max-width: 1180px; margin: 0 auto; padding: 1.7rem 1.2rem 3.5rem; }
+    .dash-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:.4rem; }
     .dash-hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
     .dash-hero .date { color: var(--muted); font-size: .95rem; margin-top: .25rem; }
     .sec-head { display:flex; align-items:baseline; justify-content:space-between; margin: 1.9rem 0 .85rem; }
@@ -81,8 +82,11 @@
 
 <div class="dash">
   <div class="dash-hero">
-    <h1 id="greeting">Welcome back</h1>
-    <div class="date" id="todayDate"></div>
+    <div>
+      <h1 id="greeting">Welcome back</h1>
+      <div class="date" id="todayDate"></div>
+    </div>
+    <%- include('_dash-switch', { current: 'office' }) %>
   </div>
 
   <!-- NEEDS ATTENTION -->

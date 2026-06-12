@@ -1531,6 +1531,15 @@ async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- Per-user home-dashboard choice (each person picks their own landing view)
+    CREATE TABLE IF NOT EXISTS user_prefs (
+      user_key TEXT PRIMARY KEY,
+      home_dashboard TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    -- Aziz runs permitting → start him on the Permits dashboard (he can still switch)
+    INSERT INTO user_prefs (user_key, home_dashboard) VALUES ('aziz','permits') ON CONFLICT (user_key) DO NOTHING;
+
     CREATE TABLE IF NOT EXISTS milestone_payments (
       id SERIAL PRIMARY KEY,
       project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
@@ -2108,10 +2117,63 @@ app.post('/requests/:id/delete', requireAuth, async (req, res) => {
 
 // ── Projects list ─────────────────────────────────────────────────────────────
 
+// ── Home-dashboard preference (each person picks their own landing view) ──────
+const HOME_DASHBOARDS = new Set(['office', 'permits']);
+async function getHomeDashboard(key) {
+  if (!key) return 'office';
+  try {
+    const { rows: [r] } = await pool.query('SELECT home_dashboard FROM user_prefs WHERE user_key=$1', [key]);
+    const v = r && r.home_dashboard;
+    return HOME_DASHBOARDS.has(v) ? v : 'office';
+  } catch (e) { return 'office'; }
+}
+async function renderPermitsDashboard(res, displayName) {
+  const { rows: permits } = await pool.query('SELECT * FROM permits');
+  const GROUP_ORDER = ['Active Permits', 'Issued Permits', 'Miscellaneous Projects', 'Cancelled Projects'];
+  const groups = {}; GROUP_ORDER.forEach(g => groups[g] = 0);
+  permits.forEach(p => { const g = GROUP_ORDER.includes(p.grp) ? p.grp : 'Active Permits'; groups[g]++; });
+  const total = permits.length;
+  const issued = permits.filter(p => p.permit_issued === 'Pulled').length;
+  const active = groups['Active Permits'];
+
+  // "Needs attention" — anything stuck / pending action (cancelled projects excluded)
+  const ATTN = {
+    dbs: ['Stuck'], clearances: ['Stuck'], resub: ['Stuck'], rti: ['Stuck'], update_col: ['Stuck'],
+    corrections: ['In Progress', 'PC Issued', 'Pending'], permit_issued: ['Pending Fees', 'Pending Precon'],
+    fees: ['Pending'], soils: ['Required'], survey: ['Need'], precon_mtg: ['Need to Schedule'],
+  };
+  const LABEL = {
+    dbs: 'DBS', clearances: 'Clearances', resub: 'Resub', rti: 'RTI', update_col: 'Update',
+    corrections: 'Corrections', permit_issued: 'Permit', fees: 'Fees', soils: 'Soils', survey: 'Survey', precon_mtg: 'Precon',
+  };
+  const attention = [];
+  permits.forEach(p => {
+    if (p.grp === 'Cancelled Projects') return;
+    const flags = [];
+    Object.keys(ATTN).forEach(col => { if (ATTN[col].includes(p[col])) flags.push({ col: LABEL[col] || col, val: p[col] }); });
+    if (flags.length) attention.push({ id: p.id, name: p.name || '(unnamed permit)', owner: p.owner || '', adu: p.adu_address || '', flags });
+  });
+  attention.sort((a, b) => b.flags.length - a.flags.length);
+
+  res.render('dashboard-permits', {
+    displayName, total, active, issued, groups, groupOrder: GROUP_ORDER,
+    attention, needsCount: attention.length, hasPermits: total > 0,
+  });
+}
+
 // ── Dashboard (home) ──────────────────────────────────────────────────────────
 app.get('/', requireAuth, async (req, res) => {
   try {
     await initDb();
+    const _key = sessionKey(req);
+    let displayName = '';
+    if (_key === 'logan') displayName = 'Logan';
+    else { const a = ADMINS.find(x => x.username === _key); if (a) displayName = (a.name || '').split(' ')[0]; }
+
+    // Each person's chosen landing view (Aziz defaults to Permits)
+    const home = await getHomeDashboard(_key);
+    if (home === 'permits') return await renderPermitsDashboard(res, displayName);
+
     const { rows: [stats] } = await pool.query(`
       SELECT
         COUNT(*) FILTER (WHERE overall_status='In Progress') AS in_progress,
@@ -2167,15 +2229,10 @@ app.get('/', requireAuth, async (req, res) => {
         return { id: p.id, address: p.address, version: p.version, status: p.overall_status, total, delivered, unread: !!unread[p.id] };
       });
 
-    const _key = sessionKey(req);
-    let displayName = '';
-    if (_key === 'logan') displayName = 'Logan';
-    else { const a = ADMINS.find(x => x.username === _key); if (a) displayName = (a.name || '').split(' ')[0]; }
-
     res.render('index', {
       stats, pendingRequests, pendingIssues, openWarranty,
       recentRequests, recentIssues, recentWarranty,
-      projCards, activeCount: projCards.length, displayName,
+      projCards, activeCount: projCards.length, displayName, homeDashboard: 'office',
     });
   } catch (err) {
     console.error(err);
@@ -2237,6 +2294,21 @@ app.get('/projects', requireAuth, async (req, res) => {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// Save the signed-in person's home-dashboard choice (each person picks their own)
+app.post('/dashboard-pref', requireAuth, async (req, res) => {
+  try {
+    const key = sessionKey(req);
+    const dash = HOME_DASHBOARDS.has(req.body && req.body.dashboard) ? req.body.dashboard : 'office';
+    if (!key) return res.json({ ok: false, error: 'no user' });
+    await pool.query(
+      `INSERT INTO user_prefs (user_key, home_dashboard, updated_at) VALUES ($1,$2,NOW())
+       ON CONFLICT (user_key) DO UPDATE SET home_dashboard=EXCLUDED.home_dashboard, updated_at=NOW()`,
+      [key, dash]
+    );
+    res.json({ ok: true, dashboard: dash });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // ── New project ───────────────────────────────────────────────────────────────

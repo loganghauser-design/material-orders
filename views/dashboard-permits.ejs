@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Permits — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Buildoly">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+  <style>
+    .dash { max-width: 1180px; margin: 0 auto; padding: 1.7rem 1.2rem 3.5rem; }
+    .dash-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:.4rem; }
+    .eyebrow { font-size:.7rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); font-weight:800; margin-bottom:.25rem; }
+    .dash-hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
+    .dash-hero .date { color: var(--muted); font-size: .95rem; margin-top: .25rem; }
+    .sec-head { display:flex; align-items:baseline; justify-content:space-between; margin: 1.9rem 0 .85rem; }
+    .sec-head h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:800; }
+    .sec-head a { font-size:.85rem; font-weight:700; }
+    .tiles { display:grid; grid-template-columns: repeat(4,1fr); gap:.8rem; }
+    .tile { background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:.9rem 1rem; }
+    .tile .t-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:800; }
+    .tile .t-val { font-size:1.8rem; font-weight:800; margin-top:.15rem; letter-spacing:-.02em; }
+    .tile.act .t-val { color:#2b62c2; }
+    .tile.ok .t-val { color:var(--success); }
+    .tile.iss .t-val { color:var(--danger); }
+    .plist { display:flex; flex-direction:column; gap:.5rem; }
+    .prow { display:flex; align-items:center; gap:.9rem; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.72rem .95rem; text-decoration:none; color:var(--text); transition:border-color .15s, box-shadow .15s; }
+    .prow:hover { border-color:#d4d7e2; box-shadow:0 6px 18px rgba(20,22,30,.06); text-decoration:none; }
+    .prow .p-name { font-weight:700; font-size:.95rem; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .prow .p-owner { color:var(--muted); font-size:.8rem; margin-left:.45rem; font-weight:500; }
+    .flags { margin-left:auto; display:flex; gap:.35rem; flex-wrap:wrap; justify-content:flex-end; max-width:62%; }
+    .flag { font-size:.7rem; font-weight:700; padding:.2rem .5rem; border-radius:999px; background:#fbe9e0; color:#b4521c; white-space:nowrap; }
+    .stage { display:flex; flex-direction:column; gap:.65rem; background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:1.05rem 1.15rem; }
+    .strow { display:flex; align-items:center; gap:.9rem; }
+    .strow .s-name { width:120px; font-weight:700; font-size:.86rem; flex:none; }
+    .bar { flex:1; height:9px; border-radius:999px; background:#edeef4; overflow:hidden; }
+    .bar > span { display:block; height:100%; border-radius:999px; }
+    .strow .s-num { width:34px; text-align:right; font-weight:800; font-size:.86rem; }
+    .empty-note { color:var(--muted); font-size:.92rem; padding:1.6rem; text-align:center; background:var(--surface); border:1px dashed var(--border); border-radius:12px; }
+    @media (max-width:820px){ .tiles{grid-template-columns:repeat(2,1fr);} .flags{max-width:50%;} }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'home' }) %>
+
+<div class="dash">
+  <div class="dash-hero">
+    <div>
+      <div class="eyebrow">Permits dashboard</div>
+      <h1 id="greeting">Welcome back</h1>
+      <div class="date" id="todayDate"></div>
+    </div>
+    <%- include('_dash-switch', { current: 'permits' }) %>
+  </div>
+
+  <div class="tiles">
+    <div class="tile"><div class="t-label">Total permits</div><div class="t-val"><%= total %></div></div>
+    <div class="tile act"><div class="t-label">Active</div><div class="t-val"><%= active %></div></div>
+    <div class="tile ok"><div class="t-label">Issued</div><div class="t-val"><%= issued %></div></div>
+    <div class="tile iss"><div class="t-label">Needs attention</div><div class="t-val"><%= needsCount %></div></div>
+  </div>
+
+  <div class="sec-head"><h2>Needs attention</h2><a href="/permits">Open full board →</a></div>
+  <% if (!hasPermits) { %>
+    <div class="empty-note">No permits on the board yet. <a href="/permits">Add your first permit →</a></div>
+  <% } else if (!attention.length) { %>
+    <div class="empty-note">✓ Nothing stuck — every active permit is moving.</div>
+  <% } else { %>
+    <div class="plist">
+      <% attention.slice(0,12).forEach(p => { %>
+        <a class="prow" href="/permits">
+          <span class="p-name"><%= p.name %><% if (p.adu) { %><span class="p-owner">ADU <%= p.adu %></span><% } %><% if (p.owner) { %><span class="p-owner"><%= p.owner %></span><% } %></span>
+          <span class="flags">
+            <% p.flags.slice(0,5).forEach(f => { %><span class="flag"><%= f.col %>: <%= f.val %></span><% }) %>
+          </span>
+        </a>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <% if (hasPermits) { %>
+    <div class="sec-head"><h2>By stage</h2></div>
+    <% var COLORS={'Active Permits':'#2b62c2','Issued Permits':'#16794a','Miscellaneous Projects':'#9a6b00','Cancelled Projects':'#9aa0aa'}; var maxg=Math.max(1, ...groupOrder.map(g=>groups[g]||0)); %>
+    <div class="stage">
+      <% groupOrder.forEach(g => { var n=groups[g]||0; var w=Math.round(n/maxg*100); %>
+        <div class="strow">
+          <span class="s-name"><%= g.replace(' Projects','').replace(' Permits','') %></span>
+          <span class="bar"><span style="width:<%= n?Math.max(w,4):0 %>%;background:<%= COLORS[g] %>"></span></span>
+          <span class="s-num" style="color:<%= n?COLORS[g]:'var(--muted)' %>"><%= n %></span>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+
+<script>
+(function(){
+  var h=new Date().getHours();
+  var g=h<12?'Good morning':h<18?'Good afternoon':'Good evening';
+  var nm=<%- JSON.stringify(typeof displayName!=='undefined'?displayName:'') %>;
+  document.getElementById('greeting').textContent=g+(nm?', '+nm:'');
+  document.getElementById('todayDate').textContent=new Date().toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'});
+})();
+</script>
+</body>
+</html>

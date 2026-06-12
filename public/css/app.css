@@ -48,6 +48,14 @@ a { color: var(--accent); text-decoration: none; }
   .nav-actions { gap: .5rem; }
 }
 
+/* Dashboard home-view switch (shared by Office + Permits dashboards) */
+.dash-switch { display: flex; align-items: center; gap: .55rem; flex: none; }
+.dash-switch .dsw-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 800; }
+.dsw-group { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px; }
+.dsw { border: none; background: transparent; font: inherit; font-size: .84rem; font-weight: 700; color: var(--muted); padding: .34rem .85rem; border-radius: 8px; cursor: pointer; }
+.dsw:hover { color: var(--text); }
+.dsw.on { background: #15161a; color: #fff; }
+
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem 1rem; border-radius: 6px; border: none; cursor: pointer; font-size: .875rem; font-weight: 500; transition: background .15s; text-decoration: none; }
 .btn-primary { background: var(--accent); color: #fff; }
