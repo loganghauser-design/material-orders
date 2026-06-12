@@ -70,7 +70,7 @@
     <!-- Global -->
     <div class="scard">
       <h2>Delivery</h2>
-      <div class="sub">Each day we check the board. A box alerts when it holds a value that hasn't changed in its set number of days. Editing a box resets just that box's timer.</div>
+      <div class="sub">Each day we check the board. A box reminds you on its own repeat schedule while it sits unchanged. Editing a box resets just that box's timer.</div>
 
       <label class="inline" style="margin-bottom:1.1rem">
         <input type="checkbox" name="enabled" <%= settings.enabled ? 'checked' : '' %>> Notifications on
@@ -86,7 +86,7 @@
           </select>
         </div>
         <div class="daybox">
-          <label class="fl">Default window (days)</label>
+          <label class="fl">Default frequency (days)</label>
           <input type="number" name="idle_days" min="1" max="90" value="<%= settings.idle_days || 7 %>">
         </div>
       </div>
@@ -107,7 +107,7 @@
     <!-- Per-box rules -->
     <div class="scard">
       <h2>Each box</h2>
-      <div class="sub">Pick which status boxes to watch and how long each can sit before it pings you. A box's timer resets every time you change its value — and a box goes quiet once it reaches a status you tag below (e.g. Soils → Completed). A blank box never alerts.</div>
+      <div class="sub">Pick which status boxes to watch and how often each should remind you while it sits. The timer resets every time you change a box's value, the reminder repeats at that box's frequency until it moves, and a box goes quiet once it reaches a status you tag below (e.g. Soils → Completed). A blank box never alerts.</div>
       <div class="bulk">
         <button type="button" onclick="boxAll(true)">Watch all</button>
         <button type="button" onclick="boxAll(false)">Watch none</button>
@@ -119,7 +119,7 @@
             <div class="box-head">
               <span class="bname"><%= b.title %></span>
               <label class="wlabel"><input type="checkbox" name="watch_<%= b.key %>" class="bwatch" <%= b.on ? 'checked' : '' %>> Notify</label>
-              <span class="dlabel">after <input type="number" name="days_<%= b.key %>" class="bdays" min="1" max="90" value="<%= b.days %>"> days idle</span>
+              <span class="dlabel">remind every <input type="number" name="days_<%= b.key %>" class="bdays" min="1" max="90" value="<%= b.days %>"> days</span>
             </div>
             <% if (b.opts && b.opts.length) { %>
               <div class="silence">

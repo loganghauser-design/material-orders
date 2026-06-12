@@ -4351,7 +4351,7 @@ async function sendWeeklyDigest() {
 
 // ── Permit per-box idle notifications ─────────────────────────────────────────
 // Each status column ("box") can be watched independently with its own idle window.
-const PERMIT_STATUS_BOXES = PERMIT_COLUMNS.filter(c => c.type === 'status').map(c => ({ key: c.key, title: c.title, opts: (c.opts || []).map(o => o[0]) }));
+const PERMIT_STATUS_BOXES = PERMIT_COLUMNS.filter(c => c.type === 'status' && c.key !== 'scope').map(c => ({ key: c.key, title: c.title, opts: (c.opts || []).map(o => o[0]) }));
 
 async function getPermitNotifSettings() {
   try {
@@ -4392,7 +4392,7 @@ async function findStaleBoxes(settings, onlyUnnotified) {
       if (idleDays < rule.days) continue;
       if (onlyUnnotified) {
         const nts = notif[b.key] ? new Date(notif[b.key]).getTime() : 0;
-        if (nts >= ts) continue;                                       // already alerted for this stretch
+        if (nts && (now - nts) < rule.days * 86400000) continue;       // repeat only after this box's frequency has elapsed
       }
       boxes.push({ key: b.key, title: b.title, val, days: idleDays, last: fmtDay(ts) });
     }
