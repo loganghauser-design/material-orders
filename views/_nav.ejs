@@ -32,6 +32,7 @@
     <% } %>
     <% if (iL) { %><a href="/team" class="nav-tab <%= A==='team'?'active':'' %>">Team</a><% } %>
     <% if (can('settings')) { %><a href="/settings" class="nav-tab <%= A==='settings'?'active':'' %>">Settings</a><% } %>
+    <a href="/account" class="nav-tab <%= A==='account'?'active':'' %>">Account</a>
   </div>
   <div class="nav-actions">
     <% if (can('projects')) { %><a href="/projects/new" class="btn btn-primary btn-sm">+ New</a><% } %>

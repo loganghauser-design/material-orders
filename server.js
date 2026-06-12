@@ -1218,6 +1218,13 @@ async function superPasswordHash(sup) {
   } catch (e) { /* table may not exist yet on first boot */ }
   return sup.passwordHash || null;
 }
+// An admin's custom password hash if they've set one (else null → use the built-in/env hash).
+async function getAdminCustomHash(username) {
+  try {
+    const { rows: [r] } = await pool.query('SELECT password_hash FROM admin_passwords WHERE username=$1', [username]);
+    return (r && r.password_hash) || null;
+  } catch (e) { return null; }
+}
 // Which supers may view the Subcontractor directory (read-only). Bobby only.
 const SUBS_SUPER_EMAILS = ['bobby@buildoly.com'];
 function canSuperViewSubs(email) {
@@ -1372,6 +1379,12 @@ async function initDb() {
     );
     CREATE TABLE IF NOT EXISTS super_passwords (
       email TEXT PRIMARY KEY,
+      password_hash TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    -- Per-admin custom passwords (so admins can change their own from the Account tab)
+    CREATE TABLE IF NOT EXISTS admin_passwords (
+      username TEXT PRIMARY KEY,
       password_hash TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
@@ -1665,6 +1678,7 @@ app.use((req, res, next) => {
   if (key === 'logan') return next();   // Logan: full access, can't be restricted
   const p = req.path;
   if (p === '/logout' || p === '/login') return next();
+  if (p === '/account' || p.startsWith('/account/')) return next();      // personal Account: everyone
   const isSuper = req.session.role === 'super';
   if (isSuper && (p === '/my' || p.startsWith('/my/'))) return next();   // supers keep their portal
   const area = pageForPath(p);
@@ -1701,16 +1715,22 @@ app.get('/login', (req, res) => {
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  // Admin (env account — Logan)
-  if (username === process.env.ADMIN_USERNAME && await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH || '')) {
-    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null; req.session.userKey = 'logan';
-    return res.redirect('/');
+  // Admin (env account — Logan). Honor a custom password if Logan set one, else the env hash.
+  if (username && username === process.env.ADMIN_USERNAME) {
+    const loganHash = (await getAdminCustomHash('logan')) || process.env.ADMIN_PASSWORD_HASH || '';
+    if (await bcrypt.compare(password || '', loganHash)) {
+      req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null; req.session.userKey = 'logan';
+      return res.redirect('/');
+    }
   }
-  // Additional admin accounts (CEO / ops manager) — full office access
+  // Additional admin accounts (CEO / ops manager) — full office access. Custom password if set, else built-in.
   const adm = findAdminByLogin(username);
-  if (adm && await bcrypt.compare(password || '', adm.passwordHash)) {
-    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null; req.session.userKey = adm.username;
-    return res.redirect('/');
+  if (adm) {
+    const admHash = (await getAdminCustomHash(adm.username)) || adm.passwordHash;
+    if (await bcrypt.compare(password || '', admHash)) {
+      req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null; req.session.userKey = adm.username;
+      return res.redirect('/');
+    }
   }
   // Superintendent (logs in with their email or first-name username)
   const sup = findSuperByLogin(username);
@@ -1795,6 +1815,64 @@ app.post('/my/password', requireSuper, async (req, res) => {
     );
     res.redirect('/my/settings?pw=ok');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// ── Personal Account (every signed-in user: admins + supers) ──────────────────
+app.get('/account', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const role = req.session.role === 'super' ? 'super' : 'admin';
+    const key = sessionKey(req);
+    let name = '', login = '', roleLabel = '', phone = '';
+    if (role === 'super') {
+      const sup = findSuper(req.session.superEmail) || { name: 'Super', email: req.session.superEmail };
+      name = sup.name || 'Super'; login = sup.email || ''; roleLabel = 'Superintendent';
+      try { const { rows: [c] } = await pool.query('SELECT phone FROM super_contacts WHERE email=$1', [sup.email]); phone = (c && c.phone) || ''; } catch (e) {}
+    } else {
+      if (key === 'logan') { name = 'Logan'; login = process.env.ADMIN_USERNAME || 'logan'; }
+      else { const a = ADMINS.find(x => x.username === key); name = a ? a.name : key; login = key; }
+      roleLabel = 'Admin';
+    }
+    const allowedSet = allowedPagesFor(key, role);
+    const accessLabels = PAGE_META.filter(m => allowedSet.has(m.key)).map(m => m.label);
+    const home = role === 'admin' ? await getHomeDashboard(key) : null;
+    res.render('account', { name, login, roleLabel, role, isLogan: key === 'logan', phone, accessLabels, home, pw: req.query.pw || '' });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Change my own password (admins → admin_passwords, supers → super_passwords)
+app.post('/account/password', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const role = req.session.role === 'super' ? 'super' : 'admin';
+    const key = sessionKey(req);
+    const { current, new1, new2 } = req.body;
+    if (!new1 || String(new1).length < 4) return res.redirect('/account?pw=short');
+    if (new1 !== new2) return res.redirect('/account?pw=mismatch');
+    const newHash = await bcrypt.hash(String(new1), 10);
+    if (role === 'super') {
+      const sup = findSuper(req.session.superEmail);
+      if (!sup) return res.redirect('/account?pw=bad');
+      const hash = await superPasswordHash(sup);
+      if (!hash || !(await bcrypt.compare(current || '', hash))) return res.redirect('/account?pw=bad');
+      await pool.query(
+        `INSERT INTO super_passwords (email, password_hash, updated_at) VALUES ($1,$2,NOW())
+         ON CONFLICT (email) DO UPDATE SET password_hash=EXCLUDED.password_hash, updated_at=NOW()`,
+        [sup.email, newHash]
+      );
+      return res.redirect('/account?pw=ok');
+    }
+    let curHash = '';
+    if (key === 'logan') curHash = (await getAdminCustomHash('logan')) || process.env.ADMIN_PASSWORD_HASH || '';
+    else { const a = ADMINS.find(x => x.username === key); curHash = (await getAdminCustomHash(key)) || (a ? a.passwordHash : ''); }
+    if (!curHash || !(await bcrypt.compare(current || '', curHash))) return res.redirect('/account?pw=bad');
+    await pool.query(
+      `INSERT INTO admin_passwords (username, password_hash, updated_at) VALUES ($1,$2,NOW())
+       ON CONFLICT (username) DO UPDATE SET password_hash=EXCLUDED.password_hash, updated_at=NOW()`,
+      [key, newHash]
+    );
+    return res.redirect('/account?pw=ok');
+  } catch (err) { return res.redirect('/account?pw=bad'); }
 });
 
 // Super: settings page (change password, contact info)
