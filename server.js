@@ -3834,7 +3834,7 @@ async function sendWeeklyDigest() {
     const { rows: [pay] } = await pool.query(`SELECT COALESCE(SUM(amount) FILTER (WHERE NOT paid),0) outstanding FROM milestone_payments`);
     const { rows: [unr] } = await pool.query(`SELECT COUNT(DISTINCT project_id) c FROM vendor_emails WHERE has_unread=true`);
     const html = `<div style="font-family:Arial,sans-serif;font-size:14px">
-      <h2 style="margin:0 0 10px">Weekly Buildoly Supply Digest</h2>
+      <h2 style="margin:0 0 10px">Weekly Buildoly Office Digest</h2>
       <ul style="line-height:1.7">
         <li><strong>${s.total}</strong> projects (${s.in_progress} in progress, ${s.not_yet} not started)</li>
         <li><strong>${deliv[0].c}</strong> deliveries due this week${Number(overdue[0].c) ? `, <span style="color:#cc0000"><strong>${overdue[0].c} overdue</strong></span>` : ''}</li>
@@ -3842,7 +3842,7 @@ async function sendWeeklyDigest() {
         <li><strong>${unr.c}</strong> project(s) with unread vendor replies</li>
       </ul>
       <p><a href="https://material-orders-production.up.railway.app">Open the app →</a></p></div>`;
-    await sendMail({ to: NOTIFY_TO, subject: 'Weekly Buildoly Supply Digest', html });
+    await sendMail({ to: NOTIFY_TO, subject: 'Weekly Buildoly Office Digest', html });
     console.log('Weekly digest sent');
   } catch (e) { console.error('sendWeeklyDigest:', e.message); }
 }
