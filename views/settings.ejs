@@ -170,9 +170,10 @@
   </div>
 </div>
 <script>
-  document.querySelectorAll('.linkurl').forEach(function(el){ el.textContent = location.origin + el.dataset.path; });
+  var SHARE_BASE = 'https://buildoly.up.railway.app';
+  document.querySelectorAll('.linkurl').forEach(function(el){ el.textContent = SHARE_BASE + el.dataset.path; });
   function copyLink(path, btn){
-    navigator.clipboard.writeText(location.origin + path).then(function(){
+    navigator.clipboard.writeText(SHARE_BASE + path).then(function(){
       var t = btn.textContent; btn.textContent = '✓ Copied'; setTimeout(function(){ btn.textContent = t; }, 1500);
     });
   }
