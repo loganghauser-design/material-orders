@@ -3877,7 +3877,7 @@ app.get('/permits/notifications', requireAuth, async (req, res) => {
   try {
     await initDb();
     const settings = await getPermitNotifSettings();
-    const boxes = PERMIT_STATUS_BOXES.map(b => { const r = boxRule(settings, b.key); return { key: b.key, title: b.title, on: r.on, days: r.days }; });
+    const boxes = PERMIT_STATUS_BOXES.map(b => { const r = boxRule(settings, b.key); return { key: b.key, title: b.title, on: r.on, days: r.days, opts: b.opts, done: r.done || [] }; });
     const stale = await findStaleBoxes(settings, false);
     res.render('permit-notifications', {
       settings, boxes, stale, chatOn: !!CHAT_WEBHOOK_URL, emailOn: emailEnabled,
@@ -3897,7 +3897,11 @@ app.post('/permits/notifications', requireAuth, async (req, res) => {
     for (const box of PERMIT_STATUS_BOXES) {
       const on = !!b['watch_' + box.key];
       let days = parseInt(b['days_' + box.key], 10); if (!(days >= 1 && days <= 90)) days = idle_days;
-      col_rules[box.key] = { on, days };
+      let done = b['done_' + box.key];
+      if (done == null) done = [];
+      else if (!Array.isArray(done)) done = [done];
+      done = done.filter(v => box.opts.indexOf(v) >= 0);   // keep only real options for this box
+      col_rules[box.key] = { on, days, done };
     }
     await pool.query(
       'UPDATE permit_notif SET enabled=$1, idle_days=$2, channel=$3, email_to=$4, active_only=$5, col_rules=$6, updated_at=NOW() WHERE id=1',
@@ -4347,7 +4351,7 @@ async function sendWeeklyDigest() {
 
 // ── Permit per-box idle notifications ─────────────────────────────────────────
 // Each status column ("box") can be watched independently with its own idle window.
-const PERMIT_STATUS_BOXES = PERMIT_COLUMNS.filter(c => c.type === 'status').map(c => ({ key: c.key, title: c.title }));
+const PERMIT_STATUS_BOXES = PERMIT_COLUMNS.filter(c => c.type === 'status').map(c => ({ key: c.key, title: c.title, opts: (c.opts || []).map(o => o[0]) }));
 
 async function getPermitNotifSettings() {
   try {
@@ -4360,8 +4364,8 @@ async function getPermitNotifSettings() {
 function boxRule(settings, key) {
   const r = (settings.col_rules || {})[key];
   const def = Number(settings.idle_days) > 0 ? Number(settings.idle_days) : 7;
-  if (r && typeof r === 'object') return { on: r.on !== false, days: Number(r.days) > 0 ? Number(r.days) : def };
-  return { on: true, days: def };
+  if (r && typeof r === 'object') return { on: r.on !== false, days: Number(r.days) > 0 ? Number(r.days) : def, done: Array.isArray(r.done) ? r.done : [] };
+  return { on: true, days: def, done: [] };
 }
 function fmtDay(d) { return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }
 // Permits with one or more watched boxes that hold a value but haven't changed past
@@ -4380,6 +4384,7 @@ async function findStaleBoxes(settings, onlyUnnotified) {
       if (!rule.on) continue;
       const val = p[b.key];
       if (val === null || val === undefined || val === '') continue;   // only watch boxes that hold a value
+      if (rule.done && rule.done.indexOf(val) >= 0) continue;          // silenced: this status means "done", stop alerting
       const tsStr = act[b.key];
       if (!tsStr) continue;                                            // no change recorded yet → can't measure
       const ts = new Date(tsStr).getTime();

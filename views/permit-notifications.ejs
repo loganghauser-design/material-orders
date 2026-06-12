@@ -28,15 +28,20 @@
     .warn { background:rgba(224,169,82,.13); border:1px solid rgba(224,169,82,.45); color:#a86a13; font-size:.84rem; }
     .muted { color:var(--muted); font-size:.9rem; }
     .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; gap:1rem; flex-wrap:wrap; }
-    /* per-box table */
-    .box-tbl { width:100%; border-collapse:collapse; }
-    .box-tbl th { font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:800; text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--border); }
-    .box-tbl th.c, .box-tbl td.c { text-align:center; }
-    .box-tbl td { padding:.45rem .5rem; border-bottom:1px solid var(--border); font-size:.92rem; }
-    .box-tbl tr:last-child td { border-bottom:none; }
-    .box-tbl .bname { font-weight:700; }
-    .box-tbl input[type=checkbox] { width:19px; height:19px; accent-color:#15161a; cursor:pointer; }
-    .box-tbl input[type=number] { width:72px; padding:.4rem .45rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); text-align:center; font-size:.92rem; }
+    /* per-box blocks */
+    .box-list { display:flex; flex-direction:column; gap:.55rem; }
+    .box-block { border:1px solid var(--border); border-radius:11px; padding:.7rem .85rem; }
+    .box-head { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+    .box-head .bname { font-weight:800; font-size:.95rem; min-width:120px; }
+    .box-head .wlabel { display:flex; align-items:center; gap:.4rem; font-size:.86rem; font-weight:700; cursor:pointer; }
+    .box-head .wlabel input.bwatch { width:18px; height:18px; accent-color:#15161a; }
+    .box-head .dlabel { font-size:.85rem; color:var(--muted); display:flex; align-items:center; gap:.4rem; }
+    .box-head .dlabel input.bdays { width:62px; padding:.35rem; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); text-align:center; font-size:.9rem; }
+    .silence { margin-top:.65rem; display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
+    .silence .slbl { font-size:.72rem; color:var(--muted); font-weight:800; text-transform:uppercase; letter-spacing:.03em; margin-right:.25rem; }
+    .chip-lbl { font-size:.74rem; font-weight:700; padding:.26rem .58rem; border-radius:999px; border:1px solid var(--border); background:var(--bg); cursor:pointer; color:var(--text); user-select:none; }
+    .chip-lbl input { display:none; }
+    .chip-lbl.on { background:#e3f6ec; border-color:#9fdcb8; color:#16794a; }
     .bulk { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.7rem; }
     .bulk button { font-size:.78rem; font-weight:700; padding:.35rem .7rem; border-radius:8px; border:1px solid var(--border); background:var(--bg); cursor:pointer; color:var(--text); }
     .bulk button:hover { border-color:#15161a; }
@@ -102,24 +107,31 @@
     <!-- Per-box rules -->
     <div class="scard">
       <h2>Each box</h2>
-      <div class="sub">Pick exactly which status boxes to watch and how long each can sit before it pings you. A blank/empty box never alerts.</div>
+      <div class="sub">Pick which status boxes to watch and how long each can sit before it pings you. A box's timer resets every time you change its value — and a box goes quiet once it reaches a status you tag below (e.g. Soils → Completed). A blank box never alerts.</div>
       <div class="bulk">
         <button type="button" onclick="boxAll(true)">Watch all</button>
         <button type="button" onclick="boxAll(false)">Watch none</button>
         <button type="button" onclick="boxDays()">Set all days…</button>
       </div>
-      <table class="box-tbl">
-        <thead><tr><th>Box</th><th class="c">Notify</th><th class="c">After (days)</th></tr></thead>
-        <tbody>
-          <% boxes.forEach(b => { %>
-            <tr>
-              <td class="bname"><%= b.title %></td>
-              <td class="c"><input type="checkbox" name="watch_<%= b.key %>" class="bwatch" <%= b.on ? 'checked' : '' %>></td>
-              <td class="c"><input type="number" name="days_<%= b.key %>" class="bdays" min="1" max="90" value="<%= b.days %>"></td>
-            </tr>
-          <% }) %>
-        </tbody>
-      </table>
+      <div class="box-list">
+        <% boxes.forEach(b => { %>
+          <div class="box-block">
+            <div class="box-head">
+              <span class="bname"><%= b.title %></span>
+              <label class="wlabel"><input type="checkbox" name="watch_<%= b.key %>" class="bwatch" <%= b.on ? 'checked' : '' %>> Notify</label>
+              <span class="dlabel">after <input type="number" name="days_<%= b.key %>" class="bdays" min="1" max="90" value="<%= b.days %>"> days idle</span>
+            </div>
+            <% if (b.opts && b.opts.length) { %>
+              <div class="silence">
+                <span class="slbl">Stop once it's</span>
+                <% b.opts.forEach(o => { %>
+                  <label class="chip-lbl <%= b.done.indexOf(o) >= 0 ? 'on' : '' %>"><input type="checkbox" name="done_<%= b.key %>" value="<%= o %>" <%= b.done.indexOf(o) >= 0 ? 'checked' : '' %> onchange="this.closest('.chip-lbl').classList.toggle('on', this.checked)"><%= o %></label>
+                <% }) %>
+              </div>
+            <% } %>
+          </div>
+        <% }) %>
+      </div>
       <div style="margin-top:1.3rem"><button type="submit" class="save-btn">Save settings</button></div>
     </div>
   </form>
