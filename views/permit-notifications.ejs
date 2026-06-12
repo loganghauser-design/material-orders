@@ -29,14 +29,15 @@
     .muted { color:var(--muted); font-size:.9rem; }
     .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; gap:1rem; flex-wrap:wrap; }
     /* per-box blocks */
-    .box-list { display:flex; flex-direction:column; gap:.55rem; }
-    .box-block { border:1px solid var(--border); border-radius:11px; padding:.7rem .85rem; }
-    .box-head { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
-    .box-head .bname { font-weight:800; font-size:.95rem; min-width:120px; }
-    .box-head .wlabel { display:flex; align-items:center; gap:.4rem; font-size:.86rem; font-weight:700; cursor:pointer; }
-    .box-head .wlabel input.bwatch { width:18px; height:18px; accent-color:#15161a; }
-    .box-head .dlabel { font-size:.85rem; color:var(--muted); display:flex; align-items:center; gap:.4rem; }
-    .box-head .dlabel input.bdays { width:62px; padding:.35rem; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); text-align:center; font-size:.9rem; }
+    .box-list { display:flex; flex-direction:column; gap:.6rem; }
+    .box-block { border:1px solid var(--border); border-radius:12px; padding:.85rem 1rem; }
+    .box-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; }
+    .box-head .bname { font-weight:800; font-size:1.02rem; }
+    .wlabel { display:flex; align-items:center; gap:.45rem; font-size:.86rem; font-weight:700; cursor:pointer; white-space:nowrap; }
+    .wlabel input.bwatch { width:19px; height:19px; accent-color:#15161a; }
+    .box-freq { margin-top:.7rem; display:flex; align-items:center; gap:.5rem; font-size:.92rem; font-weight:600; color:var(--text); flex-wrap:wrap; }
+    .box-freq input.bdays { width:72px; padding:.5rem; border:1.5px solid #15161a; border-radius:9px; background:var(--surface); color:var(--text); text-align:center; font-size:1.05rem; font-weight:800; }
+    .box-freq .unit { color:var(--muted); font-weight:500; }
     .silence { margin-top:.65rem; display:flex; flex-wrap:wrap; gap:.35rem; align-items:center; }
     .silence .slbl { font-size:.72rem; color:var(--muted); font-weight:800; text-transform:uppercase; letter-spacing:.03em; margin-right:.25rem; }
     .chip-lbl { font-size:.74rem; font-weight:700; padding:.26rem .58rem; border-radius:999px; border:1px solid var(--border); background:var(--bg); cursor:pointer; color:var(--text); user-select:none; }
@@ -118,8 +119,12 @@
           <div class="box-block">
             <div class="box-head">
               <span class="bname"><%= b.title %></span>
-              <label class="wlabel"><input type="checkbox" name="watch_<%= b.key %>" class="bwatch" <%= b.on ? 'checked' : '' %>> Notify</label>
-              <span class="dlabel">remind every <input type="number" name="days_<%= b.key %>" class="bdays" min="1" max="90" value="<%= b.days %>"> days</span>
+              <label class="wlabel"><input type="checkbox" name="watch_<%= b.key %>" class="bwatch" <%= b.on ? 'checked' : '' %>> Notify me</label>
+            </div>
+            <div class="box-freq">
+              <span>Remind me every</span>
+              <input type="number" name="days_<%= b.key %>" class="bdays" min="1" max="90" value="<%= b.days %>">
+              <span class="unit">days while it sits</span>
             </div>
             <% if (b.opts && b.opts.length) { %>
               <div class="silence">
