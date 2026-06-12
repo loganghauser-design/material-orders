@@ -19,8 +19,15 @@
     select.pstat { border:none; border-radius:5px; font-size:.73rem; font-weight:700; padding:.34rem .4rem; cursor:pointer; color:#fff; width:100%; min-width:100px; -webkit-appearance:none; appearance:none; text-align:center; text-align-last:center; }
     select.pstat.empty { color:var(--muted); background:transparent !important; font-weight:400; }
     select.pstat option { color:#111; background:#fff; font-weight:600; }
-    .prange { display:flex; gap:1px; }
-    .prange input { border:none; background:transparent; font-size:.66rem; width:90px; color:var(--text); padding:.2rem; }
+    /* Monday-style timeline cell: one box, both dates, progress fill behind */
+    .tl { position:relative; width:152px; height:30px; border-radius:7px; background:#eef0f4; overflow:hidden; cursor:pointer; margin:1px; }
+    .tl-fill { position:absolute; left:0; top:0; bottom:0; width:0; background:#9ec3ff; transition:width .2s; }
+    .tl.overdue .tl-fill { background:#f4b4b4; }
+    .tl.done .tl-fill { background:#aee0b0; }
+    .tl-text { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; font-size:.7rem; font-weight:700; color:#13345f; pointer-events:none; white-space:nowrap; }
+    .tl.overdue .tl-text { color:#8a1f1f; }
+    .tl.empty .tl-text { color:var(--muted); font-weight:600; }
+    .tl-date { position:absolute; inset:0; width:100%; height:100%; opacity:0; border:none; padding:0; margin:0; cursor:pointer; }
     .pdel { color:#cc2222; cursor:pointer; background:none; border:none; font-size:.9rem; padding:.25rem .4rem; }
   </style>
 </head>
@@ -63,9 +70,10 @@
                     <% } else if (c.type === 'number') { %>
                       <input class="pnum" type="number" value="<%= p[c.key] != null ? p[c.key] : '' %>" data-col="<%= c.key %>" onchange="saveCell(this)">
                     <% } else if (c.type === 'range') { %>
-                      <div class="prange">
-                        <input type="date" data-col="<%= c.start %>" value="<%= p[c.start] || '' %>" onchange="saveCell(this)" title="Start">
-                        <input type="date" data-col="<%= c.end %>" value="<%= p[c.end] || '' %>" onchange="saveCell(this)" title="End">
+                      <div class="tl" data-scol="<%= c.start %>" data-ecol="<%= c.end %>" data-months="<%= c.months || 0 %>" data-start="<%= p[c.start] || '' %>" data-end="<%= p[c.end] || '' %>">
+                        <div class="tl-fill"></div>
+                        <span class="tl-text"></span>
+                        <input type="date" class="tl-date" value="<%= p[c.start] || '' %>" onchange="tlSetStart(this)" onclick="if(this.showPicker)this.showPicker()" title="Pick the start date — end auto-fills <%= c.months %> months later">
                       </div>
                     <% } %>
                   </td>
@@ -91,6 +99,31 @@ async function saveStatus(sel){
 }
 async function delPermit(id){ if (!confirm('Delete this permit?')) return; const d = await post('/permits/' + id + '/delete', {}); if (d.ok) { var r = document.querySelector('tr[data-id="' + id + '"]'); if (r) r.remove(); } }
 function flash(el){ var c = el.tagName === 'INPUT' ? el : el; c.style.transition = 'background .1s'; c.style.background = '#d7f7e0'; setTimeout(function(){ c.style.background = 'transparent'; }, 400); }
+
+// ── Monday-style timeline cells (auto-calc end + progress bar) ──
+function addMonthsISO(iso, n){ if(!iso) return ''; var a=iso.split('-').map(Number); var dt=new Date(a[0], a[1]-1+n, a[2]); var y=dt.getFullYear(), m=String(dt.getMonth()+1).padStart(2,'0'), d=String(dt.getDate()).padStart(2,'0'); return y+'-'+m+'-'+d; }
+function fmtShort(iso){ if(!iso) return ''; var a=iso.split('-').map(Number); return new Date(a[0], a[1]-1, a[2]).toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function tlRender(el){
+  var s=el.dataset.start||'', e=el.dataset.end||'';
+  var fill=el.querySelector('.tl-fill'), txt=el.querySelector('.tl-text');
+  el.classList.remove('overdue','done','empty');
+  if(!s||!e){ el.classList.add('empty'); fill.style.width='0'; txt.textContent = s ? fmtShort(s) : 'Set dates'; return; }
+  var sT=new Date(s+'T00:00:00').getTime(), eT=new Date(e+'T00:00:00').getTime(), now=Date.now();
+  var pct = now<=sT ? 0 : now>=eT ? 100 : Math.round((now-sT)/(eT-sT)*100);
+  fill.style.width=pct+'%';
+  if(now>eT) el.classList.add('overdue'); else if(pct>=100) el.classList.add('done');
+  txt.textContent = fmtShort(s) + ' – ' + fmtShort(e);
+}
+async function tlSetStart(input){
+  var el=input.closest('.tl'), tr=input.closest('tr'), id=tr.dataset.id;
+  var s=input.value||''; var months=parseInt(el.dataset.months,10)||0;
+  var e = s ? (months ? addMonthsISO(s, months) : (el.dataset.end||'')) : '';
+  el.dataset.start=s; el.dataset.end=e;
+  tlRender(el);
+  await post('/permits/'+id+'/cell', { col: el.dataset.scol, value: s || null });
+  await post('/permits/'+id+'/cell', { col: el.dataset.ecol, value: e || null });
+}
+document.addEventListener('DOMContentLoaded', function(){ document.querySelectorAll('.tl').forEach(tlRender); });
 </script>
 </body>
 </html>

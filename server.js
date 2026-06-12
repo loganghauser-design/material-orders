@@ -3811,8 +3811,8 @@ app.post('/warranty-claims/:id/delete', requireAuth, async (req, res) => {
 const PERMIT_COLUMNS = [
   { key: 'owner', title: 'Owner', type: 'text', w: 130 },
   { key: 'adu_address', title: 'ADU #', type: 'text', w: 64 },
-  { key: 'project_range', title: 'Project (10 Mo)', type: 'range', start: 'project_start', end: 'project_end' },
-  { key: 'permit_range', title: 'Permit (4 Mo)', type: 'range', start: 'permit_start', end: 'permit_end' },
+  { key: 'project_range', title: 'Project (10 Mo)', type: 'range', start: 'project_start', end: 'project_end', months: 10 },
+  { key: 'permit_range', title: 'Permit (4 Mo)', type: 'range', start: 'permit_start', end: 'permit_end', months: 4 },
   { key: 'scope', title: 'Scope', type: 'status', opts: [['M1 - 497sf','#037f4c'],['M2 - 749sf','#df2f4a'],['M2B - 749sf','#bb3354'],['M3 - 1000sf','#216edf'],['M3 XL -1200sf','#225091'],['M4 - 800sf','#757575'],['M5 - 1000sf','#563e3e'],['MS - 340sf','#ffcb00'],['M5 XL - 1200sf','#cd9282'],['Old M2 - 600sf','#c4c4c4'],['Old M3 - 996sf','#74afcc'],['Custom 3B2B','#9aadbd'],['Custom 1B','#a9bee8'],['Custom M1','#00c875'],['Custom M2','#ff7575'],['Custom M2 - 792sf','#ff007f'],['Custom M3','#007eb5']] },
   { key: 'soils', title: 'Soils', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Required','#ff7575'],['NA','#c4c4c4']] },
   { key: 'survey', title: 'Survey', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Need','#df2f4a'],['Not Needed','#9cd326'],['NA','#c4c4c4']] },
