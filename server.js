@@ -1143,7 +1143,7 @@ function findAdminByLogin(login) {
 // Logan (the env admin) is always full-access and can't be restricted. Everyone
 // else's page access is configurable and defaults to their current access.
 const PAGE_META = [
-  { key: 'projects', label: 'Projects (home)', path: '/' },
+  { key: 'projects', label: 'Projects', path: '/projects' },
   { key: 'deliveries', label: 'Deliveries', path: '/deliveries' },
   { key: 'requests', label: 'Requests', path: '/requests' },
   { key: 'issues', label: 'Issues', path: '/issues' },
@@ -1184,7 +1184,8 @@ function allowedPagesFor(key, role) {
   return defaultPagesFor(key, role);
 }
 function pageForPath(p) {
-  if (p === '/' || p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
+  if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
+  if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
   if (p.startsWith('/payments')) return 'payments';
   if (p.startsWith('/driving')) return 'driving';
@@ -2107,7 +2108,83 @@ app.post('/requests/:id/delete', requireAuth, async (req, res) => {
 
 // ── Projects list ─────────────────────────────────────────────────────────────
 
+// ── Dashboard (home) ──────────────────────────────────────────────────────────
 app.get('/', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: [stats] } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE overall_status='In Progress') AS in_progress,
+        COUNT(*) FILTER (WHERE overall_status='All Delivered' OR overall_status='Fully Delivered') AS delivered,
+        COUNT(*) FILTER (WHERE overall_status='Not Yet') AS not_yet,
+        COUNT(*) AS total
+      FROM projects
+    `);
+    const pendingRequests = await getPendingRequestCount();
+    const pendingIssues = await getPendingIssueCount();
+    const openWarranty = await getOpenWarrantyCount();
+
+    // Most recent open items for each "needs attention" lane
+    const { rows: recentRequests } = await pool.query(`
+      SELECT mr.id, mr.super_email, mr.codes, mr.needed_by, mr.created_at, p.address
+      FROM material_requests mr LEFT JOIN projects p ON p.id = mr.project_id
+      WHERE mr.fulfilled = FALSE ORDER BY mr.created_at DESC LIMIT 5`);
+    const { rows: recentIssues } = await pool.query(`
+      SELECT mi.id, mi.super_email, mi.item_label, mi.note, mi.created_at, p.address
+      FROM material_issues mi LEFT JOIN projects p ON p.id = mi.project_id
+      WHERE mi.status = 'pending' ORDER BY mi.created_at DESC LIMIT 5`);
+    const { rows: recentWarranty } = await pool.query(`
+      SELECT wc.id, wc.client_name, wc.rooms, wc.created_at,
+             COALESCE(p.address, wc.project_address) AS address
+      FROM warranty_claims wc LEFT JOIN projects p ON p.id = wc.project_id
+      WHERE wc.status <> 'Resolved' ORDER BY wc.created_at DESC LIMIT 5`);
+
+    const supByEmail = {};
+    SUPERS.forEach(s => supByEmail[s.email] = s.name);
+    const nm = (e) => supByEmail[e] || String(e || '').split('@')[0] || 'Super';
+    recentRequests.forEach(r => { r.who = nm(r.super_email); r.codeCount = String(r.codes || '').split(',').map(c => c.trim()).filter(Boolean).length; });
+    recentIssues.forEach(r => r.who = nm(r.super_email));
+
+    // Active-project snapshot (read-only; full editable grid lives at /projects)
+    const { rows: projects } = await pool.query(
+      `SELECT * FROM projects ORDER BY sort_order ASC NULLS LAST, created_at ASC`);
+    const projectIds = projects.map(p => p.id);
+    const itemMaps = {};
+    if (projectIds.length) {
+      const { rows: allItems } = await pool.query(
+        `SELECT project_id, item_code, status FROM project_items WHERE project_id = ANY($1)`, [projectIds]);
+      allItems.forEach(it => { (itemMaps[it.project_id] = itemMaps[it.project_id] || {})[it.item_code] = it; });
+    }
+    const { rows: unreadRows } = await pool.query('SELECT DISTINCT project_id FROM vendor_emails WHERE has_unread=true');
+    const unread = {}; unreadRows.forEach(r => unread[r.project_id] = true);
+    const DELIVERED = new Set(['Delivered', 'Delivered from Inv.']);
+    const projCards = projects
+      .filter(p => p.overall_status !== 'Fully Delivered')
+      .map(p => {
+        const codes = Object.values(itemMaps[p.id] || {});
+        const total = codes.length;
+        const delivered = codes.filter(it => DELIVERED.has(it.status)).length;
+        return { id: p.id, address: p.address, version: p.version, status: p.overall_status, total, delivered, unread: !!unread[p.id] };
+      });
+
+    const _key = sessionKey(req);
+    let displayName = '';
+    if (_key === 'logan') displayName = 'Logan';
+    else { const a = ADMINS.find(x => x.username === _key); if (a) displayName = (a.name || '').split(' ')[0]; }
+
+    res.render('index', {
+      stats, pendingRequests, pendingIssues, openWarranty,
+      recentRequests, recentIssues, recentWarranty,
+      projCards, activeCount: projCards.length, displayName,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('Error: ' + err.message);
+  }
+});
+
+// ── Projects grid (moved off the home page) ───────────────────────────────────
+app.get('/projects', requireAuth, async (req, res) => {
   try {
     await initDb();
     const { status, search } = req.query;
@@ -2155,7 +2232,7 @@ app.get('/', requireAuth, async (req, res) => {
     }
 
     const pendingIssues = await getPendingIssueCount();
-    res.render('index', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues });
+    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

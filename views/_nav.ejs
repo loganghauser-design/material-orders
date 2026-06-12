@@ -12,6 +12,7 @@
 <nav class="nav">
   <div class="nav-left">
     <a href="/" class="nav-brand">Buildoly Office</a>
+    <% if (can('projects')) { %><a href="/projects" class="nav-tab <%= A==='projects'?'active':'' %>">Projects</a><% } %>
     <% if (can('deliveries')) { %><a href="/deliveries" class="nav-tab <%= A==='deliveries'?'active':'' %>">Deliveries</a><% } %>
     <% if (can('requests')) { %><a href="/requests" class="nav-tab <%= A==='requests'?'active':'' %>">Requests<%- _nb(pReq) %></a><% } %>
     <% if (can('issues')) { %><a href="/issues" class="nav-tab <%= A==='issues'?'active':'' %>">Issues<%- _nb(pIss) %></a><% } %>

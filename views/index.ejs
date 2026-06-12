@@ -11,196 +11,182 @@
   <meta name="apple-mobile-web-app-title" content="Buildoly">
   <link rel="apple-touch-icon" href="/icon.svg">
   <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
+  <style>
+    .dash { max-width: 1180px; margin: 0 auto; padding: 1.7rem 1.2rem 3.5rem; }
+    .dash-hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
+    .dash-hero .date { color: var(--muted); font-size: .95rem; margin-top: .25rem; }
+    .sec-head { display:flex; align-items:baseline; justify-content:space-between; margin: 1.9rem 0 .85rem; }
+    .sec-head h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 800; }
+    .sec-head a { font-size: .85rem; font-weight: 700; }
+
+    .attn-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+    .attn { display:flex; flex-direction:column; background: var(--surface); border:1px solid var(--border); border-radius:16px; padding:1.15rem 1.2rem; text-decoration:none; color:var(--text); transition: box-shadow .15s, transform .15s, border-color .15s; }
+    .attn:hover { box-shadow: 0 12px 30px rgba(20,22,30,.09); transform: translateY(-2px); border-color:#d4d7e2; text-decoration:none; }
+    .attn-top { display:flex; align-items:center; gap:.7rem; }
+    .attn-ico { width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; flex:none; }
+    .attn-count { margin-left:auto; font-size:2.15rem; font-weight:800; line-height:1; letter-spacing:-.03em; }
+    .attn-name { font-weight:800; font-size:1.02rem; }
+    .attn-sub { font-size:.8rem; color:var(--muted); margin-top:.1rem; }
+    .attn-list { margin-top:1rem; border-top:1px solid var(--border); padding-top:.75rem; display:flex; flex-direction:column; gap:.55rem; flex:1; }
+    .attn-row { display:flex; gap:.6rem; align-items:baseline; font-size:.82rem; }
+    .attn-row .a-main { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .attn-row .a-meta { color:var(--muted); margin-left:auto; white-space:nowrap; font-size:.74rem; }
+    .attn-empty { font-size:.84rem; color:var(--success); margin-top:1rem; border-top:1px solid var(--border); padding-top:.8rem; display:flex; align-items:center; gap:.4rem; flex:1; font-weight:600; }
+
+    .attn.req .attn-ico { background:#fdf0d9; }
+    .attn.req .attn-count { color:#b9791a; }
+    .attn.iss .attn-ico { background:#fbe2e2; }
+    .attn.iss .attn-count { color:#c23b3b; }
+    .attn.war .attn-ico { background:#e2ecfb; }
+    .attn.war .attn-count { color:#2b62c2; }
+    .attn.zero .attn-count { color:var(--success); }
+
+    .tiles { display:grid; grid-template-columns: repeat(4, 1fr); gap:.8rem; margin-bottom:1rem; }
+    .tile { background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:.85rem 1rem; }
+    .tile .t-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:800; }
+    .tile .t-val { font-size:1.75rem; font-weight:800; margin-top:.15rem; letter-spacing:-.02em; }
+    .tile.ip .t-val { color:#2b62c2; }
+    .tile.dl .t-val { color:var(--success); }
+    .tile.ny .t-val { color:#b9791a; }
+
+    .plist { display:flex; flex-direction:column; gap:.5rem; }
+    .prow { display:flex; align-items:center; gap:.9rem; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.72rem .95rem; text-decoration:none; color:var(--text); transition: border-color .15s, box-shadow .15s; }
+    .prow:hover { border-color:#d4d7e2; box-shadow:0 6px 18px rgba(20,22,30,.06); text-decoration:none; }
+    .prow .p-addr { font-weight:700; font-size:.95rem; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .prow .p-ver { color:var(--muted); font-weight:500; font-size:.8rem; margin-left:.4rem; }
+    .pill { font-size:.7rem; font-weight:700; padding:.22rem .6rem; border-radius:999px; white-space:nowrap; }
+    .p-prog { margin-left:auto; display:flex; align-items:center; gap:.6rem; min-width:175px; }
+    .bar { flex:1; height:7px; border-radius:999px; background:#edeef4; overflow:hidden; min-width:80px; }
+    .bar > span { display:block; height:100%; background:var(--success); border-radius:999px; }
+    .p-frac { font-size:.76rem; color:var(--muted); font-weight:700; white-space:nowrap; min-width:62px; text-align:right; }
+    .udot { width:9px; height:9px; border-radius:50%; background:var(--danger); flex:none; }
+    .empty-note { color:var(--muted); font-size:.9rem; padding:1.5rem; text-align:center; background:var(--surface); border:1px dashed var(--border); border-radius:12px; }
+
+    @media (max-width: 820px) {
+      .attn-grid { grid-template-columns: 1fr; }
+      .tiles { grid-template-columns: repeat(2,1fr); }
+      .p-prog { min-width:120px; }
+      .prow .p-ver { display:none; }
+    }
+  </style>
 </head>
 <body>
 <%- include('_nav', { active: 'home' }) %>
 
-<div class="container wide">
-  <% const sortedNow = (typeof sort !== 'undefined' && sort === 'delivered'); %>
-  <div class="stats">
-    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value"><%= stats.total %></div></div>
-    <div class="stat-card in-progress"><div class="stat-label">In Progress</div><div class="stat-value"><%= stats.in_progress %></div></div>
-    <div class="stat-card delivered"><div class="stat-label">Delivered</div><div class="stat-value"><%= stats.delivered %></div></div>
-    <div class="stat-card not-yet"><div class="stat-label">Not Yet</div><div class="stat-value"><%= stats.not_yet %></div></div>
+<%
+  function rel(d){ if(!d) return ''; var ms=Date.now()-new Date(d).getTime(); var m=Math.floor(ms/60000); if(m<1)return 'just now'; if(m<60)return m+'m ago'; var h=Math.floor(m/60); if(h<24)return h+'h ago'; var dd=Math.floor(h/24); return dd+'d ago'; }
+  function stPill(s){ s=s||''; if(/progress/i.test(s)) return 'background:#e8efff;color:#1d4ed8'; if(/fully|all delivered/i.test(s)) return 'background:#e3f6ec;color:#16794a'; if(/not yet/i.test(s)) return 'background:#fdf0d5;color:#9a6b00'; if(/draft|contract/i.test(s)) return 'background:#efe8fb;color:#6b3fc2'; return 'background:#eef0f4;color:#555'; }
+  function shortDate(d){ if(!d) return ''; try { return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'}); } catch(e){ return ''; } }
+%>
+
+<div class="dash">
+  <div class="dash-hero">
+    <h1 id="greeting">Welcome back</h1>
+    <div class="date" id="todayDate"></div>
   </div>
 
-  <form method="GET" action="/" class="toolbar">
-    <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
-    <select name="status" onchange="this.form.submit()">
-      <option value="">All statuses</option>
-      <% PROJECT_STATUSES.forEach(s => { %>
-        <option value="<%= s %>" <%- query.status===s?'selected':'' %>><%= s %></option>
+  <!-- NEEDS ATTENTION -->
+  <div class="sec-head"><h2>Needs attention</h2></div>
+  <div class="attn-grid">
+
+    <a class="attn req <%= pendingRequests ? '' : 'zero' %>" href="/requests">
+      <div class="attn-top">
+        <div class="attn-ico">📥</div>
+        <div><div class="attn-name">Material requests</div><div class="attn-sub"><%= pendingRequests ? 'Awaiting your action' : 'Nothing pending' %></div></div>
+        <div class="attn-count"><%= pendingRequests %></div>
+      </div>
+      <% if (recentRequests.length) { %>
+        <div class="attn-list">
+          <% recentRequests.slice(0,4).forEach(r => { %>
+            <div class="attn-row">
+              <span class="a-main"><%= r.address || 'Project' %><% if (r.codeCount) { %> · <%= r.codeCount %> item<%= r.codeCount>1?'s':'' %><% } %></span>
+              <span class="a-meta"><%= r.needed_by ? 'needs '+shortDate(r.needed_by) : rel(r.created_at) %></span>
+            </div>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <div class="attn-empty">✓ All requests handled</div>
+      <% } %>
+    </a>
+
+    <a class="attn iss <%= pendingIssues ? '' : 'zero' %>" href="/issues">
+      <div class="attn-top">
+        <div class="attn-ico">⚠️</div>
+        <div><div class="attn-name">Open issues</div><div class="attn-sub"><%= pendingIssues ? 'Flagged by the field' : 'No open issues' %></div></div>
+        <div class="attn-count"><%= pendingIssues %></div>
+      </div>
+      <% if (recentIssues.length) { %>
+        <div class="attn-list">
+          <% recentIssues.slice(0,4).forEach(r => { %>
+            <div class="attn-row">
+              <span class="a-main"><%= r.item_label || r.address || 'Issue' %></span>
+              <span class="a-meta"><%= r.who %> · <%= rel(r.created_at) %></span>
+            </div>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <div class="attn-empty">✓ No issues to resolve</div>
+      <% } %>
+    </a>
+
+    <a class="attn war <%= openWarranty ? '' : 'zero' %>" href="/warranty-claims">
+      <div class="attn-top">
+        <div class="attn-ico">🛡️</div>
+        <div><div class="attn-name">Warranty claims</div><div class="attn-sub"><%= openWarranty ? 'Open claims to review' : 'No open claims' %></div></div>
+        <div class="attn-count"><%= openWarranty %></div>
+      </div>
+      <% if (recentWarranty.length) { %>
+        <div class="attn-list">
+          <% recentWarranty.slice(0,4).forEach(r => { %>
+            <div class="attn-row">
+              <span class="a-main"><%= r.client_name || r.address || 'Claim' %></span>
+              <span class="a-meta"><%= r.rooms ? String(r.rooms).split(',')[0] + ' · ' : '' %><%= rel(r.created_at) %></span>
+            </div>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <div class="attn-empty">✓ No warranty claims open</div>
+      <% } %>
+    </a>
+
+  </div>
+
+  <!-- PROJECTS -->
+  <div class="sec-head"><h2>Projects</h2><a href="/projects">Open full grid →</a></div>
+  <div class="tiles">
+    <div class="tile"><div class="t-label">Total</div><div class="t-val"><%= stats.total %></div></div>
+    <div class="tile ip"><div class="t-label">In Progress</div><div class="t-val"><%= stats.in_progress %></div></div>
+    <div class="tile dl"><div class="t-label">Delivered</div><div class="t-val"><%= stats.delivered %></div></div>
+    <div class="tile ny"><div class="t-label">Not Yet</div><div class="t-val"><%= stats.not_yet %></div></div>
+  </div>
+
+  <% if (projCards.length) { %>
+    <div class="plist">
+      <% projCards.forEach(p => { var pct = p.total ? Math.round(p.delivered/p.total*100) : 0; %>
+        <a class="prow" href="/projects/<%= p.id %>">
+          <span class="p-addr"><%= p.address %><% if (p.version) { %><span class="p-ver">v<%= p.version %></span><% } %></span>
+          <% if (p.unread) { %><span class="udot" title="Vendor reply waiting"></span><% } %>
+          <span class="pill" style="<%= stPill(p.status) %>"><%= p.status %></span>
+          <span class="p-prog">
+            <span class="bar"><span style="width:<%= pct %>%"></span></span>
+            <span class="p-frac"><%= p.delivered %>/<%= p.total %></span>
+          </span>
+        </a>
       <% }) %>
-    </select>
-    <button type="submit" class="btn btn-ghost">Search</button>
-    <% if (query.search || query.status) { %><a href="/" class="btn btn-ghost">Clear</a><% } %>
-    <%
-      const _qp = new URLSearchParams();
-      if (query.search) _qp.set('search', query.search);
-      if (query.status) _qp.set('status', query.status);
-      const _base = _qp.toString();
-      const _sortQp = new URLSearchParams(_base); _sortQp.set('sort', 'delivered');
-    %>
-    <% if (sortedNow) { %>
-      <a href="<%= _base ? '/?' + _base : '/' %>" class="btn btn-primary" title="Back to your manual drag order">✓ Most delivered — clear</a>
-    <% } else { %>
-      <a href="/?<%= _sortQp.toString() %>" class="btn btn-ghost" title="Order projects from most delivered to least">📦 Sort by delivered</a>
-    <% } %>
-  </form>
-
-  <%
-    const activeProjects = projects.filter(p => p.overall_status !== 'Fully Delivered');
-    const completedProjects = projects.filter(p => p.overall_status === 'Fully Delivered');
-  %>
-
-  <%- include('_project-grid', { rows: activeProjects, emptyMsg: 'No active projects. ', sortable: !sortedNow }) %>
-
-  <% if (completedProjects.length) { %>
-    <div class="completed-divider">
-      <span>✓ Completed Projects (<%= completedProjects.length %>)</span>
     </div>
-    <%- include('_project-grid', { rows: completedProjects, emptyMsg: '' }) %>
+  <% } else { %>
+    <div class="empty-note">No active projects. <a href="/projects/new">Create one →</a></div>
   <% } %>
 </div>
 
-<div id="toast" class="toast"></div>
-
-<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
-// Drag-to-reorder the active project list
-(function initSortable() {
-  const sb = document.getElementById('sortable-body');
-  if (!sb || !window.Sortable) return;
-  Sortable.create(sb, {
-    handle: '.drag-handle',
-    animation: 150,
-    ghostClass: 'row-dragging',
-    onEnd: async () => {
-      const ids = Array.from(sb.querySelectorAll('tr[data-id]')).map(tr => tr.dataset.id);
-      try {
-        await fetch('/reorder-projects', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order: ids }),
-        });
-        showToast('Order saved');
-      } catch (e) { showToast('Could not save order', true); }
-    },
-  });
+(function(){
+  var h = new Date().getHours();
+  var g = h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  var nm = <%- JSON.stringify(typeof displayName !== 'undefined' ? displayName : '') %>;
+  document.getElementById('greeting').textContent = g + (nm ? ', ' + nm : '');
+  document.getElementById('todayDate').textContent = new Date().toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric', year:'numeric'});
 })();
-
-const STATUS_CLASSES = ['cell-not_yet_placed','cell-delivery_requested','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
-
-function statusToClass(st) {
-  return 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
-}
-
-// POST JSON and verify the save actually succeeded (catches "logged out" too)
-async function postJson(url, body) {
-  const r = await fetch(url, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
-  if (r.redirected && /\/login/.test(r.url)) throw new Error('LOGGED_OUT');
-  let data = null;
-  try { data = await r.json(); } catch (e) { throw new Error('LOGGED_OUT'); }
-  if (!r.ok || !data.ok) throw new Error((data && data.error) || 'SAVE_FAILED');
-  return data;
-}
-function handleSaveError(e) {
-  if (e && e.message === 'LOGGED_OUT') {
-    showToast('Not saved — you were signed out. Reloading…', true);
-    setTimeout(() => location.href = '/login', 1300);
-  } else {
-    showToast('Not saved — please try again', true);
-  }
-}
-
-async function saveGridItem(sel) {
-  const projectId = sel.dataset.project;
-  const code = sel.dataset.code;
-  const status = sel.value;
-  // recolor immediately
-  STATUS_CLASSES.forEach(c => sel.classList.remove(c));
-  sel.classList.add(statusToClass(status));
-  try {
-    const data = await postJson(`/projects/${projectId}/items/${code}`, { status, statusOnly: true });
-    if (data.inv && data.inv.drewDown) showToast('✓ Drew down ' + data.inv.drewDown + ' from inventory');
-    else if (data.inv && data.inv.restored) showToast('↩ Restored ' + data.inv.restored + ' to inventory');
-    else showToast('Saved');
-  } catch(e) {
-    handleSaveError(e);
-  }
-}
-
-const BADGE_CLASSES = ['badge-not_yet','badge-in_progress','badge-all_delivered','badge-draft___contract','badge-fully_delivered'];
-
-async function saveStatus(sel) {
-  const projectId = sel.dataset.project;
-  const overall_status = sel.value;
-  const wasCompleted = sel.dataset.completed === 'true';
-  const nowCompleted = overall_status === 'Fully Delivered';
-  BADGE_CLASSES.forEach(c => sel.classList.remove(c));
-  sel.classList.add('badge-' + overall_status.toLowerCase().replace(/[\s-]+/g,'_'));
-  try {
-    await postJson(`/projects/${projectId}/status`, { overall_status });
-    // If it crossed into/out of the Completed section, reload to re-sort
-    if (wasCompleted !== nowCompleted) {
-      showToast(nowCompleted ? 'Moved to Completed' : 'Moved to Active');
-      setTimeout(() => location.reload(), 600);
-    } else {
-      showToast('Status updated');
-    }
-  } catch(e) {
-    handleSaveError(e);
-  }
-}
-
-function showToast(msg, err) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (err ? ' error' : '');
-  setTimeout(() => t.className = 'toast', 1500);
-}
-
-async function editFinishSchedule(id, el) {
-  const cur = el.dataset.url || '';
-  const url = prompt('Paste the finish-schedule Google Sheet link (leave blank to clear):', cur);
-  if (url === null) return; // cancelled
-  const trimmed = url.trim();
-  try {
-    const r = await fetch('/projects/' + id + '/finish-schedule-url', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: trimmed }),
-    });
-    const data = await r.json();
-    if (data.ok) {
-      el.dataset.url = trimmed;
-      el.style.color = trimmed ? '#16a34a' : '#d97706';
-      el.innerHTML = 'Finish schedule: ' + (trimmed ? 'Yes' : 'No') + ' ✎';
-      showToast(trimmed ? 'Finish schedule linked' : 'Finish schedule cleared');
-    } else {
-      showToast(data.error || 'Could not save', true);
-    }
-  } catch (e) { showToast('Could not save', true); }
-}
-
-// Assign/unassign a super for a project right from the home grid (multiple allowed).
-async function toggleRowSuper(event, el) {
-  event.stopPropagation();
-  el.classList.toggle('on');
-  const pid = el.dataset.pid;
-  const chips = Array.from(document.querySelectorAll('.rsuper[data-pid="' + pid + '"]'));
-  const emails = chips.filter(c => c.classList.contains('on')).map(c => c.dataset.email);
-  chips.forEach(c => c.style.pointerEvents = 'none');
-  try {
-    const r = await fetch('/projects/' + pid + '/super', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails }),
-    });
-    const data = await r.json();
-    if (data.ok) showToast(emails.length ? 'Supers updated (' + emails.length + ')' : 'No supers assigned');
-    else { el.classList.toggle('on'); showToast(data.error || 'Could not save', true); }
-  } catch (e) { el.classList.toggle('on'); showToast('Could not save', true); }
-  finally { chips.forEach(c => c.style.pointerEvents = ''); }
-}
 </script>
 </body>
 </html>

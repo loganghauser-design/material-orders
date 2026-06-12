@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Projects — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#000000">
+</head>
+<body>
+<%- include('_nav', { active: 'projects' }) %>
+
+<div class="container wide">
+  <% const sortedNow = (typeof sort !== 'undefined' && sort === 'delivered'); %>
+  <div class="page-header" style="margin:.2rem 0 1rem"><h1 style="margin:0">Projects</h1></div>
+  <div class="stats">
+    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value"><%= stats.total %></div></div>
+    <div class="stat-card in-progress"><div class="stat-label">In Progress</div><div class="stat-value"><%= stats.in_progress %></div></div>
+    <div class="stat-card delivered"><div class="stat-label">Delivered</div><div class="stat-value"><%= stats.delivered %></div></div>
+    <div class="stat-card not-yet"><div class="stat-label">Not Yet</div><div class="stat-value"><%= stats.not_yet %></div></div>
+  </div>
+
+  <form method="GET" action="/projects" class="toolbar">
+    <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
+    <select name="status" onchange="this.form.submit()">
+      <option value="">All statuses</option>
+      <% PROJECT_STATUSES.forEach(s => { %>
+        <option value="<%= s %>" <%- query.status===s?'selected':'' %>><%= s %></option>
+      <% }) %>
+    </select>
+    <button type="submit" class="btn btn-ghost">Search</button>
+    <% if (query.search || query.status) { %><a href="/projects" class="btn btn-ghost">Clear</a><% } %>
+    <%
+      const _qp = new URLSearchParams();
+      if (query.search) _qp.set('search', query.search);
+      if (query.status) _qp.set('status', query.status);
+      const _base = _qp.toString();
+      const _sortQp = new URLSearchParams(_base); _sortQp.set('sort', 'delivered');
+    %>
+    <% if (sortedNow) { %>
+      <a href="<%= _base ? '/projects?' + _base : '/projects' %>" class="btn btn-primary" title="Back to your manual drag order">✓ Most delivered — clear</a>
+    <% } else { %>
+      <a href="/projects?<%= _sortQp.toString() %>" class="btn btn-ghost" title="Order projects from most delivered to least">📦 Sort by delivered</a>
+    <% } %>
+  </form>
+
+  <%
+    const activeProjects = projects.filter(p => p.overall_status !== 'Fully Delivered');
+    const completedProjects = projects.filter(p => p.overall_status === 'Fully Delivered');
+  %>
+
+  <%- include('_project-grid', { rows: activeProjects, emptyMsg: 'No active projects. ', sortable: !sortedNow }) %>
+
+  <% if (completedProjects.length) { %>
+    <div class="completed-divider">
+      <span>✓ Completed Projects (<%= completedProjects.length %>)</span>
+    </div>
+    <%- include('_project-grid', { rows: completedProjects, emptyMsg: '' }) %>
+  <% } %>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script>
+// Drag-to-reorder the active project list
+(function initSortable() {
+  const sb = document.getElementById('sortable-body');
+  if (!sb || !window.Sortable) return;
+  Sortable.create(sb, {
+    handle: '.drag-handle',
+    animation: 150,
+    ghostClass: 'row-dragging',
+    onEnd: async () => {
+      const ids = Array.from(sb.querySelectorAll('tr[data-id]')).map(tr => tr.dataset.id);
+      try {
+        await fetch('/reorder-projects', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ order: ids }),
+        });
+        showToast('Order saved');
+      } catch (e) { showToast('Could not save order', true); }
+    },
+  });
+})();
+
+const STATUS_CLASSES = ['cell-not_yet_placed','cell-delivery_requested','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
+
+function statusToClass(st) {
+  return 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
+}
+
+// POST JSON and verify the save actually succeeded (catches "logged out" too)
+async function postJson(url, body) {
+  const r = await fetch(url, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (r.redirected && /\/login/.test(r.url)) throw new Error('LOGGED_OUT');
+  let data = null;
+  try { data = await r.json(); } catch (e) { throw new Error('LOGGED_OUT'); }
+  if (!r.ok || !data.ok) throw new Error((data && data.error) || 'SAVE_FAILED');
+  return data;
+}
+function handleSaveError(e) {
+  if (e && e.message === 'LOGGED_OUT') {
+    showToast('Not saved — you were signed out. Reloading…', true);
+    setTimeout(() => location.href = '/login', 1300);
+  } else {
+    showToast('Not saved — please try again', true);
+  }
+}
+
+async function saveGridItem(sel) {
+  const projectId = sel.dataset.project;
+  const code = sel.dataset.code;
+  const status = sel.value;
+  // recolor immediately
+  STATUS_CLASSES.forEach(c => sel.classList.remove(c));
+  sel.classList.add(statusToClass(status));
+  try {
+    const data = await postJson(`/projects/${projectId}/items/${code}`, { status, statusOnly: true });
+    if (data.inv && data.inv.drewDown) showToast('✓ Drew down ' + data.inv.drewDown + ' from inventory');
+    else if (data.inv && data.inv.restored) showToast('↩ Restored ' + data.inv.restored + ' to inventory');
+    else showToast('Saved');
+  } catch(e) {
+    handleSaveError(e);
+  }
+}
+
+const BADGE_CLASSES = ['badge-not_yet','badge-in_progress','badge-all_delivered','badge-draft___contract','badge-fully_delivered'];
+
+async function saveStatus(sel) {
+  const projectId = sel.dataset.project;
+  const overall_status = sel.value;
+  const wasCompleted = sel.dataset.completed === 'true';
+  const nowCompleted = overall_status === 'Fully Delivered';
+  BADGE_CLASSES.forEach(c => sel.classList.remove(c));
+  sel.classList.add('badge-' + overall_status.toLowerCase().replace(/[\s-]+/g,'_'));
+  try {
+    await postJson(`/projects/${projectId}/status`, { overall_status });
+    // If it crossed into/out of the Completed section, reload to re-sort
+    if (wasCompleted !== nowCompleted) {
+      showToast(nowCompleted ? 'Moved to Completed' : 'Moved to Active');
+      setTimeout(() => location.reload(), 600);
+    } else {
+      showToast('Status updated');
+    }
+  } catch(e) {
+    handleSaveError(e);
+  }
+}
+
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 1500);
+}
+
+async function editFinishSchedule(id, el) {
+  const cur = el.dataset.url || '';
+  const url = prompt('Paste the finish-schedule Google Sheet link (leave blank to clear):', cur);
+  if (url === null) return; // cancelled
+  const trimmed = url.trim();
+  try {
+    const r = await fetch('/projects/' + id + '/finish-schedule-url', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: trimmed }),
+    });
+    const data = await r.json();
+    if (data.ok) {
+      el.dataset.url = trimmed;
+      el.style.color = trimmed ? '#16a34a' : '#d97706';
+      el.innerHTML = 'Finish schedule: ' + (trimmed ? 'Yes' : 'No') + ' ✎';
+      showToast(trimmed ? 'Finish schedule linked' : 'Finish schedule cleared');
+    } else {
+      showToast(data.error || 'Could not save', true);
+    }
+  } catch (e) { showToast('Could not save', true); }
+}
+
+// Assign/unassign a super for a project right from the grid (multiple allowed).
+async function toggleRowSuper(event, el) {
+  event.stopPropagation();
+  el.classList.toggle('on');
+  const pid = el.dataset.pid;
+  const chips = Array.from(document.querySelectorAll('.rsuper[data-pid="' + pid + '"]'));
+  const emails = chips.filter(c => c.classList.contains('on')).map(c => c.dataset.email);
+  chips.forEach(c => c.style.pointerEvents = 'none');
+  try {
+    const r = await fetch('/projects/' + pid + '/super', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails }),
+    });
+    const data = await r.json();
+    if (data.ok) showToast(emails.length ? 'Supers updated (' + emails.length + ')' : 'No supers assigned');
+    else { el.classList.toggle('on'); showToast(data.error || 'Could not save', true); }
+  } catch (e) { el.classList.toggle('on'); showToast('Could not save', true); }
+  finally { chips.forEach(c => c.style.pointerEvents = ''); }
+}
+</script>
+</body>
+</html>
