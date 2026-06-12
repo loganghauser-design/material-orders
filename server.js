@@ -1433,6 +1433,21 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    -- Permit tracking board (mirrors the Monday "Permits" board)
+    CREATE TABLE IF NOT EXISTS permits (
+      id SERIAL PRIMARY KEY,
+      monday_id BIGINT,
+      name TEXT, owner TEXT, adu_address TEXT,
+      project_start TEXT, project_end TEXT, permit_start TEXT, permit_end TEXT,
+      scope TEXT, soils TEXT, survey TEXT, sd TEXT, permit_set TEXT, eng TEXT,
+      planning TEXT, dbs TEXT, fees TEXT, update_col TEXT, corrections TEXT,
+      clearances TEXT, resub TEXT, rti TEXT, precon_mtg TEXT, client_verify TEXT, permit_issued TEXT,
+      timeline_num INTEGER,
+      grp TEXT DEFAULT 'Active Permits',
+      sort_order INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS driving_trips (
       id SERIAL PRIMARY KEY,
       trip_date DATE NOT NULL,
@@ -3456,6 +3471,66 @@ app.post('/warranty-claims/:id/status', requireAuth, async (req, res) => {
 
 app.post('/warranty-claims/:id/delete', requireAuth, async (req, res) => {
   try { await pool.query('DELETE FROM warranty_claims WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── Permit tracking board (mirrors the Monday "Permits" board) ────────────────
+const PERMIT_COLUMNS = [
+  { key: 'owner', title: 'Owner', type: 'text', w: 130 },
+  { key: 'adu_address', title: 'ADU #', type: 'text', w: 64 },
+  { key: 'project_range', title: 'Project (10 Mo)', type: 'range', start: 'project_start', end: 'project_end' },
+  { key: 'permit_range', title: 'Permit (4 Mo)', type: 'range', start: 'permit_start', end: 'permit_end' },
+  { key: 'scope', title: 'Scope', type: 'status', opts: [['M1 - 497sf','#037f4c'],['M2 - 749sf','#df2f4a'],['M2B - 749sf','#bb3354'],['M3 - 1000sf','#216edf'],['M3 XL -1200sf','#225091'],['M4 - 800sf','#757575'],['M5 - 1000sf','#563e3e'],['MS - 340sf','#ffcb00'],['M5 XL - 1200sf','#cd9282'],['Old M2 - 600sf','#c4c4c4'],['Old M3 - 996sf','#74afcc'],['Custom 3B2B','#9aadbd'],['Custom 1B','#a9bee8'],['Custom M1','#00c875'],['Custom M2','#ff7575'],['Custom M2 - 792sf','#ff007f'],['Custom M3','#007eb5']] },
+  { key: 'soils', title: 'Soils', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Required','#ff7575'],['NA','#c4c4c4']] },
+  { key: 'survey', title: 'Survey', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Need','#df2f4a'],['Not Needed','#9cd326'],['NA','#c4c4c4']] },
+  { key: 'sd', title: 'SD', type: 'status', opts: [['In Progress','#fdab3d'],['Done','#00c875'],['Need','#df2f4a'],['Pending','#007eb5'],['NN','#7f5347'],['NA','#c4c4c4']] },
+  { key: 'permit_set', title: 'Permit', type: 'status', opts: [['Working on it','#fdab3d'],['Completed','#00c875'],['Need','#df2f4a'],['Pending','#9d50dd']] },
+  { key: 'eng', title: 'Eng', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Need','#df2f4a']] },
+  { key: 'planning', title: 'Planning', type: 'status', opts: [['Submitted','#fdab3d'],['Approved','#00c875'],['PC Issued','#df2f4a'],['NA','#c4c4c4']] },
+  { key: 'dbs', title: 'DBS', type: 'status', opts: [['Working on it','#fdab3d'],['Submitted','#00c875'],['Stuck','#df2f4a']] },
+  { key: 'fees', title: 'Fees', type: 'status', opts: [['Pending','#fdab3d'],['Paid','#00c875'],['Issued','#df2f4a']] },
+  { key: 'update_col', title: 'Update', type: 'status', opts: [['Working on it','#fdab3d'],['Done','#00c875'],['Stuck','#df2f4a']] },
+  { key: 'corrections', title: 'Corrections', type: 'status', opts: [['In Progress','#fdab3d'],['Complete','#037f4c'],['PC Issued','#df2f4a'],['Pending','#007eb5']] },
+  { key: 'clearances', title: 'Clearances', type: 'status', opts: [['Working on it','#fdab3d'],['Approved','#00c875'],['Stuck','#df2f4a']] },
+  { key: 'resub', title: 'Resub', type: 'status', opts: [['Working on it','#fdab3d'],['Done','#00c875'],['Stuck','#df2f4a']] },
+  { key: 'rti', title: 'RTI', type: 'status', opts: [['Working on it','#fdab3d'],['RTI','#00c875'],['Stuck','#df2f4a']] },
+  { key: 'precon_mtg', title: 'Precon Mtg', type: 'status', opts: [['Scheduled','#fdab3d'],['Completed','#00c875'],['Need to Schedule','#df2f4a']] },
+  { key: 'client_verify', title: 'Client Verify', type: 'status', opts: [['Pending Precon','#fdab3d'],['Verified','#00c875']] },
+  { key: 'permit_issued', title: 'Permit Issued', type: 'status', opts: [['Pending Fees','#fdab3d'],['Pulled','#00c875'],['Pending Precon','#df2f4a']] },
+  { key: 'timeline_num', title: 'Timeline', type: 'number', w: 70 },
+];
+const PERMIT_EDITABLE = new Set(['name','owner','adu_address','project_start','project_end','permit_start','permit_end','scope','soils','survey','sd','permit_set','eng','planning','dbs','fees','update_col','corrections','clearances','resub','rti','precon_mtg','client_verify','permit_issued','timeline_num']);
+const PERMIT_GROUPS = ['Active Permits', 'Issued Permits', 'Miscellaneous Projects', 'Cancelled Projects'];
+
+app.get('/permits', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows } = await pool.query('SELECT * FROM permits ORDER BY sort_order NULLS LAST, id');
+    res.render('permits', { permits: rows, COLS: PERMIT_COLUMNS, GROUPS: PERMIT_GROUPS });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/permits/:id/cell', requireAuth, async (req, res) => {
+  try {
+    const col = String(req.body.col || '');
+    if (!PERMIT_EDITABLE.has(col)) return res.status(400).json({ ok: false, error: 'bad column' });
+    let val = req.body.value;
+    if (val === '' || val === undefined) val = null;
+    if (col === 'timeline_num') val = (val == null ? null : (parseInt(val, 10) || null));
+    await pool.query(`UPDATE permits SET ${col}=$1 WHERE id=$2`, [val, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/permits/new', requireAuth, async (req, res) => {
+  try {
+    const grp = PERMIT_GROUPS.includes(req.body.grp) ? req.body.grp : 'Active Permits';
+    const { rows: [m] } = await pool.query('SELECT MAX(sort_order) s FROM permits WHERE grp=$1', [grp]);
+    const so = (m && m.s != null) ? Number(m.s) + 1 : 9999;
+    await pool.query('INSERT INTO permits (name, grp, sort_order) VALUES ($1,$2,$3)', [String(req.body.name || 'New permit').slice(0, 200), grp, so]);
+    res.redirect('/permits');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/permits/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM permits WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
