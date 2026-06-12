@@ -3841,7 +3841,7 @@ async function sendWeeklyDigest() {
         <li><strong>$${Number(pay.outstanding).toLocaleString(undefined,{minimumFractionDigits:2})}</strong> in outstanding milestone payments</li>
         <li><strong>${unr.c}</strong> project(s) with unread vendor replies</li>
       </ul>
-      <p><a href="https://material-orders-production.up.railway.app">Open the app →</a></p></div>`;
+      <p><a href="https://buildoly.up.railway.app">Open the app →</a></p></div>`;
     await sendMail({ to: NOTIFY_TO, subject: 'Weekly Buildoly Office Digest', html });
     console.log('Weekly digest sent');
   } catch (e) { console.error('sendWeeklyDigest:', e.message); }
