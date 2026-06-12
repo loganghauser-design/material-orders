@@ -1526,6 +1526,22 @@ async function initDb() {
       sort_order INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Idle tracking for permit notifications
+    ALTER TABLE permits ADD COLUMN IF NOT EXISTS last_activity TIMESTAMPTZ;
+    ALTER TABLE permits ADD COLUMN IF NOT EXISTS last_notified_at TIMESTAMPTZ;
+    UPDATE permits SET last_activity = COALESCE(last_activity, created_at, NOW()) WHERE last_activity IS NULL;
+    -- Permit idle-notification settings (configured on the Permits → Notifications page)
+    CREATE TABLE IF NOT EXISTS permit_notif (
+      id INT PRIMARY KEY DEFAULT 1,
+      enabled BOOLEAN DEFAULT TRUE,
+      idle_days INT DEFAULT 7,
+      channel TEXT DEFAULT 'both',
+      email_to TEXT,
+      active_only BOOLEAN DEFAULT TRUE,
+      last_run TIMESTAMPTZ,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    INSERT INTO permit_notif (id, email_to) VALUES (1, 'aziz@buildoly.com') ON CONFLICT (id) DO NOTHING;
 
     CREATE TABLE IF NOT EXISTS driving_trips (
       id SERIAL PRIMARY KEY,
@@ -3829,7 +3845,7 @@ app.post('/permits/:id/cell', requireAuth, async (req, res) => {
     let val = req.body.value;
     if (val === '' || val === undefined) val = null;
     if (col === 'timeline_num') val = (val == null ? null : (parseInt(val, 10) || null));
-    await pool.query(`UPDATE permits SET ${col}=$1 WHERE id=$2`, [val, req.params.id]);
+    await pool.query(`UPDATE permits SET ${col}=$1, last_activity=NOW() WHERE id=$2`, [val, req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -3838,13 +3854,48 @@ app.post('/permits/new', requireAuth, async (req, res) => {
     const grp = PERMIT_GROUPS.includes(req.body.grp) ? req.body.grp : 'Active Permits';
     const { rows: [m] } = await pool.query('SELECT MAX(sort_order) s FROM permits WHERE grp=$1', [grp]);
     const so = (m && m.s != null) ? Number(m.s) + 1 : 9999;
-    await pool.query('INSERT INTO permits (name, grp, sort_order) VALUES ($1,$2,$3)', [String(req.body.name || 'New permit').slice(0, 200), grp, so]);
+    await pool.query('INSERT INTO permits (name, grp, sort_order, last_activity) VALUES ($1,$2,$3,NOW())', [String(req.body.name || 'New permit').slice(0, 200), grp, so]);
     res.redirect('/permits');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 app.post('/permits/:id/delete', requireAuth, async (req, res) => {
   try { await pool.query('DELETE FROM permits WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Permit idle-notification settings (the "🔔 Notifications" button on the board)
+app.get('/permits/notifications', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const settings = await getPermitNotifSettings();
+    const idle = await getIdlePermits(settings, false);
+    res.render('permit-notifications', {
+      settings, idle: idle.map(permitLine), chatOn: !!CHAT_WEBHOOK_URL, emailOn: emailEnabled,
+      saved: req.query.saved === '1', tested: req.query.tested || '',
+    });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/permits/notifications', requireAuth, async (req, res) => {
+  try {
+    const enabled = !!req.body.enabled;
+    let idle_days = parseInt(req.body.idle_days, 10); if (!(idle_days >= 1 && idle_days <= 90)) idle_days = 7;
+    const channel = ['email', 'chat', 'both'].includes(req.body.channel) ? req.body.channel : 'both';
+    const email_to = String(req.body.email_to || '').trim().slice(0, 300) || null;
+    const active_only = !!req.body.active_only;
+    await pool.query(
+      'UPDATE permit_notif SET enabled=$1, idle_days=$2, channel=$3, email_to=$4, active_only=$5, updated_at=NOW() WHERE id=1',
+      [enabled, idle_days, channel, email_to, active_only]
+    );
+    res.redirect('/permits/notifications?saved=1');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/permits/notifications/test', requireAuth, async (req, res) => {
+  try {
+    const settings = await getPermitNotifSettings();
+    const idle = await getIdlePermits(settings, false);
+    await sendPermitIdleNotice(idle, settings, true);
+    res.redirect('/permits/notifications?tested=ok');
+  } catch (err) { console.error('permit test notif:', err.message); res.redirect('/permits/notifications?tested=err'); }
 });
 
 // ── Team hub: Logan manages who can see which page (only Logan reaches this) ───
@@ -4277,11 +4328,85 @@ async function sendWeeklyDigest() {
   } catch (e) { console.error('sendWeeklyDigest:', e.message); }
 }
 
+// ── Permit idle notifications ─────────────────────────────────────────────────
+async function getPermitNotifSettings() {
+  try {
+    const { rows: [r] } = await pool.query('SELECT * FROM permit_notif WHERE id=1');
+    if (r) return r;
+  } catch (e) { /* table may not exist yet */ }
+  return { enabled: true, idle_days: 7, channel: 'both', email_to: 'aziz@buildoly.com', active_only: true, last_run: null };
+}
+// Permits sitting idle past the threshold. onlyUnnotified=true → only those not yet
+// alerted for their current idle stretch (so the daily cron doesn't nag repeatedly).
+async function getIdlePermits(settings, onlyUnnotified) {
+  const days = Number(settings.idle_days) || 7;
+  const scope = settings.active_only ? "grp = 'Active Permits'" : "COALESCE(grp,'') <> 'Cancelled Projects'";
+  let where = `${scope} AND last_activity IS NOT NULL AND last_activity < NOW() - ($1 || ' days')::interval`;
+  if (onlyUnnotified) where += ' AND (last_notified_at IS NULL OR last_notified_at < last_activity)';
+  const { rows } = await pool.query(
+    `SELECT id, name, owner, adu_address, grp, last_activity,
+            FLOOR(EXTRACT(EPOCH FROM (NOW() - last_activity)) / 86400)::int AS idle_days
+     FROM permits WHERE ${where} ORDER BY last_activity ASC`, [String(days)]
+  );
+  return rows;
+}
+function permitLine(p) {
+  const who = p.owner ? ' (' + p.owner + ')' : '';
+  const adu = p.adu_address ? ' · ADU ' + p.adu_address : '';
+  const last = p.last_activity ? new Date(p.last_activity).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+  return { name: (p.name || '(unnamed permit)') + who + adu, idle: p.idle_days, last };
+}
+async function sendPermitIdleNotice(permits, settings, isTest) {
+  if (!permits.length && !isTest) return;
+  const ch = settings.channel || 'both';
+  const days = Number(settings.idle_days) || 7;
+  const url = 'https://buildoly.up.railway.app/permits';
+  const lines = permits.map(permitLine);
+  const title = isTest
+    ? `🔔 Permit notifications — test`
+    : `🔔 Permit alert — ${permits.length} permit${permits.length === 1 ? '' : 's'} idle ${days}+ days`;
+  if (ch === 'chat' || ch === 'both') {
+    let txt = title + '\n';
+    if (lines.length) lines.forEach(l => { txt += `\n• ${l.name} — idle ${l.idle} days (last update ${l.last})`; });
+    else txt += '\nNo permits are idle right now — notifications are working ✅';
+    txt += `\n\nUpdate them: ${url}`;
+    await postToChat(txt, 'permit-idle');
+  }
+  if ((ch === 'email' || ch === 'both') && emailEnabled && settings.email_to) {
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">`;
+    html += `<p style="font-size:15px"><strong>${escapeHtml(title)}</strong></p>`;
+    if (lines.length) {
+      html += '<table style="border-collapse:collapse"><tr><th style="border:1px solid #ccc;padding:5px 9px;text-align:left">Permit</th><th style="border:1px solid #ccc;padding:5px 9px">Idle</th><th style="border:1px solid #ccc;padding:5px 9px">Last update</th></tr>';
+      lines.forEach(l => { html += `<tr><td style="border:1px solid #ccc;padding:5px 9px">${escapeHtml(l.name)}</td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${l.idle} days</td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${escapeHtml(l.last)}</td></tr>`; });
+      html += '</table>';
+    } else {
+      html += '<p>No permits are idle right now — notifications are working ✅</p>';
+    }
+    html += `<p><a href="${url}">Open the permit board →</a></p></div>`;
+    const subject = isTest ? 'Test — Buildoly permit notifications' : `${permits.length} permit(s) idle ${days}+ days`;
+    await sendMail({ to: settings.email_to, subject, html });
+  }
+}
+async function runPermitIdleCheck() {
+  try {
+    const settings = await getPermitNotifSettings();
+    if (!settings.enabled) return;
+    const idle = await getIdlePermits(settings, true);
+    if (idle.length) {
+      await sendPermitIdleNotice(idle, settings, false);
+      await pool.query('UPDATE permits SET last_notified_at = NOW() WHERE id = ANY($1)', [idle.map(p => p.id)]);
+      console.log('Permit idle alert sent for', idle.length, 'permit(s)');
+    }
+    await pool.query('UPDATE permit_notif SET last_run = NOW() WHERE id=1');
+  } catch (e) { console.error('runPermitIdleCheck:', e.message); }
+}
+
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
+  cron.schedule('0 16 * * *', runPermitIdleCheck);      // daily ~8am PT — idle permit alerts
   console.log('Cron jobs scheduled');
 }
 
