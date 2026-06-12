@@ -6,17 +6,18 @@
   <title>Permit Notifications — Buildoly Office</title>
   <link rel="stylesheet" href="/css/app.css">
   <style>
-    .pn { max-width:640px; margin:0 auto; padding:1.4rem 1.2rem 3rem; }
+    .pn { max-width:720px; margin:0 auto; padding:1.4rem 1.2rem 3rem; }
     .scard { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1.3rem 1.25rem; margin-bottom:1.1rem; }
     .scard h2 { font-size:.8rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:800; margin:0 0 .3rem; }
     .scard .sub { color:var(--muted); font-size:.86rem; margin-bottom:1.1rem; }
     .frow { margin-bottom:1rem; }
     .frow label.fl { display:block; font-size:.74rem; font-weight:700; color:var(--muted); margin-bottom:.35rem; text-transform:uppercase; letter-spacing:.04em; }
-    .frow input[type=text], .frow input[type=email], .frow input[type=number], .frow select { width:100%; padding:.7rem .85rem; font-size:1rem; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--text); }
-    .frow input:focus, .frow select:focus { outline:none; border-color:#111; }
+    .frow input[type=text], .frow input[type=number], .frow select { padding:.7rem .85rem; font-size:1rem; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:var(--text); width:100%; }
+    .frow.inlineflds { display:flex; gap:1rem; flex-wrap:wrap; }
+    .frow.inlineflds > div { flex:1; min-width:180px; }
+    .daybox { max-width:150px; }
     .inline { display:flex; align-items:center; gap:.6rem; cursor:pointer; font-size:.95rem; font-weight:600; }
     .inline input { width:20px; height:20px; accent-color:#15161a; }
-    .daybox { max-width:140px; }
     .save-btn { padding:.72rem 1.4rem; font-size:.95rem; font-weight:700; background:#15161a; color:#fff; border:none; border-radius:10px; cursor:pointer; }
     .save-btn:hover { background:#000; }
     .ghost-btn { padding:.72rem 1.2rem; font-size:.92rem; font-weight:700; background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:10px; cursor:pointer; }
@@ -25,13 +26,26 @@
     .ok { background:rgba(76,175,125,.12); border:1px solid rgba(76,175,125,.4); color:#16a34a; }
     .bad { background:rgba(204,34,34,.1); border:1px solid rgba(204,34,34,.35); color:#cc2222; }
     .warn { background:rgba(224,169,82,.13); border:1px solid rgba(224,169,82,.45); color:#a86a13; font-size:.84rem; }
-    .idle-row { display:flex; align-items:center; gap:.8rem; padding:.6rem 0; border-bottom:1px solid var(--border); font-size:.9rem; }
-    .idle-row:last-child { border-bottom:none; }
-    .idle-row .nm { font-weight:700; }
-    .idle-row .dur { margin-left:auto; font-weight:800; color:#b4521c; white-space:nowrap; }
-    .idle-row .lu { color:var(--muted); font-size:.8rem; white-space:nowrap; }
     .muted { color:var(--muted); font-size:.9rem; }
     .topbar { display:flex; align-items:center; justify-content:space-between; margin-bottom:1rem; gap:1rem; flex-wrap:wrap; }
+    /* per-box table */
+    .box-tbl { width:100%; border-collapse:collapse; }
+    .box-tbl th { font-size:.66rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:800; text-align:left; padding:.4rem .5rem; border-bottom:1px solid var(--border); }
+    .box-tbl th.c, .box-tbl td.c { text-align:center; }
+    .box-tbl td { padding:.45rem .5rem; border-bottom:1px solid var(--border); font-size:.92rem; }
+    .box-tbl tr:last-child td { border-bottom:none; }
+    .box-tbl .bname { font-weight:700; }
+    .box-tbl input[type=checkbox] { width:19px; height:19px; accent-color:#15161a; cursor:pointer; }
+    .box-tbl input[type=number] { width:72px; padding:.4rem .45rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); text-align:center; font-size:.92rem; }
+    .bulk { display:flex; gap:.5rem; flex-wrap:wrap; margin-bottom:.7rem; }
+    .bulk button { font-size:.78rem; font-weight:700; padding:.35rem .7rem; border-radius:8px; border:1px solid var(--border); background:var(--bg); cursor:pointer; color:var(--text); }
+    .bulk button:hover { border-color:#15161a; }
+    /* idle preview */
+    .idle-permit { padding:.6rem 0; border-bottom:1px solid var(--border); }
+    .idle-permit:last-child { border-bottom:none; }
+    .idle-permit .nm { font-weight:700; font-size:.92rem; }
+    .idle-permit .bxs { margin-top:.25rem; display:flex; flex-wrap:wrap; gap:.35rem; }
+    .ibox { font-size:.72rem; font-weight:700; padding:.2rem .5rem; border-radius:999px; background:#fbe9e0; color:#b4521c; white-space:nowrap; }
   </style>
 </head>
 <body>
@@ -47,29 +61,29 @@
   <% if (tested === 'ok') { %><div class="banner ok">✓ Test sent — check the chat space / inbox you configured.</div><% } %>
   <% if (tested === 'err') { %><div class="banner bad">Couldn't send the test. Check the channel/recipient below.</div><% } %>
 
-  <form method="POST" action="/permits/notifications">
+  <form method="POST" action="/permits/notifications" id="pnform">
+    <!-- Global -->
     <div class="scard">
-      <h2>Idle-permit alerts</h2>
-      <div class="sub">Each day we check the board. If a permit hasn't been touched in your set number of days, we send you the permit name and how long it's been sitting. Editing <em>any</em> cell on a permit resets its timer.</div>
+      <h2>Delivery</h2>
+      <div class="sub">Each day we check the board. A box alerts when it holds a value that hasn't changed in its set number of days. Editing a box resets just that box's timer.</div>
 
       <label class="inline" style="margin-bottom:1.1rem">
         <input type="checkbox" name="enabled" <%= settings.enabled ? 'checked' : '' %>> Notifications on
       </label>
 
-      <div class="frow daybox">
-        <label class="fl">Alert after… (days idle)</label>
-        <input type="number" name="idle_days" min="1" max="90" value="<%= settings.idle_days || 7 %>">
-      </div>
-
-      <div class="frow">
-        <label class="fl">Send via</label>
-        <select name="channel">
-          <option value="both"  <%= settings.channel === 'both'  ? 'selected' : '' %>>Google Chat + Email</option>
-          <option value="chat"  <%= settings.channel === 'chat'  ? 'selected' : '' %>>Google Chat only</option>
-          <option value="email" <%= settings.channel === 'email' ? 'selected' : '' %>>Email only</option>
-        </select>
-        <% if (!chatOn) { %><div class="banner warn" style="margin-top:.5rem">Google Chat isn't connected on the server — Chat options won't deliver until it is.</div><% } %>
-        <% if (!emailOn) { %><div class="banner warn" style="margin-top:.5rem">Email isn't configured on the server — Email options won't deliver until it is.</div><% } %>
+      <div class="frow inlineflds">
+        <div>
+          <label class="fl">Send via</label>
+          <select name="channel">
+            <option value="both"  <%= settings.channel === 'both'  ? 'selected' : '' %>>Google Chat + Email</option>
+            <option value="chat"  <%= settings.channel === 'chat'  ? 'selected' : '' %>>Google Chat only</option>
+            <option value="email" <%= settings.channel === 'email' ? 'selected' : '' %>>Email only</option>
+          </select>
+        </div>
+        <div class="daybox">
+          <label class="fl">Default window (days)</label>
+          <input type="number" name="idle_days" min="1" max="90" value="<%= settings.idle_days || 7 %>">
+        </div>
       </div>
 
       <div class="frow">
@@ -78,38 +92,69 @@
       </div>
 
       <label class="inline">
-        <input type="checkbox" name="active_only" <%= settings.active_only ? 'checked' : '' %>> Only watch <strong>Active Permits</strong> (ignore Issued / Misc / Cancelled)
+        <input type="checkbox" name="active_only" <%= settings.active_only ? 'checked' : '' %>> Only watch <strong>Active Permits</strong>
       </label>
 
-      <div style="margin-top:1.4rem;display:flex;gap:.6rem;flex-wrap:wrap">
-        <button type="submit" class="save-btn">Save settings</button>
+      <% if (!chatOn) { %><div class="banner warn" style="margin-top:.9rem">Google Chat isn't connected on the server — Chat won't deliver until it is.</div><% } %>
+      <% if (!emailOn) { %><div class="banner warn" style="margin-top:.9rem">Email isn't configured on the server — Email won't deliver until it is.</div><% } %>
+    </div>
+
+    <!-- Per-box rules -->
+    <div class="scard">
+      <h2>Each box</h2>
+      <div class="sub">Pick exactly which status boxes to watch and how long each can sit before it pings you. A blank/empty box never alerts.</div>
+      <div class="bulk">
+        <button type="button" onclick="boxAll(true)">Watch all</button>
+        <button type="button" onclick="boxAll(false)">Watch none</button>
+        <button type="button" onclick="boxDays()">Set all days…</button>
       </div>
+      <table class="box-tbl">
+        <thead><tr><th>Box</th><th class="c">Notify</th><th class="c">After (days)</th></tr></thead>
+        <tbody>
+          <% boxes.forEach(b => { %>
+            <tr>
+              <td class="bname"><%= b.title %></td>
+              <td class="c"><input type="checkbox" name="watch_<%= b.key %>" class="bwatch" <%= b.on ? 'checked' : '' %>></td>
+              <td class="c"><input type="number" name="days_<%= b.key %>" class="bdays" min="1" max="90" value="<%= b.days %>"></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+      <div style="margin-top:1.3rem"><button type="submit" class="save-btn">Save settings</button></div>
     </div>
   </form>
 
+  <!-- Test -->
   <div class="scard">
     <h2>Test it</h2>
-    <div class="sub">Sends a sample alert right now to whatever channel you saved above, so you can confirm it lands. (Doesn't affect the daily schedule.)</div>
+    <div class="sub">Sends a sample alert right now to the channel you saved, so you can confirm it lands. (Doesn't affect the daily schedule.)</div>
     <form method="POST" action="/permits/notifications/test" style="margin:0">
       <button type="submit" class="ghost-btn">Send a test now</button>
     </form>
     <% if (settings.last_run) { %><p class="muted" style="margin-top:.9rem">Last automatic check: <%= new Date(settings.last_run).toLocaleString('en-US') %></p><% } %>
   </div>
 
+  <!-- Idle preview -->
   <div class="scard">
-    <h2>Idle right now (<%= idle.length %>)</h2>
-    <% if (idle.length) { %>
-      <% idle.forEach(p => { %>
-        <div class="idle-row">
-          <span class="nm"><%= p.name %></span>
-          <span class="lu">last update <%= p.last %></span>
-          <span class="dur"><%= p.idle %> days idle</span>
+    <h2>Idle right now (<%= stale.reduce((n,r)=>n+r.boxes.length,0) %>)</h2>
+    <% if (stale.length) { %>
+      <% stale.forEach(r => { %>
+        <div class="idle-permit">
+          <div class="nm"><%= r.name %><% if (r.owner) { %> · <%= r.owner %><% } %></div>
+          <div class="bxs">
+            <% r.boxes.forEach(b => { %><span class="ibox"><%= b.title %> — <%= b.days %>d</span><% }) %>
+          </div>
         </div>
       <% }) %>
     <% } else { %>
-      <p class="muted">Nothing is idle past the threshold. 🎉</p>
+      <p class="muted">No boxes are idle past their window. 🎉</p>
     <% } %>
   </div>
 </div>
+
+<script>
+  function boxAll(on){ document.querySelectorAll('.bwatch').forEach(function(c){ c.checked = on; }); }
+  function boxDays(){ var v = prompt('Alert after how many days idle (applies to every box)?', '7'); if(v===null) return; var n = parseInt(v,10); if(!(n>=1 && n<=90)) return; document.querySelectorAll('.bdays').forEach(function(i){ i.value = n; }); }
+</script>
 </body>
 </html>

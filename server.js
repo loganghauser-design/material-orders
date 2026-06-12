@@ -1542,6 +1542,10 @@ async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
     INSERT INTO permit_notif (id, email_to) VALUES (1, 'aziz@buildoly.com') ON CONFLICT (id) DO NOTHING;
+    -- Per-box (per status column) notification rules + per-cell change/alert tracking
+    ALTER TABLE permit_notif ADD COLUMN IF NOT EXISTS col_rules JSONB DEFAULT '{}'::jsonb;
+    ALTER TABLE permits ADD COLUMN IF NOT EXISTS cell_activity JSONB DEFAULT '{}'::jsonb;
+    ALTER TABLE permits ADD COLUMN IF NOT EXISTS cell_notified JSONB DEFAULT '{}'::jsonb;
 
     CREATE TABLE IF NOT EXISTS driving_trips (
       id SERIAL PRIMARY KEY,
@@ -3845,7 +3849,12 @@ app.post('/permits/:id/cell', requireAuth, async (req, res) => {
     let val = req.body.value;
     if (val === '' || val === undefined) val = null;
     if (col === 'timeline_num') val = (val == null ? null : (parseInt(val, 10) || null));
-    await pool.query(`UPDATE permits SET ${col}=$1, last_activity=NOW() WHERE id=$2`, [val, req.params.id]);
+    await pool.query(
+      `UPDATE permits SET ${col}=$1, last_activity=NOW(),
+         cell_activity = COALESCE(cell_activity,'{}'::jsonb) || jsonb_build_object($3::text, to_jsonb(NOW()))
+       WHERE id=$2`,
+      [val, req.params.id, col]
+    );
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -3868,23 +3877,31 @@ app.get('/permits/notifications', requireAuth, async (req, res) => {
   try {
     await initDb();
     const settings = await getPermitNotifSettings();
-    const idle = await getIdlePermits(settings, false);
+    const boxes = PERMIT_STATUS_BOXES.map(b => { const r = boxRule(settings, b.key); return { key: b.key, title: b.title, on: r.on, days: r.days }; });
+    const stale = await findStaleBoxes(settings, false);
     res.render('permit-notifications', {
-      settings, idle: idle.map(permitLine), chatOn: !!CHAT_WEBHOOK_URL, emailOn: emailEnabled,
+      settings, boxes, stale, chatOn: !!CHAT_WEBHOOK_URL, emailOn: emailEnabled,
       saved: req.query.saved === '1', tested: req.query.tested || '',
     });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 app.post('/permits/notifications', requireAuth, async (req, res) => {
   try {
-    const enabled = !!req.body.enabled;
-    let idle_days = parseInt(req.body.idle_days, 10); if (!(idle_days >= 1 && idle_days <= 90)) idle_days = 7;
-    const channel = ['email', 'chat', 'both'].includes(req.body.channel) ? req.body.channel : 'both';
-    const email_to = String(req.body.email_to || '').trim().slice(0, 300) || null;
-    const active_only = !!req.body.active_only;
+    const b = req.body || {};
+    const enabled = !!b.enabled;
+    let idle_days = parseInt(b.idle_days, 10); if (!(idle_days >= 1 && idle_days <= 90)) idle_days = 7;
+    const channel = ['email', 'chat', 'both'].includes(b.channel) ? b.channel : 'both';
+    const email_to = String(b.email_to || '').trim().slice(0, 300) || null;
+    const active_only = !!b.active_only;
+    const col_rules = {};
+    for (const box of PERMIT_STATUS_BOXES) {
+      const on = !!b['watch_' + box.key];
+      let days = parseInt(b['days_' + box.key], 10); if (!(days >= 1 && days <= 90)) days = idle_days;
+      col_rules[box.key] = { on, days };
+    }
     await pool.query(
-      'UPDATE permit_notif SET enabled=$1, idle_days=$2, channel=$3, email_to=$4, active_only=$5, updated_at=NOW() WHERE id=1',
-      [enabled, idle_days, channel, email_to, active_only]
+      'UPDATE permit_notif SET enabled=$1, idle_days=$2, channel=$3, email_to=$4, active_only=$5, col_rules=$6, updated_at=NOW() WHERE id=1',
+      [enabled, idle_days, channel, email_to, active_only, JSON.stringify(col_rules)]
     );
     res.redirect('/permits/notifications?saved=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
@@ -3892,8 +3909,8 @@ app.post('/permits/notifications', requireAuth, async (req, res) => {
 app.post('/permits/notifications/test', requireAuth, async (req, res) => {
   try {
     const settings = await getPermitNotifSettings();
-    const idle = await getIdlePermits(settings, false);
-    await sendPermitIdleNotice(idle, settings, true);
+    const stale = await findStaleBoxes(settings, false);
+    await sendPermitBoxNotice(stale, settings, true);
     res.redirect('/permits/notifications?tested=ok');
   } catch (err) { console.error('permit test notif:', err.message); res.redirect('/permits/notifications?tested=err'); }
 });
@@ -4328,74 +4345,103 @@ async function sendWeeklyDigest() {
   } catch (e) { console.error('sendWeeklyDigest:', e.message); }
 }
 
-// ── Permit idle notifications ─────────────────────────────────────────────────
+// ── Permit per-box idle notifications ─────────────────────────────────────────
+// Each status column ("box") can be watched independently with its own idle window.
+const PERMIT_STATUS_BOXES = PERMIT_COLUMNS.filter(c => c.type === 'status').map(c => ({ key: c.key, title: c.title }));
+
 async function getPermitNotifSettings() {
   try {
     const { rows: [r] } = await pool.query('SELECT * FROM permit_notif WHERE id=1');
     if (r) return r;
   } catch (e) { /* table may not exist yet */ }
-  return { enabled: true, idle_days: 7, channel: 'both', email_to: 'aziz@buildoly.com', active_only: true, last_run: null };
+  return { enabled: true, idle_days: 7, channel: 'both', email_to: 'aziz@buildoly.com', active_only: true, col_rules: {}, last_run: null };
 }
-// Permits sitting idle past the threshold. onlyUnnotified=true → only those not yet
-// alerted for their current idle stretch (so the daily cron doesn't nag repeatedly).
-async function getIdlePermits(settings, onlyUnnotified) {
-  const days = Number(settings.idle_days) || 7;
+// Effective rule for one box: its explicit per-box rule, else the global default window.
+function boxRule(settings, key) {
+  const r = (settings.col_rules || {})[key];
+  const def = Number(settings.idle_days) > 0 ? Number(settings.idle_days) : 7;
+  if (r && typeof r === 'object') return { on: r.on !== false, days: Number(r.days) > 0 ? Number(r.days) : def };
+  return { on: true, days: def };
+}
+function fmtDay(d) { return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }
+// Permits with one or more watched boxes that hold a value but haven't changed past
+// that box's window. onlyUnnotified=true skips boxes already alerted this stretch.
+async function findStaleBoxes(settings, onlyUnnotified) {
   const scope = settings.active_only ? "grp = 'Active Permits'" : "COALESCE(grp,'') <> 'Cancelled Projects'";
-  let where = `${scope} AND last_activity IS NOT NULL AND last_activity < NOW() - ($1 || ' days')::interval`;
-  if (onlyUnnotified) where += ' AND (last_notified_at IS NULL OR last_notified_at < last_activity)';
-  const { rows } = await pool.query(
-    `SELECT id, name, owner, adu_address, grp, last_activity,
-            FLOOR(EXTRACT(EPOCH FROM (NOW() - last_activity)) / 86400)::int AS idle_days
-     FROM permits WHERE ${where} ORDER BY last_activity ASC`, [String(days)]
-  );
-  return rows;
+  const { rows } = await pool.query(`SELECT * FROM permits WHERE ${scope}`);
+  const now = Date.now();
+  const out = [];
+  for (const p of rows) {
+    const act = p.cell_activity || {};
+    const notif = p.cell_notified || {};
+    const boxes = [];
+    for (const b of PERMIT_STATUS_BOXES) {
+      const rule = boxRule(settings, b.key);
+      if (!rule.on) continue;
+      const val = p[b.key];
+      if (val === null || val === undefined || val === '') continue;   // only watch boxes that hold a value
+      const tsStr = act[b.key];
+      if (!tsStr) continue;                                            // no change recorded yet → can't measure
+      const ts = new Date(tsStr).getTime();
+      const idleDays = Math.floor((now - ts) / 86400000);
+      if (idleDays < rule.days) continue;
+      if (onlyUnnotified) {
+        const nts = notif[b.key] ? new Date(notif[b.key]).getTime() : 0;
+        if (nts >= ts) continue;                                       // already alerted for this stretch
+      }
+      boxes.push({ key: b.key, title: b.title, val, days: idleDays, last: fmtDay(ts) });
+    }
+    if (boxes.length) out.push({ id: p.id, name: p.name || '(unnamed permit)', owner: p.owner || '', adu: p.adu_address || '', boxes });
+  }
+  return out;
 }
-function permitLine(p) {
-  const who = p.owner ? ' (' + p.owner + ')' : '';
-  const adu = p.adu_address ? ' · ADU ' + p.adu_address : '';
-  const last = p.last_activity ? new Date(p.last_activity).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
-  return { name: (p.name || '(unnamed permit)') + who + adu, idle: p.idle_days, last };
-}
-async function sendPermitIdleNotice(permits, settings, isTest) {
-  if (!permits.length && !isTest) return;
+async function sendPermitBoxNotice(results, settings, isTest) {
+  if (!results.length && !isTest) return;
   const ch = settings.channel || 'both';
-  const days = Number(settings.idle_days) || 7;
   const url = 'https://buildoly.up.railway.app/permits';
-  const lines = permits.map(permitLine);
+  const boxCount = results.reduce((n, r) => n + r.boxes.length, 0);
   const title = isTest
-    ? `🔔 Permit notifications — test`
-    : `🔔 Permit alert — ${permits.length} permit${permits.length === 1 ? '' : 's'} idle ${days}+ days`;
+    ? '🔔 Permit notifications — test'
+    : `🔔 Permit alert — ${boxCount} box${boxCount === 1 ? '' : 'es'} idle on ${results.length} permit${results.length === 1 ? '' : 's'}`;
+  const permitLabel = r => r.name + (r.owner ? ' (' + r.owner + ')' : '') + (r.adu ? ' · ADU ' + r.adu : '');
   if (ch === 'chat' || ch === 'both') {
     let txt = title + '\n';
-    if (lines.length) lines.forEach(l => { txt += `\n• ${l.name} — idle ${l.idle} days (last update ${l.last})`; });
-    else txt += '\nNo permits are idle right now — notifications are working ✅';
+    if (results.length) results.forEach(r => { txt += `\n• ${permitLabel(r)}: ${r.boxes.map(b => `${b.title} idle ${b.days}d`).join(', ')}`; });
+    else txt += '\nNo boxes are idle right now — notifications are working ✅';
     txt += `\n\nUpdate them: ${url}`;
     await postToChat(txt, 'permit-idle');
   }
   if ((ch === 'email' || ch === 'both') && emailEnabled && settings.email_to) {
-    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222">`;
-    html += `<p style="font-size:15px"><strong>${escapeHtml(title)}</strong></p>`;
-    if (lines.length) {
-      html += '<table style="border-collapse:collapse"><tr><th style="border:1px solid #ccc;padding:5px 9px;text-align:left">Permit</th><th style="border:1px solid #ccc;padding:5px 9px">Idle</th><th style="border:1px solid #ccc;padding:5px 9px">Last update</th></tr>';
-      lines.forEach(l => { html += `<tr><td style="border:1px solid #ccc;padding:5px 9px">${escapeHtml(l.name)}</td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${l.idle} days</td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${escapeHtml(l.last)}</td></tr>`; });
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p style="font-size:15px"><strong>${escapeHtml(title)}</strong></p>`;
+    if (results.length) {
+      html += '<table style="border-collapse:collapse"><tr><th style="border:1px solid #ccc;padding:5px 9px;text-align:left">Permit</th><th style="border:1px solid #ccc;padding:5px 9px;text-align:left">Idle box</th><th style="border:1px solid #ccc;padding:5px 9px">Idle</th><th style="border:1px solid #ccc;padding:5px 9px">Last change</th></tr>';
+      results.forEach(r => r.boxes.forEach((b, i) => {
+        html += `<tr>${i === 0 ? `<td style="border:1px solid #ccc;padding:5px 9px" rowspan="${r.boxes.length}">${escapeHtml(permitLabel(r))}</td>` : ''}<td style="border:1px solid #ccc;padding:5px 9px">${escapeHtml(b.title)} <span style="color:#888">(${escapeHtml(String(b.val))})</span></td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${b.days} days</td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${escapeHtml(b.last)}</td></tr>`;
+      }));
       html += '</table>';
-    } else {
-      html += '<p>No permits are idle right now — notifications are working ✅</p>';
-    }
+    } else { html += '<p>No boxes are idle right now — notifications are working ✅</p>'; }
     html += `<p><a href="${url}">Open the permit board →</a></p></div>`;
-    const subject = isTest ? 'Test — Buildoly permit notifications' : `${permits.length} permit(s) idle ${days}+ days`;
+    const subject = isTest ? 'Test — Buildoly permit notifications' : `${boxCount} permit box(es) idle`;
     await sendMail({ to: settings.email_to, subject, html });
+  }
+}
+async function markBoxesNotified(results) {
+  const nowIso = new Date().toISOString();
+  for (const r of results) {
+    const patch = {};
+    r.boxes.forEach(b => { patch[b.key] = nowIso; });
+    await pool.query(`UPDATE permits SET cell_notified = COALESCE(cell_notified,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [r.id, JSON.stringify(patch)]);
   }
 }
 async function runPermitIdleCheck() {
   try {
     const settings = await getPermitNotifSettings();
     if (!settings.enabled) return;
-    const idle = await getIdlePermits(settings, true);
-    if (idle.length) {
-      await sendPermitIdleNotice(idle, settings, false);
-      await pool.query('UPDATE permits SET last_notified_at = NOW() WHERE id = ANY($1)', [idle.map(p => p.id)]);
-      console.log('Permit idle alert sent for', idle.length, 'permit(s)');
+    const stale = await findStaleBoxes(settings, true);
+    if (stale.length) {
+      await sendPermitBoxNotice(stale, settings, false);
+      await markBoxesNotified(stale);
+      console.log('Permit box alert sent for', stale.length, 'permit(s)');
     }
     await pool.query('UPDATE permit_notif SET last_run = NOW() WHERE id=1');
   } catch (e) { console.error('runPermitIdleCheck:', e.message); }
