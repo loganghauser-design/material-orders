@@ -1128,6 +1128,16 @@ function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
   return SUPERS.find(s => s.email.toLowerCase() === e) || null;
 }
+// Additional full-access (admin) logins beyond the env ADMIN account (Logan).
+// Default password is "buildoly" — ask to have it changed to something specific.
+const ADMINS = [
+  { username: 'jeff', name: 'Jeff', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },  // CEO
+  { username: 'aziz', name: 'Aziz', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },  // Ops manager
+];
+function findAdminByLogin(login) {
+  const l = String(login || '').trim().toLowerCase();
+  return ADMINS.find(a => a.username.toLowerCase() === l) || null;
+}
 // Login lookup: match by email OR a short username (first name).
 function findSuperByLogin(login) {
   const l = String(login || '').trim().toLowerCase();
@@ -1582,8 +1592,14 @@ app.get('/login', (req, res) => {
 
 app.post('/login', async (req, res) => {
   const { username, password } = req.body;
-  // Admin
+  // Admin (env account — Logan)
   if (username === process.env.ADMIN_USERNAME && await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH || '')) {
+    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null;
+    return res.redirect('/');
+  }
+  // Additional admin accounts (CEO / ops manager) — full office access
+  const adm = findAdminByLogin(username);
+  if (adm && await bcrypt.compare(password || '', adm.passwordHash)) {
     req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null;
     return res.redirect('/');
   }
