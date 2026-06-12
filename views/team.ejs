@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Team Access — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .acc-tbl { border-collapse:collapse; font-size:.85rem; min-width:100%; }
+    .acc-tbl th, .acc-tbl td { padding:.55rem .55rem; border-bottom:1px solid var(--border); text-align:center; white-space:nowrap; }
+    .acc-tbl th { background:var(--bg); color:var(--muted); font-size:.66rem; text-transform:uppercase; letter-spacing:.03em; position:sticky; top:0; }
+    .acc-tbl th.user, .acc-tbl td.user { text-align:left; position:sticky; left:0; background:var(--surface); }
+    .acc-tbl input[type=checkbox] { width:19px; height:19px; cursor:pointer; accent-color:#15161a; }
+    .urole { font-size:.7rem; color:var(--muted); }
+    .acc-tbl tbody tr:hover td { background:var(--bg); }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'team' }) %>
+
+<div class="container" style="max-width:100%;padding:1.2rem 1.1rem 3rem">
+  <div class="page-header"><h1>Team Access</h1></div>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1rem;max-width:760px">
+    Check which pages each person can see. <strong>You always have full access</strong> and aren't listed here.
+    Changes take effect the next time the person loads a page (have them refresh, or log out and back in).
+  </p>
+  <% if (typeof saved !== 'undefined' && saved) { %>
+    <div class="error-msg" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;margin-bottom:1rem">✓ Access saved.</div>
+  <% } %>
+
+  <form method="POST" action="/team/save">
+    <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px">
+      <table class="acc-tbl">
+        <thead><tr><th class="user">Person</th><% PAGES.forEach(p => { %><th><%= p.label %></th><% }) %></tr></thead>
+        <tbody>
+          <% members.forEach(m => { %>
+            <tr>
+              <td class="user"><strong><%= m.name %></strong><br><span class="urole"><%= m.role %> · <%= m.key %></span></td>
+              <% PAGES.forEach(p => { %>
+                <td><input type="checkbox" name="pages_<%= m.key %>" value="<%= p.key %>" <%= m.pages.indexOf(p.key) >= 0 ? 'checked' : '' %>></td>
+              <% }) %>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+    <div style="margin-top:1.3rem"><button type="submit" class="btn btn-primary">Save access</button></div>
+  </form>
+</div>
+</body>
+</html>

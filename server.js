@@ -1138,6 +1138,71 @@ function findAdminByLogin(login) {
   const l = String(login || '').trim().toLowerCase();
   return ADMINS.find(a => a.username.toLowerCase() === l) || null;
 }
+
+// ── Page permissions (managed in the /team hub) ───────────────────────────────
+// Logan (the env admin) is always full-access and can't be restricted. Everyone
+// else's page access is configurable and defaults to their current access.
+const PAGE_META = [
+  { key: 'projects', label: 'Projects (home)', path: '/' },
+  { key: 'deliveries', label: 'Deliveries', path: '/deliveries' },
+  { key: 'requests', label: 'Requests', path: '/requests' },
+  { key: 'issues', label: 'Issues', path: '/issues' },
+  { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
+  { key: 'permits', label: 'Permits', path: '/permits' },
+  { key: 'subs', label: 'Subs', path: '/subs' },
+  { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
+  { key: 'inventory', label: 'Inventory', path: '/inventory' },
+  { key: 'payments', label: 'Payments', path: '/payments' },
+  { key: 'driving', label: 'Driving Log', path: '/driving' },
+  { key: 'settings', label: 'Settings', path: '/settings' },
+];
+const PAGE_KEYS = PAGE_META.map(p => p.key);
+function teamMembers() {
+  return [
+    ...ADMINS.map(a => ({ key: a.username, name: a.name, role: 'Admin' })),
+    ...SUPERS.map(s => ({ key: s.email, name: s.name, role: 'Super' })),
+  ];
+}
+let ACCESS = {};   // user_key -> Set(pageKeys)
+async function loadAccess() {
+  try {
+    const { rows } = await pool.query('SELECT user_key, pages FROM user_access');
+    const m = {};
+    rows.forEach(r => { m[r.user_key] = new Set(String(r.pages || '').split(',').map(s => s.trim()).filter(Boolean)); });
+    ACCESS = m;
+  } catch (e) { /* table may not exist yet */ }
+}
+function defaultPagesFor(key, role) {
+  if (role === 'admin') return new Set(PAGE_KEYS);            // Jeff/Aziz default to everything
+  if (canSuperViewSubs(key)) return new Set(['subs', 'warranty']);  // Bobby keeps his current access
+  return new Set();                                          // other supers: portal only
+}
+function sessionKey(req) { return (req.session && (req.session.userKey || req.session.superEmail)) || ''; }
+function allowedPagesFor(key, role) {
+  if (key === 'logan') return new Set(PAGE_KEYS);            // Logan: full, locked
+  if (ACCESS[key]) return ACCESS[key];
+  return defaultPagesFor(key, role);
+}
+function pageForPath(p) {
+  if (p === '/' || p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
+  if (p.startsWith('/deliveries')) return 'deliveries';
+  if (p.startsWith('/payments')) return 'payments';
+  if (p.startsWith('/driving')) return 'driving';
+  if (p.startsWith('/inventory') || p === '/stock-status') return 'inventory';
+  if (p.startsWith('/requests')) return 'requests';
+  if (p.startsWith('/issues')) return 'issues';
+  if (p.startsWith('/warranty-claims')) return 'warranty';
+  if (p.startsWith('/suppliers')) return 'suppliers';
+  if (p.startsWith('/subs') || p.startsWith('/sub-photo')) return 'subs';
+  if (p.startsWith('/permits')) return 'permits';
+  if (p.startsWith('/settings')) return 'settings';
+  if (p.startsWith('/team')) return 'team';
+  return null;
+}
+function firstAllowedPath(allowed) {
+  for (const m of PAGE_META) if (allowed.has(m.key)) return m.path;
+  return null;
+}
 // Login lookup: match by email OR a short username (first name).
 function findSuperByLogin(login) {
   const l = String(login || '').trim().toLowerCase();
@@ -1455,6 +1520,15 @@ async function initDb() {
       miles NUMERIC(8,1),
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE driving_trips ADD COLUMN IF NOT EXISTS owner TEXT;
+    UPDATE driving_trips SET owner='logan' WHERE owner IS NULL;
+
+    -- Per-user page permissions (managed in the Team hub by Logan)
+    CREATE TABLE IF NOT EXISTS user_access (
+      user_key TEXT PRIMARY KEY,
+      pages TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS milestone_payments (
       id SERIAL PRIMARY KEY,
@@ -1576,26 +1650,36 @@ function requireSuper(req, res, next) {
 // Global gate: a logged-in super may only reach their portal + logout (+ static is
 // already served above). Everything else bounces to /my so they never see admin pages.
 app.use((req, res, next) => {
-  if (req.session && req.session.role === 'super') {
-    const p = req.path;
-    const subsArea = p === '/subs' || p.startsWith('/subs/') || p.startsWith('/sub-photo');
-    const warrantyArea = p === '/warranty-claims' || p.startsWith('/warranty-claims/');
-    const ok = p === '/my' || p.startsWith('/my/') || p === '/logout' || p === '/login'
-      || (subsArea && canSuperViewSubs(req.session.superEmail))        // Bobby: full edit access to the Subs directory
-      || (warrantyArea && canSuperViewWarranty(req.session.superEmail)); // Bobby/Aziz: the Warranty tab
-    if (!ok) return res.redirect('/my');
+  if (!req.session || !req.session.authenticated) return next();
+  const key = sessionKey(req);
+  if (key === 'logan') return next();   // Logan: full access, can't be restricted
+  const p = req.path;
+  if (p === '/logout' || p === '/login') return next();
+  const isSuper = req.session.role === 'super';
+  if (isSuper && (p === '/my' || p.startsWith('/my/'))) return next();   // supers keep their portal
+  const area = pageForPath(p);
+  if (area === 'team') return res.redirect(isSuper ? '/my' : '/');       // Team hub is Logan-only
+  const allowed = allowedPagesFor(key, req.session.role);
+  if (area && !allowed.has(area)) {
+    return res.redirect(isSuper ? '/my' : (firstAllowedPath(allowed) || '/login'));
   }
+  if (area === null && isSuper) return res.redirect('/my');              // supers stay locked to allowed pages
   next();
 });
 
 // Expose pending counts to every admin page so the nav can show badges (Issues + Requests)
 app.use(async (req, res, next) => {
-  if (req.method === 'GET' && req.session && req.session.authenticated && req.session.role === 'admin') {
-    try {
-      res.locals.pendingIssues = await getPendingIssueCount();
-      res.locals.pendingRequests = await getPendingRequestCount();
-      res.locals.openWarranty = await getOpenWarrantyCount();
-    } catch (e) { /* tables may not exist yet */ }
+  if (req.method === 'GET' && req.session && req.session.authenticated) {
+    const key = sessionKey(req);
+    res.locals.isLogan = (key === 'logan');
+    res.locals.navPages = res.locals.isLogan ? '*' : [...allowedPagesFor(key, req.session.role)];
+    if (req.session.role === 'admin') {
+      try {
+        res.locals.pendingIssues = await getPendingIssueCount();
+        res.locals.pendingRequests = await getPendingRequestCount();
+        res.locals.openWarranty = await getOpenWarrantyCount();
+      } catch (e) { /* tables may not exist yet */ }
+    }
   }
   next();
 });
@@ -1609,13 +1693,13 @@ app.post('/login', async (req, res) => {
   const { username, password } = req.body;
   // Admin (env account — Logan)
   if (username === process.env.ADMIN_USERNAME && await bcrypt.compare(password, process.env.ADMIN_PASSWORD_HASH || '')) {
-    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null;
+    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null; req.session.userKey = 'logan';
     return res.redirect('/');
   }
   // Additional admin accounts (CEO / ops manager) — full office access
   const adm = findAdminByLogin(username);
   if (adm && await bcrypt.compare(password || '', adm.passwordHash)) {
-    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null;
+    req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null; req.session.userKey = adm.username;
     return res.redirect('/');
   }
   // Superintendent (logs in with their email or first-name username)
@@ -1623,7 +1707,7 @@ app.post('/login', async (req, res) => {
   if (sup) {
     const hash = await superPasswordHash(sup);   // custom password if they set one, else the default
     if (hash && await bcrypt.compare(password || '', hash)) {
-      req.session.authenticated = true; req.session.role = 'super'; req.session.superEmail = sup.email;
+      req.session.authenticated = true; req.session.role = 'super'; req.session.superEmail = sup.email; req.session.userKey = sup.email;
       return res.redirect('/my');
     }
   }
@@ -3057,8 +3141,9 @@ app.post('/projects/:id/super', requireAuth, async (req, res) => {
 const PDFDocument = require('pdfkit');
 
 app.get('/driving/pdf', requireAuth, async (req, res) => {
-  const { rows: trips } = await pool.query('SELECT * FROM driving_trips ORDER BY trip_date ASC');
-  const { rows: [tot] } = await pool.query('SELECT COALESCE(SUM(miles),0) AS total FROM driving_trips');
+  const me = sessionKey(req);
+  const { rows: trips } = await pool.query('SELECT * FROM driving_trips WHERE owner=$1 ORDER BY trip_date ASC', [me]);
+  const { rows: [tot] } = await pool.query('SELECT COALESCE(SUM(miles),0) AS total FROM driving_trips WHERE owner=$1', [me]);
   const rate = 0.725;
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'inline; filename="driving-log.pdf"');
@@ -3197,8 +3282,9 @@ app.get('/driving', requireAuth, async (req, res) => {
     const { rows: projects } = await pool.query(
       'SELECT id, address, full_address FROM projects ORDER BY address'
     );
-    const { rows: trips } = await pool.query('SELECT * FROM driving_trips ORDER BY trip_date DESC, id DESC');
-    const { rows: [tot] } = await pool.query('SELECT COALESCE(SUM(miles),0) AS total FROM driving_trips');
+    const me = sessionKey(req);
+    const { rows: trips } = await pool.query('SELECT * FROM driving_trips WHERE owner=$1 ORDER BY trip_date DESC, id DESC', [me]);
+    const { rows: [tot] } = await pool.query('SELECT COALESCE(SUM(miles),0) AS total FROM driving_trips WHERE owner=$1', [me]);
     const MILEAGE_RATE = 0.725; // IRS-style reimbursement per mile
     res.render('driving', { home, projects, trips, totalMiles: tot.total, rate: MILEAGE_RATE, drivingEnabled });
   } catch (err) {
@@ -3238,8 +3324,8 @@ app.post('/driving/save', requireAuth, async (req, res) => {
     const { trip_date, route_text, miles } = req.body;
     if (!trip_date || miles == null) return res.status(400).json({ ok: false, error: 'Missing date or miles.' });
     await pool.query(
-      'INSERT INTO driving_trips (trip_date, route_text, miles) VALUES ($1,$2,$3)',
-      [trip_date, route_text || null, miles]
+      'INSERT INTO driving_trips (trip_date, route_text, miles, owner) VALUES ($1,$2,$3,$4)',
+      [trip_date, route_text || null, miles, sessionKey(req)]
     );
     res.json({ ok: true });
   } catch (err) {
@@ -3248,7 +3334,7 @@ app.post('/driving/save', requireAuth, async (req, res) => {
 });
 
 app.post('/driving/:id/delete', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM driving_trips WHERE id=$1', [req.params.id]);
+  await pool.query('DELETE FROM driving_trips WHERE id=$1 AND owner=$2', [req.params.id, sessionKey(req)]);
   res.redirect('/driving');
 });
 
@@ -3532,6 +3618,32 @@ app.post('/permits/new', requireAuth, async (req, res) => {
 app.post('/permits/:id/delete', requireAuth, async (req, res) => {
   try { await pool.query('DELETE FROM permits WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── Team hub: Logan manages who can see which page (only Logan reaches this) ───
+app.get('/team', requireAuth, async (req, res) => {
+  try {
+    await initDb(); await loadAccess();
+    const members = teamMembers().map(m => ({ key: m.key, name: m.name, role: m.role, pages: [...allowedPagesFor(m.key, m.role.toLowerCase())] }));
+    res.render('team', { members, PAGES: PAGE_META, saved: req.query.saved === '1' });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/team/save', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    for (const m of teamMembers()) {
+      let pages = req.body['pages_' + m.key];
+      if (pages === undefined) pages = [];
+      if (!Array.isArray(pages)) pages = [pages];
+      pages = pages.filter(p => PAGE_KEYS.includes(p));
+      await pool.query(
+        `INSERT INTO user_access (user_key, pages, updated_at) VALUES ($1,$2,NOW())
+         ON CONFLICT (user_key) DO UPDATE SET pages=EXCLUDED.pages, updated_at=NOW()`,
+        [m.key, pages.join(',')]);
+    }
+    await loadAccess();
+    res.redirect('/team?saved=1');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
 // Map a status to the matching section bucket, so status and section stay in sync.
@@ -3956,4 +4068,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); startCron(); checkUnreadThreads(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); }).catch(err => console.error('DB init failed:', err.message));
