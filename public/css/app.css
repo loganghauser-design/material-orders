@@ -19,16 +19,16 @@ a { color: var(--accent); text-decoration: none; }
 /* Nav */
 .nav { background: #15161a; border-bottom: 1px solid #27272b; padding: 0 1.3rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
 .nav-brand { display: inline-block; width: 112px; height: 26px; background: url(/logo.png) left center / contain no-repeat; filter: invert(1); margin-right: .7rem; text-indent: -2000px; overflow: hidden; white-space: nowrap; flex: none; }
-.nav-tab { font-size: .9rem; color: #a0a0a6; text-decoration: none; padding: .42rem .72rem; border-radius: 9px; }
+.nav-tab { font-size: .88rem; color: #a0a0a6; text-decoration: none; padding: .42rem .62rem; border-radius: 9px; white-space: nowrap; flex: none; }
 .nav-tab:hover { color: #fff; background: rgba(255,255,255,.08); text-decoration: none; }
-.nav-tab.active { color: #fff; font-weight: 500; background: rgba(255,255,255,.14); }
+.nav-tab.active { color: #fff; background: rgba(255,255,255,.16); }
 .nav-actions { display: flex; gap: .55rem; align-items: center; }
 .nav .btn-ghost { color: #cfcfd3; border-color: #3a3a3e; background: transparent; }
 .nav .btn-ghost:hover { background: #2a2a2e; color: #fff; }
 .nav .btn-primary { background: #fff; color: #15161a; }
 .nav .btn-primary:hover { background: #e6e6e6; }
 
-.nav-left { display: flex; align-items: center; gap: .25rem; flex-wrap: wrap; }
+.nav-left { display: flex; align-items: center; gap: .18rem; flex-wrap: nowrap; }
 .navbadge { background: #e5484d; color: #fff; border-radius: 8px; padding: 0 6px; font-size: .72rem; font-weight: 600; vertical-align: middle; margin-left: 2px; }
 .nav-more { position: relative; display: inline-block; }
 .nav-more-btn { background: none; border: none; cursor: pointer; font: inherit; }
@@ -42,6 +42,7 @@ a { color: var(--accent); text-decoration: none; }
 @media (max-width: 760px) {
   .nav { padding: .5rem .8rem; height: auto; flex-wrap: wrap; row-gap: .35rem; }
   .nav > div { flex-wrap: wrap; gap: .5rem .9rem; }
+  .nav-left { flex-wrap: wrap; }
   .nav-brand { font-size: 1rem; }
   .nav-tab { font-size: .85rem; }
   .nav-actions { gap: .5rem; }
