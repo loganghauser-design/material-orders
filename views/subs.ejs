@@ -100,25 +100,7 @@
   </style>
 </head>
 <body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
-<% if (isSuper) { %>
 <%- include('_nav', { active: 'subs' }) %>
-<% } else { %>
-<nav class="nav">
-  <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
-    <a href="/" class="nav-brand" style="text-decoration:none">Buildoly Office</a>
-    <a href="/deliveries" class="nav-tab">Deliveries</a>
-    <a href="/payments" class="nav-tab">Payments</a>
-    <a href="/driving" class="nav-tab">Driving Log</a>
-    <a href="/inventory" class="nav-tab">Inventory</a>
-    <a href="/requests" class="nav-tab">Requests<% if (typeof pendingRequests !== 'undefined' && pendingRequests) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= pendingRequests %></span><% } %></a>
-    <a href="/warranty-claims" class="nav-tab">Warranty<% if (typeof openWarranty !== 'undefined' && openWarranty) { %> <span style="background:#cc2222;color:#fff;border-radius:9px;padding:0 6px;font-size:.72rem"><%= openWarranty %></span><% } %></a>
-    <a href="/suppliers" class="nav-tab">Suppliers</a>
-    <a href="/subs" class="nav-tab active">Subs</a>
-    <a href="/settings" class="nav-tab">Settings</a>
-  </div>
-  <div class="nav-actions"><a href="/" class="btn btn-ghost">← Back</a></div>
-</nav>
-<% } %>
 
 <div class="container">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
