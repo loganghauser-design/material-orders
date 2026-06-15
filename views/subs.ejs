@@ -18,6 +18,8 @@
     .flagged-row { position:relative; }
     .row-reason { position:absolute; inset:0; z-index:6; display:flex; align-items:center; justify-content:center; gap:.45rem; padding:.2rem 1.1rem; background:rgba(192,57,43,.92); color:#fff; font-weight:800; font-size:.9rem; line-height:1.25; text-align:center; cursor:pointer; border-radius:6px; }
     .row-reason.off { display:none; }
+    .emptybucket-cell { color:var(--muted); font-size:.85rem; font-weight:600; padding:.7rem .9rem; border:2px dashed var(--border); border-radius:8px; background:var(--bg); text-align:center; }
+    tr.emptybucket.drop-hi .emptybucket-cell { background:#fde8e7; border-color:#c0392b; color:#b4231f; }
     .sec-title { font-size:1.6rem; font-weight:800; margin:2.4rem 0 .6rem; padding:.7rem 1rem; border-radius:9px; display:flex; align-items:center; gap:.6rem; }
     .sec-title .cnt { font-weight:600; font-size:1.05rem; opacity:.7; }
     .sec-gc { background:#fce5cd; color:#7a4a16; }
@@ -158,6 +160,10 @@
     // Distinct buckets you can move a sub into (preserving sheet order)
     const moveTargets = []; const _seenT = {};
     subs.forEach(s => { const cat = catOf(s), grp = s.group_label || '', k = cat + '||' + grp; if (!_seenT[k]) { _seenT[k] = 1; moveTargets.push({ cat, grp }); } });
+    // Always offer Rejected + Blacklisted as drop targets, even when those buckets are empty
+    [['gc', ['Rejected GCs', 'Blacklisted Buildoly General Contractors']], ['sub', ['Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors']]].forEach(function (pair) {
+      pair[1].forEach(function (grp) { const k = pair[0] + '||' + grp; if (!_seenT[k]) { _seenT[k] = 1; moveTargets.push({ cat: pair[0], grp: grp }); } });
+    });
   %>
 
   <% if (!subs.length) { %>
@@ -197,9 +203,15 @@
               const groups = []; const gmap = {};
               sec.list.forEach(x => { const g = keyOf(x); if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
               if (byTrade) groups.sort((a, b) => a.localeCompare(b));
+              // Always show a Rejected (and Blacklisted) drop zone for this section, even if empty
+              if (!byTrade) {
+                (sec.key === 'gc' ? ['Rejected GCs', 'Blacklisted Buildoly General Contractors'] : ['Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors'])
+                  .forEach(b => { if (!(b in gmap)) { gmap[b] = []; groups.push(b); } });
+              }
             %>
             <% groups.forEach(g => { %>
               <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11"><%= g %></td></tr><% } %>
+              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : 'Rejected' %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
@@ -579,26 +591,30 @@ let dragId = null;
 function onDragStart(e, id) { dragId = id; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch (x) {} }
 function onDragOver(e) { if (!dragId) return; e.preventDefault(); e.currentTarget.classList.add('drop-hi'); }
 function onDragLeave(e) { e.currentTarget.classList.remove('drop-hi'); }
-async function onDrop(e) {
-  e.preventDefault();
-  const t = e.currentTarget; t.classList.remove('drop-hi');
-  const cat = t.dataset.cat, grp = t.dataset.grp || '';
-  const id = dragId; dragId = null;
+async function moveSubTo(id, cat, grp) {
   if (!id || cat == null) return;
+  grp = grp || '';
   const body = new URLSearchParams({ category: cat, group_label: grp });
+  if (/reject|black/i.test(grp)) {   // dropping into Rejected / Blacklisted → capture the reason
+    const reason = prompt((/black/i.test(grp) ? 'Blacklist' : 'Reject') + ' this contractor — reason? (Shows over their whole row; the contact info gets blurred.)', '');
+    if (reason === null) { location.reload(); return; }   // cancelled
+    body.set('reason', reason || '');
+  }
   try {
     const r = await fetch('/subs/' + id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
     if (r.ok) location.reload(); else throw 0;
   } catch (err) { alert('Could not move — try again'); }
 }
+async function onDrop(e) {
+  e.preventDefault();
+  const t = e.currentTarget; t.classList.remove('drop-hi');
+  const id = dragId; dragId = null;
+  await moveSubTo(id, t.dataset.cat, t.dataset.grp || '');
+}
 async function changeMove(sel) {
   if (!sel.value) return;
   const [cat, grp] = sel.value.split('||');
-  const body = new URLSearchParams({ category: cat, group_label: grp });
-  try {
-    const r = await fetch('/subs/' + sel.dataset.id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-    if (r.ok) location.reload(); else throw 0;
-  } catch (e) { alert('Could not move — try again'); sel.value = ''; }
+  await moveSubTo(sel.dataset.id, cat, grp);
 }
 async function changeStatus(sel) {
   const v = sel.value;

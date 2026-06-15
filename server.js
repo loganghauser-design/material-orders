@@ -3958,6 +3958,16 @@ function bucketForStatus(category, status) {
   if (/approv/.test(s)) return gc ? 'Vetted but Unused GCs' : 'Vetted but Unused';
   return 'Under Vetting';   // Under Review / blank → intake bucket
 }
+// Inverse: dropping a sub into a bucket sets its status to match (keeps the pill + section in sync).
+function statusForBucket(grp) {
+  const g = (grp || '').toLowerCase();
+  if (/black/.test(g)) return 'Blacklisted';
+  if (/reject/.test(g)) return 'Rejected';
+  if (/active/.test(g)) return 'Active';
+  if (/vetted|unused/.test(g)) return 'Approved';
+  if (/vetting/.test(g)) return 'Under Review';
+  return null;   // custom / unknown bucket → leave the status unchanged
+}
 async function bucketSortOrder(category, group) {
   const { rows: [mx] } = await pool.query('SELECT MAX(sort_order) m FROM subcontractors WHERE category=$1 AND group_label IS NOT DISTINCT FROM $2', [category, group]);
   return (mx && mx.m != null) ? Number(mx.m) + 1 : 9999;
@@ -4036,7 +4046,16 @@ app.post('/subs/:id/move', requireAuth, async (req, res) => {
     // Drop it at the end of the target bucket so it lands in the right place
     const { rows: [m] } = await pool.query('SELECT MAX(sort_order) mx FROM subcontractors WHERE category=$1 AND group_label IS NOT DISTINCT FROM $2', [cat, grp]);
     const so = (m && m.mx != null) ? m.mx + 1 : null;
-    await pool.query('UPDATE subcontractors SET category=$1, group_label=$2, sort_order=COALESCE($3, sort_order) WHERE id=$4', [cat, grp, so, req.params.id]);
+    const newStatus = statusForBucket(grp);          // keep the status pill in sync with the section
+    const flagged = /reject|black/i.test(grp || '');
+    if (newStatus && flagged) {
+      const reason = (req.body.reason != null && String(req.body.reason).trim()) ? String(req.body.reason).trim().slice(0, 500) : null;
+      await pool.query('UPDATE subcontractors SET category=$1, group_label=$2, sort_order=COALESCE($3, sort_order), status=$4, reject_reason=COALESCE($5, reject_reason) WHERE id=$6', [cat, grp, so, newStatus, reason, req.params.id]);
+    } else if (newStatus) {
+      await pool.query('UPDATE subcontractors SET category=$1, group_label=$2, sort_order=COALESCE($3, sort_order), status=$4, reject_reason=NULL WHERE id=$5', [cat, grp, so, newStatus, req.params.id]);
+    } else {
+      await pool.query('UPDATE subcontractors SET category=$1, group_label=$2, sort_order=COALESCE($3, sort_order) WHERE id=$4', [cat, grp, so, req.params.id]);
+    }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
