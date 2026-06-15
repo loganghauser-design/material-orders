@@ -347,6 +347,9 @@ function filterSubs() {
     const okR = !recentOnly || r.dataset.recent === '1';
     r.style.display = (okQ && okT && okV && okR) ? '' : 'none';
   });
+  // While searching/filtering, hide the empty "drag here" drop zones so results stay clean
+  const anyFilter = !!(q || tf || vet.gc || vet.sub || recentOnly);
+  document.querySelectorAll('tr.emptybucket').forEach(r => { r.style.display = anyFilter ? 'none' : ''; });
   // Hide sub-section headers that have no visible rows beneath them
   document.querySelectorAll('.subs-table tbody').forEach(tb => {
     const trs = [...tb.children];
