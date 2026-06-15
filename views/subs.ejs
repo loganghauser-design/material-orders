@@ -20,6 +20,9 @@
     .row-reason .rr-name { flex:none; max-width:34%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:.7rem; border-right:2px solid rgba(255,255,255,.55); }
     .row-reason .rr-reason { flex:1; min-width:0; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .row-reason.off { display:none; }
+    .conote-btn { display:inline-block; font-size:.72rem; font-weight:700; color:#1d4ed8; cursor:pointer; margin-top:.25rem; }
+    .conote-body { display:none; font-size:.8rem; font-weight:400; color:var(--text); margin-top:.3rem; white-space:normal; max-width:260px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.45rem .6rem; line-height:1.35; }
+    .conote-body.show { display:block; }
     .emptybucket-cell { color:var(--muted); font-size:.85rem; font-weight:600; padding:.7rem .9rem; border:2px dashed var(--border); border-radius:8px; background:var(--bg); text-align:center; }
     tr.emptybucket.drop-hi .emptybucket-cell { background:#fde8e7; border-color:#c0392b; color:#b4231f; }
     .sec-title { font-size:1.6rem; font-weight:800; margin:2.4rem 0 .6rem; padding:.7rem 1rem; border-radius:9px; display:flex; align-items:center; gap:.6rem; }
@@ -219,6 +222,7 @@
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
                 <td class="co"><% if (flagged && s.reject_reason) { %><span class="row-reason" onclick="this.classList.toggle('off')" title="Click to hide / show this reason"><span class="rr-name"><%= s.company || s.owner || 'Contractor' %></span><span class="rr-reason">⛔ <%= (s.status||'').toUpperCase() %>: <%= s.reject_reason %></span></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
+                  <% if (s.notes) { %><span class="conote-btn" onclick="this.nextElementSibling.classList.toggle('show')" title="Show / hide notes">📝 notes</span><div class="conote-body"><%= s.notes %></div><% } %>
                 </td>
                 <td data-label="Location"><% if (flagged && s.location) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.location %></span><% } else { %><%= s.location || '' %><% } %></td>
                 <td data-label="Trade"><%= s.type || '' %></td>
