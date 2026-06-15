@@ -488,9 +488,13 @@ async function routeMiles(addresses) {
   return Math.round((meters / 1609.344) * 10) / 10; // miles, 1 decimal
 }
 
-async function getHomeAddress() {
-  const { rows: [r] } = await pool.query('SELECT home_address FROM app_settings WHERE id=1');
-  return r ? r.home_address : null;
+// Per-user home/base address (each person's own starting point for mileage).
+async function getHomeAddress(key) {
+  if (!key) return null;
+  try {
+    const { rows: [r] } = await pool.query('SELECT home_address FROM user_prefs WHERE user_key=$1', [key]);
+    return (r && r.home_address) || null;
+  } catch (e) { return null; }
 }
 
 async function getSuppliers() {
@@ -1574,6 +1578,11 @@ async function initDb() {
     );
     -- Aziz runs permitting → start him on the Permits dashboard (he can still switch)
     INSERT INTO user_prefs (user_key, home_dashboard) VALUES ('aziz','permits') ON CONFLICT (user_key) DO NOTHING;
+    -- Per-user home/base address for the driving log (was a single global value)
+    ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS home_address TEXT;
+    INSERT INTO user_prefs (user_key, home_address)
+      SELECT 'logan', home_address FROM app_settings WHERE id=1 AND home_address IS NOT NULL
+      ON CONFLICT (user_key) DO UPDATE SET home_address = COALESCE(user_prefs.home_address, EXCLUDED.home_address);
 
     CREATE TABLE IF NOT EXISTS milestone_payments (
       id SERIAL PRIMARY KEY,
@@ -3527,11 +3536,11 @@ app.post('/documents/:id/delete', requireAuth, async (req, res) => {
 app.get('/driving', requireAuth, async (req, res) => {
   try {
     await initDb();
-    const home = await getHomeAddress();
+    const me = sessionKey(req);
+    const home = await getHomeAddress(me);
     const { rows: projects } = await pool.query(
       'SELECT id, address, full_address FROM projects ORDER BY address'
     );
-    const me = sessionKey(req);
     const { rows: trips } = await pool.query('SELECT * FROM driving_trips WHERE owner=$1 ORDER BY trip_date DESC, id DESC', [me]);
     const { rows: [tot] } = await pool.query('SELECT COALESCE(SUM(miles),0) AS total FROM driving_trips WHERE owner=$1', [me]);
     const MILEAGE_RATE = 0.725; // IRS-style reimbursement per mile
@@ -3544,11 +3553,14 @@ app.get('/driving', requireAuth, async (req, res) => {
 // Save the home address
 app.post('/driving/home', requireAuth, async (req, res) => {
   const { home_address } = req.body;
-  await pool.query(
-    `INSERT INTO app_settings (id, home_address) VALUES (1, $1)
-     ON CONFLICT (id) DO UPDATE SET home_address = EXCLUDED.home_address`,
-    [home_address || null]
-  );
+  const me = sessionKey(req);
+  if (me) {
+    await pool.query(
+      `INSERT INTO user_prefs (user_key, home_address, updated_at) VALUES ($1,$2,NOW())
+       ON CONFLICT (user_key) DO UPDATE SET home_address = EXCLUDED.home_address, updated_at = NOW()`,
+      [me, home_address || null]
+    );
+  }
   res.redirect('/driving');
 });
 
@@ -3556,7 +3568,7 @@ app.post('/driving/home', requireAuth, async (req, res) => {
 app.post('/driving/preview', requireAuth, async (req, res) => {
   try {
     if (!drivingEnabled) return res.status(400).json({ ok: false, error: 'Set ORS_API_KEY on Railway to enable mileage.' });
-    const home = await getHomeAddress();
+    const home = await getHomeAddress(sessionKey(req));
     if (!home) return res.status(400).json({ ok: false, error: 'Set your home address first.' });
     const { stops } = req.body; // array of addresses (full) in order
     if (!Array.isArray(stops) || !stops.length) return res.status(400).json({ ok: false, error: 'Add at least one stop.' });
