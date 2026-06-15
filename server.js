@@ -1373,6 +1373,8 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS sort_order INTEGER;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS category TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS referenced_by TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS recent_add BOOLEAN DEFAULT FALSE;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reject_reason TEXT;
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
@@ -3641,7 +3643,8 @@ app.get('/subs', requireAuth, async (req, res) => {
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
     const isSuper = req.session.role === 'super';
     const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
-    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit,
+    const recentCount = subs.filter(s => s.recent_add).length;
+    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -3982,6 +3985,12 @@ app.post('/subs', requireAuth, upload.array('photos', 12), async (req, res) => {
     }
     res.redirect('/subs?added=1');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Clear the "Recently added" tag from all subs (after you've verified the batch)
+app.post('/subs/clear-recent', requireAuth, async (req, res) => {
+  try { await pool.query('UPDATE subcontractors SET recent_add=FALSE WHERE recent_add=TRUE'); res.redirect('/subs'); }
+  catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
 // Edit a subcontractor
