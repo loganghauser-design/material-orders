@@ -3954,8 +3954,9 @@ function bucketForStatus(category, status) {
   const gc = category === 'gc';
   if (/active/.test(s)) return gc ? 'Active Buildoly Outside General Contractors' : 'Active Buildoly Subcontractors';
   if (/black/.test(s)) return gc ? 'Blacklisted Buildoly General Contractors' : 'Blacklisted Buildoly Sub Contractors';
+  if (/reject|declin/.test(s)) return gc ? 'Rejected GCs' : 'Rejected Subcontractors';
   if (/approv/.test(s)) return gc ? 'Vetted but Unused GCs' : 'Vetted but Unused';
-  return 'Under Vetting';   // Under Review / Rejected / blank → intake bucket
+  return 'Under Vetting';   // Under Review / blank → intake bucket
 }
 async function bucketSortOrder(category, group) {
   const { rows: [mx] } = await pool.query('SELECT MAX(sort_order) m FROM subcontractors WHERE category=$1 AND group_label IS NOT DISTINCT FROM $2', [category, group]);
@@ -4016,7 +4017,13 @@ app.post('/subs/:id/status', requireAuth, async (req, res) => {
     const cat = (cur && cur.category) || 'sub';
     const grp = bucketForStatus(cat, status);
     const so = await bucketSortOrder(cat, grp);
-    await pool.query('UPDATE subcontractors SET status=$1, group_label=$2, sort_order=$3 WHERE id=$4', [status, grp, so, req.params.id]);
+    const flagged = /reject|black/i.test(status || '');   // Rejected / Blacklisted carry a reason + blur the contact info
+    if (flagged) {
+      const reason = (req.body.reason != null && String(req.body.reason).trim()) ? String(req.body.reason).trim().slice(0, 500) : null;
+      await pool.query('UPDATE subcontractors SET status=$1, group_label=$2, sort_order=$3, reject_reason=COALESCE($4, reject_reason) WHERE id=$5', [status, grp, so, reason, req.params.id]);
+    } else {
+      await pool.query('UPDATE subcontractors SET status=$1, group_label=$2, sort_order=$3, reject_reason=NULL WHERE id=$4', [status, grp, so, req.params.id]);
+    }
     res.json({ ok: true, moved: !cur || cur.group_label !== grp });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
