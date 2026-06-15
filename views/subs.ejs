@@ -15,9 +15,9 @@
     .blurred { filter: blur(4.5px); user-select:none; cursor:pointer; transition:filter .12s; }
     .blurred:hover, .blurred.show { filter:none; }
     .reject-reason { color:#b4231f; font-weight:700; font-size:.78rem; background:#fde8e7; border:1px solid #f3b5b2; border-radius:6px; padding:.2rem .45rem; display:inline-block; margin-bottom:.25rem; }
-    .blur-host { position:relative; min-width:120px; }
-    .reason-over { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center; padding:2px 5px; font-size:.64rem; line-height:1.1; font-weight:800; color:#fff; background:#c0392b; border-radius:5px; pointer-events:none; overflow:hidden; }
-    .blurred.show ~ .reason-over { display:none; }
+    .flagged-row { position:relative; }
+    .row-reason { position:absolute; inset:0; z-index:6; display:flex; align-items:center; justify-content:center; gap:.45rem; padding:.2rem 1.1rem; background:rgba(192,57,43,.92); color:#fff; font-weight:800; font-size:.9rem; line-height:1.25; text-align:center; cursor:pointer; border-radius:6px; }
+    .row-reason.off { display:none; }
     .sec-title { font-size:1.6rem; font-weight:800; margin:2.4rem 0 .6rem; padding:.7rem 1rem; border-radius:9px; display:flex; align-items:center; gap:.6rem; }
     .sec-title .cnt { font-weight:600; font-size:1.05rem; opacity:.7; }
     .sec-gc { background:#fce5cd; color:#7a4a16; }
@@ -201,9 +201,9 @@
             <% groups.forEach(g => { %>
               <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11"><%= g %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
-              <tr data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+              <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
-                <td class="co"><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><%= s.company || '—' %>
+                <td class="co"><% if (flagged && s.reject_reason) { %><span class="row-reason" onclick="this.classList.toggle('off')" title="Click to hide / show this reason">⛔ <%= (s.status||'').toUpperCase() %>: <%= s.reject_reason %></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
                 </td>
                 <td data-label="Location"><% if (flagged && s.location) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.location %></span><% } else { %><%= s.location || '' %><% } %></td>
@@ -217,7 +217,7 @@
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
                 <td data-label="Email"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %><% } %></td>
-                <td data-label="Phone" class="<%= flagged && s.reject_reason ? 'blur-host' : '' %>"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %><% if (flagged && s.reject_reason) { %><span class="reason-over" title="Reason: <%= s.reject_reason %>">⛔ <%= s.reject_reason %></span><% } %></td>
+                <td data-label="Phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></td>
                 <td class="refby" data-label="Ref. by"><%= s.referenced_by || '' %></td>
                 <td class="notes" data-label="Notes"><% if (flagged && s.reject_reason) { %><div class="reject-reason">⛔ <%= s.status %>: <%= s.reject_reason %></div><% } %><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
                 <td class="row-actions">
