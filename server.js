@@ -3541,10 +3541,15 @@ app.get('/driving', requireAuth, async (req, res) => {
     const { rows: projects } = await pool.query(
       'SELECT id, address, full_address FROM projects ORDER BY address'
     );
-    const { rows: trips } = await pool.query('SELECT * FROM driving_trips WHERE owner=$1 ORDER BY trip_date DESC, id DESC', [me]);
-    const { rows: [tot] } = await pool.query('SELECT COALESCE(SUM(miles),0) AS total FROM driving_trips WHERE owner=$1', [me]);
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(req.query.from || '') ? req.query.from : '';
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(req.query.to || '') ? req.query.to : '';
+    let where = 'owner=$1'; const params = [me];
+    if (from) { params.push(from); where += ` AND trip_date >= $${params.length}`; }
+    if (to) { params.push(to); where += ` AND trip_date <= $${params.length}`; }
+    const { rows: trips } = await pool.query(`SELECT * FROM driving_trips WHERE ${where} ORDER BY trip_date DESC, id DESC`, params);
+    const { rows: [tot] } = await pool.query(`SELECT COALESCE(SUM(miles),0) AS total, COUNT(*) AS cnt FROM driving_trips WHERE ${where}`, params);
     const MILEAGE_RATE = 0.725; // IRS-style reimbursement per mile
-    res.render('driving', { home, projects, trips, totalMiles: tot.total, rate: MILEAGE_RATE, drivingEnabled });
+    res.render('driving', { home, projects, trips, totalMiles: tot.total, tripCount: Number(tot.cnt), from, to, rate: MILEAGE_RATE, drivingEnabled });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -3592,6 +3597,20 @@ app.post('/driving/save', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// Edit a previously saved trip (owner-scoped — you can only edit your own)
+app.post('/driving/:id/edit', requireAuth, async (req, res) => {
+  try {
+    const { trip_date, route_text, miles } = req.body;
+    const m = parseFloat(miles);
+    if (!trip_date || isNaN(m) || m < 0) return res.status(400).json({ ok: false, error: 'Need a valid date and miles.' });
+    const { rowCount } = await pool.query(
+      'UPDATE driving_trips SET trip_date=$1, route_text=$2, miles=$3 WHERE id=$4 AND owner=$5',
+      [trip_date, route_text || null, m, req.params.id, sessionKey(req)]
+    );
+    res.json({ ok: rowCount > 0 });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 app.post('/driving/:id/delete', requireAuth, async (req, res) => {

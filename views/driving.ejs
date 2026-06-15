@@ -5,28 +5,52 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Driving Log — Buildoly Office</title>
   <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .dl-edit { width:100%; box-sizing:border-box; padding:.3rem .4rem; font-size:.85rem; border:1px solid var(--border); border-radius:6px; }
+    .dl-edit.mi { max-width:80px; }
+    .filter-card { display:flex; gap:.7rem; align-items:flex-end; flex-wrap:wrap; }
+    .filter-card .form-group { margin:0; }
+  </style>
 </head>
 <body>
 <%- include('_nav', { active: 'driving' }) %>
+
+<%
+  var hasFilter = (typeof from !== 'undefined' && from) || (typeof to !== 'undefined' && to);
+  function shortD(d){ try { return new Date(d + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}); } catch(e){ return d; } }
+  var periodLabel = hasFilter ? (from && to ? (shortD(from)+' – '+shortD(to)) : (from ? ('since '+shortD(from)) : ('through '+shortD(to)))) : 'all time';
+%>
 
 <div class="container">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
     <div style="display:flex;align-items:center;gap:1rem"><h1>Driving Log</h1><a href="/driving/pdf" target="_blank" class="btn btn-ghost btn-sm">⬇ Export PDF</a></div>
     <div style="display:flex;gap:1rem;flex-wrap:wrap">
-      <div class="stat-card" style="padding:.75rem 1.5rem"><div class="stat-label">Total Miles</div><div class="stat-value" style="font-size:1.6rem"><%= Number(totalMiles).toFixed(1) %></div></div>
-      <div class="stat-card reimb-card" style="padding:.75rem 1.5rem"><div class="stat-label">Reimbursement Due (@ $<%= rate.toFixed(3) %>/mi)</div><div class="stat-value" style="font-size:1.6rem;color:#16a34a">$<%= (Number(totalMiles) * rate).toFixed(2) %></div></div>
+      <div class="stat-card" style="padding:.75rem 1.5rem"><div class="stat-label">Total Miles · <%= periodLabel %></div><div class="stat-value" style="font-size:1.6rem"><%= Number(totalMiles).toFixed(1) %></div><div style="font-size:.72rem;color:var(--muted)"><%= tripCount %> trip<%= tripCount === 1 ? '' : 's' %></div></div>
+      <div class="stat-card reimb-card" style="padding:.75rem 1.5rem"><div class="stat-label">Reimbursement (@ $<%= rate.toFixed(3) %>/mi)</div><div class="stat-value" style="font-size:1.6rem;color:#16a34a">$<%= (Number(totalMiles) * rate).toFixed(2) %></div></div>
     </div>
   </div>
 
   <% if (!drivingEnabled) { %>
-    <div class="error-msg" style="background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3);color:#b45309">
-      Mileage calculation isn't enabled yet — set <code>ORS_API_KEY</code> on Railway (free key from openrouteservice.org).
+    <div class="error-msg" style="background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3);color:#b45309;margin-bottom:1rem">
+      Auto-mileage isn't enabled (set <code>ORS_API_KEY</code> on Railway for the free openrouteservice key). You can still log trips by typing the miles in manually below.
     </div>
   <% } %>
 
+  <!-- Period total filter -->
+  <div class="card" style="margin-bottom:1.25rem;max-width:900px">
+    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.6rem">Total for a period</h2>
+    <form method="GET" action="/driving" class="filter-card">
+      <div class="form-group"><label>From</label><input type="date" name="from" value="<%= typeof from !== 'undefined' ? from : '' %>"></div>
+      <div class="form-group"><label>To</label><input type="date" name="to" value="<%= typeof to !== 'undefined' ? to : '' %>"></div>
+      <button type="submit" class="btn btn-primary">Show total</button>
+      <% if (hasFilter) { %><a href="/driving" class="btn btn-ghost">Clear (all time)</a><% } %>
+    </form>
+    <div style="font-size:.78rem;color:var(--muted);margin-top:.5rem">The Total Miles + Reimbursement above reflect the selected dates — leave blank for your all-time total.</div>
+  </div>
+
   <!-- Home address -->
   <div class="card" style="margin-bottom:1.25rem;max-width:900px">
-    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.5rem">Home / Start Address</h2>
+    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.5rem">Home / Start Address <span style="font-weight:400;color:var(--muted);font-size:.82rem">— yours only</span></h2>
     <form method="POST" action="/driving/home" style="display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap">
       <div class="form-group" style="flex:1;min-width:260px">
         <input type="text" name="home_address" value="<%= home || '' %>" placeholder="e.g. 123 Home St, Los Angeles, CA 90001">
@@ -38,11 +62,12 @@
 
   <!-- Log a drive -->
   <div class="card" style="margin-bottom:1.5rem;max-width:900px">
-    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.75rem">Log a Drive</h2>
+    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.25rem">Log a Drive</h2>
+    <div style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem">Saving adds a <strong>permanent</strong> row to your log below. Nothing is overwritten — start a new trip anytime.</div>
     <div class="form-grid">
       <div class="form-group">
         <label>Date</label>
-        <input type="date" id="tripDate">
+        <input type="date" id="tripDate" oninput="syncSave()">
       </div>
       <div class="form-group">
         <label>Add a project stop</label>
@@ -65,13 +90,19 @@
 
     <div id="stopList" style="margin:1rem 0"></div>
 
-    <div class="route-preview" id="routePreview" style="display:none">
-      <strong>Route:</strong> <span id="routeText"></span><br>
-      <span style="font-size:1.3rem;font-weight:700;color:var(--accent)" id="milesText"></span> miles
+    <div class="form-grid" style="margin-top:.4rem">
+      <div class="form-group">
+        <label>Route / note</label>
+        <input type="text" id="routeInput" placeholder="Home → Project → Home (auto-fills when you Calculate)">
+      </div>
+      <div class="form-group">
+        <label>Miles <span style="font-weight:400;color:var(--muted);font-size:.8rem">— Calculate, or type in manually</span></label>
+        <input type="number" id="milesInput" step="0.1" min="0" placeholder="e.g. 24.6" oninput="syncSave()">
+      </div>
     </div>
 
     <div class="form-actions" style="border-top:none;padding-top:.5rem">
-      <button class="btn btn-ghost" onclick="calcMiles()" id="calcBtn">Calculate Miles</button>
+      <% if (drivingEnabled) { %><button class="btn btn-ghost" onclick="calcMiles()" id="calcBtn">Calculate Miles</button><% } %>
       <button class="btn btn-primary" onclick="saveTrip()" id="saveTripBtn" disabled>Save Trip</button>
     </div>
   </div>
@@ -81,16 +112,28 @@
     <table>
       <thead><tr><th>Date</th><th>Route</th><th>Miles</th><th>Reimb.</th><th></th></tr></thead>
       <tbody>
-        <% if (!trips.length) { %><tr class="empty-row"><td colspan="5">No trips logged yet.</td></tr><% } %>
-        <% trips.forEach(t => { %>
-          <tr>
-            <td><%= new Date(t.trip_date).toLocaleDateString() %></td>
-            <td style="font-size:.85rem;color:var(--muted)"><%= t.route_text || '' %></td>
-            <td><strong><%= Number(t.miles).toFixed(1) %></strong></td>
-            <td style="color:#16a34a">$<%= (Number(t.miles) * rate).toFixed(2) %></td>
+        <% if (!trips.length) { %><tr class="empty-row"><td colspan="5">No trips logged<%= hasFilter ? ' in this period' : ' yet' %>.</td></tr><% } %>
+        <% trips.forEach(t => { var iso = new Date(t.trip_date).toISOString().slice(0,10); %>
+          <tr data-id="<%= t.id %>">
             <td>
-              <form method="POST" action="/driving/<%= t.id %>/delete" onsubmit="return confirm('Delete this trip?')">
-                <button class="btn btn-danger btn-sm">Del</button>
+              <span class="disp"><%= new Date(t.trip_date).toLocaleDateString() %></span>
+              <input type="date" class="dl-edit ed-date" value="<%= iso %>" style="display:none">
+            </td>
+            <td style="font-size:.85rem;color:var(--muted)">
+              <span class="disp"><%= t.route_text || '' %></span>
+              <input type="text" class="dl-edit ed-route" value="<%= t.route_text || '' %>" style="display:none">
+            </td>
+            <td>
+              <span class="disp"><strong><%= Number(t.miles).toFixed(1) %></strong></span>
+              <input type="number" step="0.1" min="0" class="dl-edit mi ed-miles" value="<%= Number(t.miles) %>" style="display:none">
+            </td>
+            <td style="color:#16a34a">$<%= (Number(t.miles) * rate).toFixed(2) %></td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-ghost btn-sm js-edit" onclick="toggleEdit(this)">Edit</button>
+              <button class="btn btn-primary btn-sm js-save" onclick="saveEdit(this)" style="display:none">Save</button>
+              <button class="btn btn-ghost btn-sm js-cancel" onclick="cancelEdit(this)" style="display:none">Cancel</button>
+              <form method="POST" action="/driving/<%= t.id %>/delete" style="display:inline" onsubmit="return confirm('Delete this trip?')">
+                <button class="btn btn-danger btn-sm js-del">Del</button>
               </form>
             </td>
           </tr>
@@ -104,8 +147,8 @@
 
 <script>
 const HOME = <%- JSON.stringify(home || '') %>;
+const DRIVING_ENABLED = <%- JSON.stringify(!!drivingEnabled) %>;
 let stops = []; // { address, label }
-let lastMiles = null;
 
 function addStop() {
   const sel = document.getElementById('stopPicker');
@@ -113,8 +156,7 @@ function addStop() {
   const label = sel.options[sel.selectedIndex].dataset.label;
   stops.push({ address: sel.value, label });
   sel.value = '';
-  renderStops();
-  resetCalc();
+  renderStops(); autoRoute();
 }
 function addCustomStop() {
   const inp = document.getElementById('customStop');
@@ -122,10 +164,9 @@ function addCustomStop() {
   if (!val) { showToast('Type an address first', true); return; }
   stops.push({ address: val, label: val });
   inp.value = '';
-  renderStops();
-  resetCalc();
+  renderStops(); autoRoute();
 }
-function removeStop(i) { stops.splice(i,1); renderStops(); resetCalc(); }
+function removeStop(i) { stops.splice(i,1); renderStops(); autoRoute(); }
 function renderStops() {
   const el = document.getElementById('stopList');
   if (!stops.length) { el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No stops added yet. Home → (stops) → Home.</div>'; return; }
@@ -133,10 +174,13 @@ function renderStops() {
     `<li style="margin-bottom:.3rem">${s.label} <button onclick="removeStop(${i})" class="btn btn-ghost btn-sm" style="padding:.1rem .4rem;margin-left:.4rem">✕</button></li>`
   ).join('') + '</ol>';
 }
-function resetCalc() {
-  lastMiles = null;
-  document.getElementById('routePreview').style.display = 'none';
-  document.getElementById('saveTripBtn').disabled = true;
+function autoRoute() {
+  if (stops.length) document.getElementById('routeInput').value = ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ');
+}
+function syncSave() {
+  const date = document.getElementById('tripDate').value;
+  const miles = parseFloat(document.getElementById('milesInput').value);
+  document.getElementById('saveTripBtn').disabled = !(date && miles > 0);
 }
 async function calcMiles() {
   if (!stops.length) { showToast('Add at least one stop', true); return; }
@@ -149,28 +193,66 @@ async function calcMiles() {
     });
     const data = await r.json();
     if (data.ok) {
-      lastMiles = data.miles;
-      document.getElementById('routeText').textContent = ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ');
-      document.getElementById('milesText').textContent = data.miles.toFixed(1);
-      document.getElementById('routePreview').style.display = 'block';
-      document.getElementById('saveTripBtn').disabled = false;
+      document.getElementById('milesInput').value = data.miles.toFixed(1);
+      autoRoute();
+      syncSave();
+      showToast('Calculated ' + data.miles.toFixed(1) + ' mi');
     } else { showToast(data.error || 'Calculation failed', true); }
   } catch(e) { showToast('Calculation failed', true); }
   finally { btn.disabled = false; btn.textContent = 'Calculate Miles'; }
 }
 async function saveTrip() {
   const date = document.getElementById('tripDate').value;
+  const miles = parseFloat(document.getElementById('milesInput').value);
   if (!date) { showToast('Pick a date', true); return; }
-  if (lastMiles == null) { showToast('Calculate miles first', true); return; }
-  const routeText = ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ');
+  if (!(miles > 0)) { showToast('Enter the miles (calculate or type)', true); return; }
+  const routeText = document.getElementById('routeInput').value.trim() || (stops.length ? ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ') : '');
   const r = await fetch('/driving/save', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ trip_date: date, route_text: routeText, miles: lastMiles }),
+    body: JSON.stringify({ trip_date: date, route_text: routeText, miles }),
   });
   const data = await r.json();
   if (data.ok) { showToast('Trip saved'); setTimeout(()=>location.reload(), 700); }
   else showToast(data.error || 'Save failed', true);
 }
+
+// ── Edit a saved trip inline ──
+function toggleEdit(btn) {
+  const tr = btn.closest('tr');
+  tr.querySelectorAll('.disp').forEach(s => s.style.display = 'none');
+  tr.querySelectorAll('.dl-edit').forEach(i => i.style.display = '');
+  tr.querySelector('.js-edit').style.display = 'none';
+  tr.querySelector('.js-del').style.display = 'none';
+  tr.querySelector('.js-save').style.display = '';
+  tr.querySelector('.js-cancel').style.display = '';
+}
+function cancelEdit(btn) {
+  const tr = btn.closest('tr');
+  tr.querySelectorAll('.disp').forEach(s => s.style.display = '');
+  tr.querySelectorAll('.dl-edit').forEach(i => i.style.display = 'none');
+  tr.querySelector('.js-edit').style.display = '';
+  tr.querySelector('.js-del').style.display = '';
+  tr.querySelector('.js-save').style.display = 'none';
+  tr.querySelector('.js-cancel').style.display = 'none';
+}
+async function saveEdit(btn) {
+  const tr = btn.closest('tr');
+  const id = tr.dataset.id;
+  const trip_date = tr.querySelector('.ed-date').value;
+  const route_text = tr.querySelector('.ed-route').value.trim();
+  const miles = parseFloat(tr.querySelector('.ed-miles').value);
+  if (!trip_date || !(miles >= 0)) { showToast('Need a date and miles', true); return; }
+  try {
+    const r = await fetch('/driving/' + id + '/edit', {
+      method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body: new URLSearchParams({ trip_date, route_text, miles }),
+    });
+    const data = await r.json();
+    if (data.ok) { showToast('Trip updated'); setTimeout(()=>location.reload(), 600); }
+    else showToast(data.error || 'Update failed', true);
+  } catch(e) { showToast('Update failed', true); }
+}
+
 function showToast(msg, err) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast show' + (err?' error':'');
