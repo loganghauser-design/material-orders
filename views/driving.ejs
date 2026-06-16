@@ -41,8 +41,6 @@
     .add-stop select, .add-stop input { padding: .55rem .6rem; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); font-size: .9rem; font-family: inherit; }
     .add-stop input { flex: 1; min-width: 200px; }
     .add-stop .or { color: var(--muted); font-size: .82rem; }
-    .miles-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    @media (max-width: 640px) { .miles-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -125,21 +123,12 @@
       <button class="btn btn-primary btn-sm" onclick="addStopSmart()">+ Add stop</button>
     </div>
 
-    <div class="miles-grid">
-      <div class="form-group">
-        <label>Miles</label>
-        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
-          <input type="number" id="milesInput" step="0.1" min="0" placeholder="e.g. 24.6" oninput="syncSave()" style="max-width:130px">
-          <% if (drivingEnabled) { %><button class="btn btn-ghost btn-sm" onclick="calcMiles()" id="calcBtn">📍 Auto-calculate</button><% } %>
-        </div>
-      </div>
-      <div class="form-group">
-        <label>Note <span style="font-weight:400;color:var(--muted);font-size:.78rem">(optional)</span></label>
-        <input type="text" id="routeInput" placeholder="auto-fills from your route">
-      </div>
+    <div class="form-group" style="max-width:440px">
+      <label>Note <span style="font-weight:400;color:var(--muted);font-size:.78rem">(optional)</span></label>
+      <input type="text" id="routeInput" placeholder="auto-fills from your route">
     </div>
 
-    <button class="btn btn-primary" onclick="saveTrip()" id="saveTripBtn" disabled style="margin-top:1.1rem;min-width:200px">Save Trip</button>
+    <button class="btn btn-primary" onclick="saveTrip()" id="saveTripBtn" disabled style="margin-top:1.1rem;min-width:220px">Save Trip&nbsp;<span style="opacity:.8;font-weight:400;font-size:.85em">· miles auto-calculated</span></button>
   </div>
 
   <!-- History -->
@@ -200,7 +189,7 @@ function addCustomStop() {
   inp.value = '';
   renderStops(); autoRoute();
 }
-function removeStop(i) { stops.splice(i,1); renderStops(); autoRoute(); }
+function removeStop(i) { stops.splice(i,1); renderStops(); autoRoute(); syncSave(); }
 // One "Add stop" button that takes whichever is filled — the project dropdown or a typed address
 function addStopSmart() {
   const sel = document.getElementById('stopPicker');
@@ -208,7 +197,7 @@ function addStopSmart() {
   if (sel.value) { const label = sel.options[sel.selectedIndex].dataset.label; stops.push({ address: sel.value, label }); sel.value = ''; }
   else if (inp.value.trim()) { const v = inp.value.trim(); stops.push({ address: v, label: v }); inp.value = ''; }
   else { showToast('Pick a project or type an address', true); return; }
-  renderStops(); autoRoute();
+  renderStops(); autoRoute(); syncSave();
 }
 function escapeHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function renderStops() {
@@ -223,41 +212,33 @@ function autoRoute() {
 }
 function syncSave() {
   const date = document.getElementById('tripDate').value;
-  const miles = parseFloat(document.getElementById('milesInput').value);
-  document.getElementById('saveTripBtn').disabled = !(date && miles > 0);
-}
-async function calcMiles() {
-  if (!stops.length) { showToast('Add at least one stop', true); return; }
-  const btn = document.getElementById('calcBtn');
-  btn.disabled = true; btn.textContent = 'Calculating…';
-  try {
-    const r = await fetch('/driving/preview', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ stops: stops.map(s => s.address) }),
-    });
-    const data = await r.json();
-    if (data.ok) {
-      document.getElementById('milesInput').value = data.miles.toFixed(1);
-      autoRoute();
-      syncSave();
-      showToast('Calculated ' + data.miles.toFixed(1) + ' mi');
-    } else { showToast(data.error || 'Calculation failed', true); }
-  } catch(e) { showToast('Calculation failed', true); }
-  finally { btn.disabled = false; btn.textContent = 'Calculate Miles'; }
+  document.getElementById('saveTripBtn').disabled = !(date && stops.length > 0);
 }
 async function saveTrip() {
   const date = document.getElementById('tripDate').value;
-  const miles = parseFloat(document.getElementById('milesInput').value);
   if (!date) { showToast('Pick a date', true); return; }
-  if (!(miles > 0)) { showToast('Enter the miles (calculate or type)', true); return; }
-  const routeText = document.getElementById('routeInput').value.trim() || (stops.length ? ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ') : '');
-  const r = await fetch('/driving/save', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ trip_date: date, route_text: routeText, miles }),
-  });
-  const data = await r.json();
-  if (data.ok) { showToast('Trip saved'); setTimeout(()=>location.reload(), 700); }
-  else showToast(data.error || 'Save failed', true);
+  if (!stops.length) { showToast('Add at least one stop', true); return; }
+  const btn = document.getElementById('saveTripBtn');
+  const orig = btn.innerHTML;
+  btn.disabled = true; btn.textContent = 'Calculating & saving…';
+  try {
+    // Auto-calculate the miles from the route
+    const pr = await fetch('/driving/preview', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ stops: stops.map(s => s.address) }),
+    });
+    const pd = await pr.json();
+    if (!pd.ok) { showToast(pd.error || 'Could not calculate miles for this route', true); btn.disabled = false; btn.innerHTML = orig; return; }
+    const miles = pd.miles;
+    const routeText = document.getElementById('routeInput').value.trim() || ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ');
+    const r = await fetch('/driving/save', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ trip_date: date, route_text: routeText, miles }),
+    });
+    const data = await r.json();
+    if (data.ok) { showToast('Saved ' + miles.toFixed(1) + ' mi'); setTimeout(()=>location.reload(), 800); }
+    else { showToast(data.error || 'Save failed', true); btn.disabled = false; btn.innerHTML = orig; }
+  } catch(e) { showToast('Save failed', true); btn.disabled = false; btn.innerHTML = orig; }
 }
 
 // ── Edit a saved trip inline ──
