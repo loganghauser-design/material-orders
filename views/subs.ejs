@@ -182,7 +182,7 @@
       if (/awarded/.test(b)) return 'bid-awarded';
       if (/passed/.test(b)) return 'bid-passed';
       return ''; }
-    const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County'];
+    const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County', 'The Valley'];
     const sections = [
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
       { title: 'Subcontractors', key: 'sub', list: subs.filter(s => catOf(s) !== 'gc') },
@@ -498,10 +498,10 @@ function setTradesFromString(str) {
   renderTradeChips();
 }
 // ── Multi-select location (counties) ──
-const COUNTIES = ['LA County','Orange County','Riverside County','San Diego County','Ventura County','San Bernardino County'];
+const COUNTIES = ['LA County','Orange County','Riverside County','San Diego County','Ventura County','San Bernardino County','The Valley'];
 let selectedLocs = [];
 function renderLocChips() {
-  const all = [...new Set([...COUNTIES, ...selectedLocs])];
+  const all = COUNTIES;   // only the fixed options — no custom/stray locations
   document.getElementById('locChips').innerHTML = all.map(t =>
     `<span class="trade-chip${selectedLocs.includes(t) ? ' on' : ''}" onclick="toggleLoc(this.dataset.t)" data-t="${t.replace(/"/g,'&quot;')}">${t}</span>`).join('');
   document.getElementById('f_location').value = selectedLocs.join(', ');
@@ -512,7 +512,7 @@ function toggleLoc(t) {
   renderLocChips();
 }
 function setLocsFromString(str) {
-  selectedLocs = String(str || '').split(/[,;]+/).map(x => x.trim()).filter(Boolean);
+  selectedLocs = String(str || '').split(/[,;]+/).map(x => x.trim()).filter(x => COUNTIES.includes(x));
   renderLocChips();
 }
 // Set a <select> value, injecting the value as an option if it isn't already listed
