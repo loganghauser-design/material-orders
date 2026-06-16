@@ -3402,23 +3402,22 @@ app.get('/driving/pdf', requireAuth, async (req, res) => {
   const me = sessionKey(req);
   const { rows: trips } = await pool.query('SELECT * FROM driving_trips WHERE owner=$1 ORDER BY trip_date ASC', [me]);
   const { rows: [tot] } = await pool.query('SELECT COALESCE(SUM(miles),0) AS total FROM driving_trips WHERE owner=$1', [me]);
-  const rate = 0.725;
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', 'inline; filename="driving-log.pdf"');
   const doc = new PDFDocument({ margin: 40, size: 'LETTER' });
   doc.pipe(res);
-  doc.fontSize(18).text('Driving Log — Mileage Reimbursement', { align: 'left' });
+  doc.fontSize(18).text('Driving Log — Mileage', { align: 'left' });
   doc.moveDown(0.3).fontSize(10).fillColor('#666').text('Buildoly · logan@buildoly.com');
   doc.moveDown(0.8).fillColor('#000');
   doc.fontSize(11);
   trips.forEach(t => {
     const d = new Date(t.trip_date).toLocaleDateString();
-    doc.font('Helvetica-Bold').text(d + '   ' + Number(t.miles).toFixed(1) + ' mi   $' + (Number(t.miles)*rate).toFixed(2), { continued: false });
+    doc.font('Helvetica-Bold').text(d + '   ' + Number(t.miles).toFixed(1) + ' mi', { continued: false });
     doc.font('Helvetica').fontSize(9).fillColor('#555').text(t.route_text || '', { indent: 10 });
     doc.fontSize(11).fillColor('#000').moveDown(0.4);
   });
   doc.moveDown(0.5).font('Helvetica-Bold').fontSize(13)
-    .text('Total: ' + Number(tot.total).toFixed(1) + ' miles  ×  $' + rate + '/mi  =  $' + (Number(tot.total)*rate).toFixed(2));
+    .text('Total: ' + Number(tot.total).toFixed(1) + ' miles');
   doc.end();
 });
 

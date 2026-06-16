@@ -6,10 +6,28 @@
   <title>Driving Log — Buildoly Office</title>
   <link rel="stylesheet" href="/css/app.css">
   <style>
-    .dl-edit { width:100%; box-sizing:border-box; padding:.3rem .4rem; font-size:.85rem; border:1px solid var(--border); border-radius:6px; }
-    .dl-edit.mi { max-width:80px; }
-    .filter-card { display:flex; gap:.7rem; align-items:flex-end; flex-wrap:wrap; }
-    .filter-card .form-group { margin:0; }
+    .dl-wrap { max-width: 920px; }
+    .miles-hero {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8); color: #fff;
+      border-radius: 16px; padding: 1.4rem 1.6rem; display: flex; align-items: center;
+      justify-content: space-between; gap: 1rem; flex-wrap: wrap; box-shadow: 0 10px 26px rgba(37,99,235,.28);
+    }
+    .miles-hero .num { font-size: 2.6rem; font-weight: 800; line-height: 1; }
+    .miles-hero .lbl { font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; opacity: .85; margin-bottom: .3rem; }
+    .miles-hero .sub { font-size: .82rem; opacity: .85; margin-top: .3rem; }
+    .dl-card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.2rem 1.3rem; margin-top: 1.1rem; }
+    .dl-card h2 { font-size: 1rem; font-weight: 700; margin: 0 0 .2rem; }
+    .dl-card .hint { font-size: .8rem; color: var(--muted); margin-bottom: .9rem; line-height: 1.45; }
+    .dl-row { display: flex; gap: .7rem; align-items: flex-end; flex-wrap: wrap; }
+    .dl-row .form-group { margin: 0; }
+    .dl-edit { width: 100%; box-sizing: border-box; padding: .3rem .4rem; font-size: .85rem; border: 1px solid var(--border); border-radius: 6px; }
+    .dl-edit.mi { max-width: 80px; }
+    .dl-table { width: 100%; border-collapse: collapse; }
+    .dl-table th { text-align: left; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: .6rem .9rem; border-bottom: 1px solid var(--border); }
+    .dl-table td { padding: .7rem .9rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .dl-table tbody tr:hover { background: var(--bg); }
+    .dl-miles { font-weight: 700; font-size: 1rem; }
+    .pill-period { display:inline-block; background: rgba(255,255,255,.18); padding: 2px 10px; border-radius: 11px; font-size: .75rem; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -21,49 +39,52 @@
   var periodLabel = hasFilter ? (from && to ? (shortD(from)+' – '+shortD(to)) : (from ? ('since '+shortD(from)) : ('through '+shortD(to)))) : 'all time';
 %>
 
-<div class="container">
+<div class="container dl-wrap">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
-    <div style="display:flex;align-items:center;gap:1rem"><h1>Driving Log</h1><a href="/driving/pdf" target="_blank" class="btn btn-ghost btn-sm">⬇ Export PDF</a></div>
-    <div style="display:flex;gap:1rem;flex-wrap:wrap">
-      <div class="stat-card" style="padding:.75rem 1.5rem"><div class="stat-label">Total Miles · <%= periodLabel %></div><div class="stat-value" style="font-size:1.6rem"><%= Number(totalMiles).toFixed(1) %></div><div style="font-size:.72rem;color:var(--muted)"><%= tripCount %> trip<%= tripCount === 1 ? '' : 's' %></div></div>
-      <div class="stat-card reimb-card" style="padding:.75rem 1.5rem"><div class="stat-label">Reimbursement (@ $<%= rate.toFixed(3) %>/mi)</div><div class="stat-value" style="font-size:1.6rem;color:#16a34a">$<%= (Number(totalMiles) * rate).toFixed(2) %></div></div>
+    <div>
+      <h1 style="margin:0">Driving Log</h1>
+      <div style="color:var(--muted);font-size:.88rem">Track the miles for each trip.</div>
     </div>
+    <a href="/driving/pdf" target="_blank" class="btn btn-ghost btn-sm">⬇ Export PDF</a>
+  </div>
+
+  <!-- Total miles hero -->
+  <div class="miles-hero">
+    <div>
+      <div class="lbl">Total Miles · <span class="pill-period"><%= periodLabel %></span></div>
+      <div class="num"><%= Number(totalMiles).toFixed(1) %></div>
+      <div class="sub"><%= tripCount %> trip<%= tripCount === 1 ? '' : 's' %> logged</div>
+    </div>
+    <form method="GET" action="/driving" class="dl-row" style="align-items:flex-end">
+      <div class="form-group"><label style="color:#fff;font-size:.74rem;opacity:.85">From</label><input type="date" name="from" value="<%= typeof from !== 'undefined' ? from : '' %>" style="color-scheme:dark"></div>
+      <div class="form-group"><label style="color:#fff;font-size:.74rem;opacity:.85">To</label><input type="date" name="to" value="<%= typeof to !== 'undefined' ? to : '' %>" style="color-scheme:dark"></div>
+      <button type="submit" class="btn btn-sm" style="background:#fff;color:#1d4ed8;font-weight:700">Filter</button>
+      <% if (hasFilter) { %><a href="/driving" class="btn btn-sm" style="background:rgba(255,255,255,.2);color:#fff">All time</a><% } %>
+    </form>
   </div>
 
   <% if (!drivingEnabled) { %>
-    <div class="error-msg" style="background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3);color:#b45309;margin-bottom:1rem">
-      Auto-mileage isn't enabled (set <code>ORS_API_KEY</code> on Railway for the free openrouteservice key). You can still log trips by typing the miles in manually below.
+    <div class="error-msg" style="background:rgba(217,119,6,.08);border-color:rgba(217,119,6,.3);color:#b45309;margin-top:1rem">
+      Auto-mileage isn't enabled (set <code>ORS_API_KEY</code> on Railway for the free openrouteservice key). You can still log trips by typing the miles in manually.
     </div>
   <% } %>
 
-  <!-- Period total filter -->
-  <div class="card" style="margin-bottom:1.25rem;max-width:900px">
-    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.6rem">Total for a period</h2>
-    <form method="GET" action="/driving" class="filter-card">
-      <div class="form-group"><label>From</label><input type="date" name="from" value="<%= typeof from !== 'undefined' ? from : '' %>"></div>
-      <div class="form-group"><label>To</label><input type="date" name="to" value="<%= typeof to !== 'undefined' ? to : '' %>"></div>
-      <button type="submit" class="btn btn-primary">Show total</button>
-      <% if (hasFilter) { %><a href="/driving" class="btn btn-ghost">Clear (all time)</a><% } %>
-    </form>
-    <div style="font-size:.78rem;color:var(--muted);margin-top:.5rem">The Total Miles + Reimbursement above reflect the selected dates — leave blank for your all-time total.</div>
-  </div>
-
   <!-- Home address -->
-  <div class="card" style="margin-bottom:1.25rem;max-width:900px">
-    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.5rem">Home / Start Address <span style="font-weight:400;color:var(--muted);font-size:.82rem">— yours only</span></h2>
-    <form method="POST" action="/driving/home" style="display:flex;gap:.6rem;align-items:flex-end;flex-wrap:wrap">
+  <div class="dl-card">
+    <h2>🏠 Home / Start Address <span style="font-weight:400;color:var(--muted);font-size:.82rem">— yours only</span></h2>
+    <div class="hint">Every trip starts and ends here.</div>
+    <form method="POST" action="/driving/home" class="dl-row">
       <div class="form-group" style="flex:1;min-width:260px">
-        <input type="text" name="home_address" value="<%= home || '' %>" placeholder="e.g. 123 Home St, Los Angeles, CA 90001">
+        <input type="text" name="home_address" value="<%= home || '' %>" placeholder="e.g. 123 Home St, Los Angeles, CA 90001" style="width:100%">
       </div>
-      <button type="submit" class="btn btn-primary">Save Home</button>
+      <button type="submit" class="btn btn-primary">Save</button>
     </form>
-    <div style="font-size:.78rem;color:var(--muted);margin-top:.4rem">Every trip starts and ends here.</div>
   </div>
 
   <!-- Log a drive -->
-  <div class="card" style="margin-bottom:1.5rem;max-width:900px">
-    <h2 style="font-size:1rem;font-weight:700;margin-bottom:.25rem">Log a Drive</h2>
-    <div style="font-size:.8rem;color:var(--muted);margin-bottom:.75rem">Saving adds a <strong>permanent</strong> row to your log below. Nothing is overwritten — start a new trip anytime.</div>
+  <div class="dl-card">
+    <h2>➕ Log a Drive</h2>
+    <div class="hint">Each save adds a permanent row to your log below.</div>
     <div class="form-grid">
       <div class="form-group">
         <label>Date</label>
@@ -79,18 +100,18 @@
         </select>
       </div>
     </div>
-    <div style="display:flex;gap:.5rem;align-items:flex-end;margin-top:.6rem;flex-wrap:wrap">
+    <div class="dl-row" style="margin-top:.6rem">
       <button class="btn btn-ghost btn-sm" onclick="addStop()">+ Add project stop</button>
       <div class="form-group" style="flex:1;min-width:240px">
         <label>Or add any address (lumber yard, warehouse, etc.)</label>
-        <input type="text" id="customStop" placeholder="e.g. Ganahl Lumber, 10742 Los Alamitos Blvd, Los Alamitos, CA">
+        <input type="text" id="customStop" placeholder="e.g. Ganahl Lumber, 10742 Los Alamitos Blvd, Los Alamitos, CA" style="width:100%">
       </div>
       <button class="btn btn-ghost btn-sm" onclick="addCustomStop()">+ Add address</button>
     </div>
 
     <div id="stopList" style="margin:1rem 0"></div>
 
-    <div class="form-grid" style="margin-top:.4rem">
+    <div class="form-grid">
       <div class="form-group">
         <label>Route / note</label>
         <input type="text" id="routeInput" placeholder="Home → Project → Home (auto-fills when you Calculate)">
@@ -101,18 +122,18 @@
       </div>
     </div>
 
-    <div class="form-actions" style="border-top:none;padding-top:.5rem">
+    <div class="dl-row" style="margin-top:.7rem">
       <% if (drivingEnabled) { %><button class="btn btn-ghost" onclick="calcMiles()" id="calcBtn">Calculate Miles</button><% } %>
       <button class="btn btn-primary" onclick="saveTrip()" id="saveTripBtn" disabled>Save Trip</button>
     </div>
   </div>
 
   <!-- History -->
-  <div class="table-wrap" style="max-width:900px">
-    <table>
-      <thead><tr><th>Date</th><th>Route</th><th>Miles</th><th>Reimb.</th><th></th></tr></thead>
+  <div class="dl-card" style="padding:0;overflow:hidden">
+    <table class="dl-table">
+      <thead><tr><th>Date</th><th>Route</th><th>Miles</th><th></th></tr></thead>
       <tbody>
-        <% if (!trips.length) { %><tr class="empty-row"><td colspan="5">No trips logged<%= hasFilter ? ' in this period' : ' yet' %>.</td></tr><% } %>
+        <% if (!trips.length) { %><tr><td colspan="4" style="text-align:center;color:var(--muted);padding:2rem">No trips logged<%= hasFilter ? ' in this period' : ' yet' %>.</td></tr><% } %>
         <% trips.forEach(t => { var iso = new Date(t.trip_date).toISOString().slice(0,10); %>
           <tr data-id="<%= t.id %>">
             <td>
@@ -124,11 +145,10 @@
               <input type="text" class="dl-edit ed-route" value="<%= t.route_text || '' %>" style="display:none">
             </td>
             <td>
-              <span class="disp"><strong><%= Number(t.miles).toFixed(1) %></strong></span>
+              <span class="disp dl-miles"><%= Number(t.miles).toFixed(1) %></span>
               <input type="number" step="0.1" min="0" class="dl-edit mi ed-miles" value="<%= Number(t.miles) %>" style="display:none">
             </td>
-            <td style="color:#16a34a">$<%= (Number(t.miles) * rate).toFixed(2) %></td>
-            <td style="white-space:nowrap">
+            <td style="white-space:nowrap;text-align:right">
               <button class="btn btn-ghost btn-sm js-edit" onclick="toggleEdit(this)">Edit</button>
               <button class="btn btn-primary btn-sm js-save" onclick="saveEdit(this)" style="display:none">Save</button>
               <button class="btn btn-ghost btn-sm js-cancel" onclick="cancelEdit(this)" style="display:none">Cancel</button>
