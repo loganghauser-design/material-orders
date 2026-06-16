@@ -1725,6 +1725,12 @@ app.use((req, res, next) => {
     return res.redirect(isSuper ? '/my' : (firstAllowedPath(allowed) || '/login'));
   }
   if (area === null && isSuper) return res.redirect('/my');              // supers stay locked to allowed pages
+  // Minimal office users (no Projects and no Permits) get no dashboard — the home
+  // page's Office/Permits views would show content for pages they can't access.
+  // Send them straight to their one page instead.
+  if (p === '/' && !isSuper && !allowed.has('projects') && !allowed.has('permits')) {
+    return res.redirect(firstAllowedPath(allowed) || '/login');
+  }
   next();
 });
 
