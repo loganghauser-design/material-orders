@@ -50,6 +50,15 @@
     .pill-rejected { background:#e06666; color:#fff; }
     .pill-black { background:#111; color:#fff; }
     .pill-default { background:#e6e6e6; color:#555; }
+    .bid-sel { border:1px solid rgba(0,0,0,.15); border-radius:11px; padding:3px 6px; font-size:.76rem; font-weight:700; cursor:pointer; background:#eef0f4; color:#444; }
+    .bid-sel.bid-called { background:#dbe9ff; color:#1d4ed8; }
+    .bid-sel.bid-sent { background:#fff0c2; color:#7a5b00; }
+    .bid-sel.bid-received { background:#cdeccd; color:#1a6b1a; }
+    .bid-sel.bid-awarded { background:#38761d; color:#fff; }
+    .bid-sel.bid-passed { background:#e6e6e6; color:#777; }
+    .bid-price { width:78px; margin-top:.25rem; padding:3px 6px; border:1px solid var(--border); border-radius:7px; font-size:.8rem; }
+    .lic-sel { border:1px solid var(--border); border-radius:8px; padding:3px 5px; font-size:.76rem; cursor:pointer; }
+    .lic-num { width:108px; margin-top:.25rem; padding:3px 6px; border:1px solid var(--border); border-radius:7px; font-size:.8rem; }
     .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
     .subs-table .co { font-weight:600; }
     .subs-table .notes { color:var(--muted); max-width:260px; }
@@ -99,6 +108,8 @@
     .super-view .subs-table th:first-child, .super-view .subs-table td.drag-h { display:none; }
     .super-view .subs-table th:last-child, .super-view .subs-table td.row-actions { display:none; }
     .super-view select.spill { pointer-events:none; -webkit-appearance:none; appearance:none; padding:3px 12px; }
+    .super-view .bid-sel, .super-view .lic-sel { pointer-events:none; -webkit-appearance:none; appearance:none; }
+    .super-view .bid-price, .super-view .lic-num { pointer-events:none; background:transparent; }
     .row-actions .del { color:var(--danger); border-color:rgba(204,34,34,.3); }
     .modal-bk { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:flex-start; justify-content:center; z-index:50; padding:2rem 1rem; overflow:auto; }
     .modal-bk.show { display:flex; }
@@ -161,6 +172,14 @@
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
     const STATUS_OPTS = ['Under Review', 'Approved', 'Active', 'Rejected', 'Blacklisted'];
+    const BID_OPTS = ['Called', 'Bid Sent', 'Bid Received', 'Awarded', 'Passed'];
+    function bidClass(b) { b = (b || '').toLowerCase();
+      if (/received/.test(b)) return 'bid-received';
+      if (/sent/.test(b)) return 'bid-sent';
+      if (/called/.test(b)) return 'bid-called';
+      if (/awarded/.test(b)) return 'bid-awarded';
+      if (/passed/.test(b)) return 'bid-passed';
+      return ''; }
     const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County'];
     const sections = [
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
@@ -203,7 +222,7 @@
       <div class="tbl-wrap">
         <table class="subs-table">
           <thead><tr>
-            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Contact</th><th>Email</th><th>Phone</th><th>Ref. By</th><th>Notes</th><th></th>
+            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Bidding</th><th>License</th><th>Contact</th><th>Email</th><th>Phone</th><th>Ref. By</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody id="tbody_<%= sec.key %>">
             <%
@@ -219,8 +238,8 @@
               }
             %>
             <% groups.forEach(g => { %>
-              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11"><%= g %></td></tr><% } %>
-              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="11" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : 'Rejected' %></td></tr><% } %>
+              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13"><%= g %></td></tr><% } %>
+              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : 'Rejected' %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
@@ -236,6 +255,21 @@
                     <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>" <%= s.status===o?'selected':'' %>><%= o %></option><% }) %>
                     <% if (s.status && STATUS_OPTS.indexOf(s.status) < 0) { %><option value="<%= s.status %>" selected><%= s.status %></option><% } %>
                   </select>
+                </td>
+                <td data-label="Bidding">
+                  <select class="bid-sel <%= bidClass(s.bid_status) %>" data-id="<%= s.id %>" onchange="saveBid(this,'bid_status')">
+                    <option value="">— bid —</option>
+                    <% BID_OPTS.forEach(o => { %><option value="<%= o %>" <%= s.bid_status===o?'selected':'' %>><%= o %></option><% }) %>
+                  </select>
+                  <input type="text" class="bid-price" data-id="<%= s.id %>" value="<%= s.bid_price || '' %>" placeholder="$ price" onchange="saveBid(this,'bid_price')">
+                </td>
+                <td data-label="License">
+                  <select class="lic-sel" data-id="<%= s.id %>" onchange="saveLicense(this)">
+                    <option value="" <%= s.licensed==null?'selected':'' %>>—</option>
+                    <option value="true" <%= s.licensed===true?'selected':'' %>>✓ Licensed</option>
+                    <option value="false" <%= s.licensed===false?'selected':'' %>>✕ Not licensed</option>
+                  </select>
+                  <input type="text" class="lic-num" data-id="<%= s.id %>" value="<%= s.license_number || '' %>" placeholder="License #" onchange="saveLicenseNum(this)" style="<%= s.licensed===true ? '' : 'display:none' %>">
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
                 <td data-label="Email"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %><% } %></td>
@@ -614,6 +648,41 @@ async function blNote(id, btn) {
 function blReveal(btn) {
   const banner = btn.closest('.row-reason');
   if (banner) banner.classList.add('off');   // hide banner → reveals the name + contact info underneath
+}
+
+// ── Bid pipeline + license (inline saves) ──
+async function subField(id, obj) {
+  try {
+    const r = await fetch('/subs/' + id + '/field', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(obj) });
+    const d = await r.json(); return !!(r.ok && d.ok);
+  } catch (e) { return false; }
+}
+const BID_CLASSES = ['bid-received','bid-sent','bid-called','bid-awarded','bid-passed'];
+function bidClassJS(b){ b=(b||'').toLowerCase(); if(/received/.test(b))return 'bid-received'; if(/sent/.test(b))return 'bid-sent'; if(/called/.test(b))return 'bid-called'; if(/awarded/.test(b))return 'bid-awarded'; if(/passed/.test(b))return 'bid-passed'; return ''; }
+async function saveBid(el, field) {
+  if (el.classList.contains('bid-sel')) { BID_CLASSES.forEach(c => el.classList.remove(c)); const c = bidClassJS(el.value); if (c) el.classList.add(c); }
+  const ok = await subField(el.dataset.id, { [field]: el.value });
+  if (!ok) alert('Could not save — try again');
+}
+async function saveLicense(sel) {
+  const td = sel.closest('td');
+  const numInput = td.querySelector('.lic-num');
+  const ok = await subField(sel.dataset.id, { licensed: sel.value });   // 'true' | 'false' | ''
+  if (!ok) { alert('Could not save — try again'); return; }
+  if (sel.value === 'true') {
+    numInput.style.display = '';
+    if (!numInput.value.trim()) {
+      const num = prompt('Enter their license number:', '');
+      if (num && num.trim()) { numInput.value = num.trim(); await subField(sel.dataset.id, { license_number: num.trim() }); }
+    }
+    numInput.focus();
+  } else {
+    numInput.style.display = 'none';
+  }
+}
+async function saveLicenseNum(inp) {
+  const ok = await subField(inp.dataset.id, { license_number: inp.value });
+  if (!ok) alert('Could not save license # — try again');
 }
 
 // ── Drag & drop to move between buckets / sections ──

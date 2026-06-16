@@ -1379,6 +1379,10 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS referenced_by TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS recent_add BOOLEAN DEFAULT FALSE;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reject_reason TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_status VARCHAR(40);
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_price VARCHAR(40);
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS licensed BOOLEAN;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_number VARCHAR(80);
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
@@ -4069,6 +4073,25 @@ app.post('/subs/:id/status', requireAuth, async (req, res) => {
 });
 
 // Move a sub to a different section/group (GC↔Sub and between buckets like Under Vetting → Active)
+// Inline-save a whitelisted contractor field (bid pipeline + license)
+const SUB_INLINE_FIELDS = { bid_status: 'text', bid_price: 'text', license_number: 'text', licensed: 'bool' };
+app.post('/subs/:id/field', requireAuth, async (req, res) => {
+  try {
+    const sets = [], vals = [];
+    for (const [k, type] of Object.entries(SUB_INLINE_FIELDS)) {
+      if (!(k in req.body)) continue;
+      let v = req.body[k];
+      if (type === 'bool') v = (v === 'true' || v === true) ? true : (v === 'false' || v === false) ? false : null;
+      else v = (v != null && String(v).trim()) ? String(v).trim().slice(0, 80) : null;
+      sets.push(`${k}=$${vals.length + 1}`); vals.push(v);
+    }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id);
+    await pool.query(`UPDATE subcontractors SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Set just the note/reason on a flagged (rejected/blacklisted) contractor
 app.post('/subs/:id/reason', requireAuth, async (req, res) => {
   try {
