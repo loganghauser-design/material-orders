@@ -9,6 +9,10 @@
     .subs-toolbar { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
     .subs-toolbar input[type=search], .subs-toolbar select { padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); font-size:.9rem; }
     .subs-toolbar input[type=search] { min-width:240px; flex:1; }
+    .trade-chips { display:flex; flex-wrap:wrap; gap:.4rem; margin:0 0 1.1rem; }
+    .trade-chip { padding:.38rem .85rem; border:1px solid var(--border); border-radius:16px; background:var(--surface); font-size:.82rem; font-weight:600; color:var(--text); cursor:pointer; white-space:nowrap; }
+    .trade-chip:hover { background:var(--bg); }
+    .trade-chip.on { background:#1d4ed8; color:#fff; border-color:#1d4ed8; }
     .recent-toggle { display:inline-flex; align-items:center; gap:.4rem; font-size:.88rem; font-weight:700; color:#16794a; background:#e3f6ec; border:1px solid #9fdcb8; border-radius:9px; padding:.45rem .7rem; cursor:pointer; white-space:nowrap; }
     .recent-toggle input { width:17px; height:17px; accent-color:#16794a; }
     .newdot { font-size:.85rem; }
@@ -153,7 +157,7 @@
 
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
-    <select id="typeFilter" onchange="filterSubs()"><option value="">All trades</option></select>
+    <select id="typeFilter" onchange="filterSubs()" style="display:none"><option value="">All trades</option></select>
     <% if (typeof recentCount !== 'undefined' && recentCount > 0) { %>
       <label class="recent-toggle"><input type="checkbox" id="recentOnly" onchange="filterSubs()"> 🆕 Recently added (<%= recentCount %>)</label>
       <form method="POST" action="/subs/clear-recent" style="margin:0" onsubmit="return confirm('Clear the “Recently added” tag from all <%= recentCount %>? (They stay in the list — this just removes the tag.)')">
@@ -161,6 +165,8 @@
       </form>
     <% } %>
   </div>
+
+  <div id="tradeChips" class="trade-chips"></div>
 
   <%
     function catOf(s) { return s.category || (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'); }
@@ -370,11 +376,26 @@
 
 <script>
 (function () {
+  const cap = s => s.replace(/\b\w/g, m => m.toUpperCase());
   const set = new Set();
   document.querySelectorAll('tr[data-type]').forEach(r => r.dataset.type.split(',').forEach(t => { t = t.trim(); if (t) set.add(t); }));
+  const trades = [...set].sort();
   const sel = document.getElementById('typeFilter');
-  [...set].sort().forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = t.replace(/\b\w/g, m => m.toUpperCase()); sel.appendChild(o); });
+  trades.forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = cap(t); sel.appendChild(o); });
+  // Clickable trade chips — click one to show only that trade across the whole page
+  const chips = document.getElementById('tradeChips');
+  if (chips) {
+    const mk = (val, label) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'trade-chip' + (val === '' ? ' on' : ''); b.textContent = label; b.onclick = () => pickTrade(val, b); return b; };
+    chips.appendChild(mk('', 'All trades'));
+    trades.forEach(t => chips.appendChild(mk(t, cap(t))));
+  }
 })();
+function pickTrade(trade, btn) {
+  document.getElementById('typeFilter').value = trade;           // drives the existing filter logic
+  document.querySelectorAll('#tradeChips .trade-chip').forEach(b => b.classList.remove('on'));
+  if (btn) btn.classList.add('on');
+  filterSubs();
+}
 function filterSubs() {
   const q = document.getElementById('subSearch').value.toLowerCase().trim();
   const tf = document.getElementById('typeFilter').value;
