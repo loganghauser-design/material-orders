@@ -4016,12 +4016,14 @@ function statusForBucket(grp) {
 // Normalize a contractor's trade(s) so duplicates/variants collapse (keeps the
 // trade chips clean). Collapses every "General Contractor (…)" to "General Contractor".
 const TRADE_MAP = {
-  'electrician': 'Electrical', 'electrical': 'Electrical',
+  'electrician': 'Electrician', 'electrical': 'Electrician',
+  'plumber': 'Plumber', 'plumbing': 'Plumber',
   'finish': 'Finishes', 'finishes': 'Finishes',
-  'plumber': 'Plumbing', 'plumbing': 'Plumbing',
   'fire sprinklers': 'Fire Sprinklers',
+  'plaster': 'Stucco', 'plastering': 'Stucco',          // plaster = stucco
   'metal framing': 'Metal Framing',
-  'masonry (block)': 'Masonry', 'masonry': 'Masonry',
+  'masonry (block)': 'Masonry',
+  'demo & foundation': 'Demolition, Foundation',          // split into two trades
 };
 function normalizeType(raw) {
   let t = (raw || '').trim();
@@ -4030,9 +4032,12 @@ function normalizeType(raw) {
   const seen = new Set(), out = [];
   t.split(',').forEach(tok => {
     tok = tok.trim(); if (!tok) return;
-    const canon = TRADE_MAP[tok.toLowerCase()] || tok;
-    const k = canon.toLowerCase();
-    if (!seen.has(k)) { seen.add(k); out.push(canon); }
+    const mapped = TRADE_MAP[tok.toLowerCase()] || tok;   // may expand to multiple trades
+    mapped.split(',').forEach(part => {
+      part = part.trim(); if (!part) return;
+      const k = part.toLowerCase();
+      if (!seen.has(k)) { seen.add(k); out.push(part); }
+    });
   });
   return out.join(', ');
 }

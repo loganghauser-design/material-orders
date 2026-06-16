@@ -365,9 +365,11 @@
 </div>
 <datalist id="tradeList">
   <option>General Contractor</option><option>Electrician</option><option>Plumber</option>
-  <option>Drywall</option><option>Framing</option><option>Painter</option><option>Handyman</option>
-  <option>HVAC</option><option>Flooring</option><option>Roofing</option><option>Concrete</option>
-  <option>Demolition</option><option>Junk Removal</option><option>Landscaping</option><option>Tile</option>
+  <option>Drywall</option><option>Framing</option><option>Metal Framing</option><option>Painter</option><option>Handyman</option>
+  <option>HVAC</option><option>Flooring</option><option>Windows</option><option>Doors</option><option>Roofing</option><option>Concrete</option>
+  <option>Foundation</option><option>Masonry</option><option>Demolition</option><option>Junk Removal</option><option>Landscaping</option>
+  <option>Tile</option><option>Stone</option><option>Countertops</option><option>Cabinets</option><option>Solar</option><option>Stucco</option>
+  <option>Insulation</option><option>Fire Sprinklers</option><option>Decking</option><option>Finishes</option><option>Tree Removal</option><option>Methane</option>
 </datalist>
 
 <script>
@@ -471,7 +473,7 @@ function setGroupBy(key, mode) {
 captureStatusOrder();
 
 // ── Multi-select trades ──
-const TRADES = ['General Contractor','Electrician','Plumber','Drywall','Framing','Painter','Handyman','HVAC','Flooring','Roofing','Concrete','Demolition','Junk Removal','Landscaping','Tile','Solar','Stucco','Insulation','Fire Sprinklers','Decking','Finishes','Tree Removal'];
+const TRADES = ['General Contractor','Electrician','Plumber','Drywall','Framing','Metal Framing','Painter','Handyman','HVAC','Flooring','Windows','Doors','Roofing','Concrete','Foundation','Masonry','Demolition','Junk Removal','Landscaping','Tile','Stone','Countertops','Cabinets','Solar','Stucco','Insulation','Fire Sprinklers','Decking','Finishes','Tree Removal','Methane'];
 let selectedTrades = [];
 function renderTradeChips() {
   const all = [...new Set([...TRADES, ...selectedTrades])];
