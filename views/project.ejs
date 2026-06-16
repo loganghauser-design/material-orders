@@ -283,7 +283,16 @@
   </div>
   <% STAGES.forEach(stage => { %>
   <div class="stage-card">
-    <div class="stage-header"><%= stage.name %></div>
+    <div class="stage-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
+      <span><%= stage.name %></span>
+      <span style="font-size:.74rem;font-weight:400;color:var(--muted);display:inline-flex;align-items:center;gap:.4rem">
+        Set whole stage →
+        <select onchange="setStageStatus(this)" title="Set every item in this stage to one status at once" style="font-size:.76rem;padding:.2rem .45rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-weight:600;color:var(--text)">
+          <option value="">— choose —</option>
+          <% ITEM_STATUSES.forEach(s => { %><option value="<%= s %>"><%= s %></option><% }) %>
+        </select>
+      </span>
+    </div>
     <table class="stage-table">
       <thead>
         <tr>
@@ -1348,6 +1357,36 @@ async function saveItem(el) {
       showToast('Not saved — please try again', true);
     }
   }
+}
+
+// Bulk: set every item in a stage to one status at once (preserves dates/notes;
+// still draws inventory down on "Delivered from Inv." and clears field requests).
+async function setStageStatus(sel) {
+  const status = sel.value;
+  if (!status) return;
+  const card = sel.closest('.stage-card');
+  const rows = Array.from(card.querySelectorAll('tbody tr[data-code]'));
+  sel.selectedIndex = 0;
+  if (!rows.length) return;
+  const stageName = ((card.querySelector('.stage-header span') || {}).textContent || 'this stage').trim();
+  if (!confirm('Set all ' + rows.length + ' items in "' + stageName + '" to "' + status + '"?')) return;
+  const projectId = rows[0].dataset.project;
+  showToast('Updating ' + rows.length + ' items…');
+  const saves = rows.map(row => {
+    const code = row.dataset.code;
+    const ss = row.querySelector('.item-status');
+    if (ss) { ss.value = status; STATUS_CLASSES.forEach(c => ss.classList.remove(c)); ss.classList.add(statusToClass(status)); }
+    return fetch(`/projects/${projectId}/items/${code}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status, statusOnly: true }),
+    }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  });
+  const results = await Promise.all(saves);
+  const failed = results.filter(r => !r || !r.ok).length;
+  const drew = results.reduce((n, r) => n + ((r && r.inv && r.inv.drewDown) || 0), 0);
+  if (failed) showToast(failed + ' of ' + rows.length + ' failed — reload to verify', true);
+  else if (drew) showToast('✓ ' + rows.length + ' → ' + status + ' · drew ' + drew + ' from inventory');
+  else showToast('✓ ' + rows.length + ' items set to ' + status);
 }
 
 // Send the delivery alert for this item to chat (single date or window).
