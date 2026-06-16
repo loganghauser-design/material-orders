@@ -3704,7 +3704,7 @@ app.post('/apply', async (req, res) => {
     const phoneIn = String(b.phone || '').trim();
     if ((!company && !owner) || !emailIn || !phoneIn) return res.redirect('/apply?err=1');   // phone + email required
     const cat = b.category === 'gc' ? 'gc' : 'sub';
-    const type = cat === 'gc' ? 'General Contractor' : String(b.type || '').trim().slice(0, 200);
+    const type = cat === 'gc' ? 'General Contractor' : normalizeType(String(b.type || '').slice(0, 200));
     const grp = bucketForStatus(cat, 'Under Review');
     const so = await bucketSortOrder(cat, grp);
     const note = String(b.notes || '').trim().slice(0, 1000);
@@ -4007,6 +4007,29 @@ function statusForBucket(grp) {
   if (/vetting/.test(g)) return 'Under Review';
   return null;   // custom / unknown bucket → leave the status unchanged
 }
+// Normalize a contractor's trade(s) so duplicates/variants collapse (keeps the
+// trade chips clean). Collapses every "General Contractor (…)" to "General Contractor".
+const TRADE_MAP = {
+  'electrician': 'Electrical', 'electrical': 'Electrical',
+  'finish': 'Finishes', 'finishes': 'Finishes',
+  'plumber': 'Plumbing', 'plumbing': 'Plumbing',
+  'fire sprinklers': 'Fire Sprinklers',
+  'metal framing': 'Metal Framing',
+  'masonry (block)': 'Masonry', 'masonry': 'Masonry',
+};
+function normalizeType(raw) {
+  let t = (raw || '').trim();
+  if (!t) return t;
+  if (/^general contractor\b/i.test(t)) return 'General Contractor';
+  const seen = new Set(), out = [];
+  t.split(',').forEach(tok => {
+    tok = tok.trim(); if (!tok) return;
+    const canon = TRADE_MAP[tok.toLowerCase()] || tok;
+    const k = canon.toLowerCase();
+    if (!seen.has(k)) { seen.add(k); out.push(canon); }
+  });
+  return out.join(', ');
+}
 async function bucketSortOrder(category, group) {
   const { rows: [mx] } = await pool.query('SELECT MAX(sort_order) m FROM subcontractors WHERE category=$1 AND group_label IS NOT DISTINCT FROM $2', [category, group]);
   return (mx && mx.m != null) ? Number(mx.m) + 1 : 9999;
@@ -4026,7 +4049,7 @@ app.post('/subs', requireAuth, upload.array('photos', 12), async (req, res) => {
     const { rows: [sub] } = await pool.query(
       `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, notes, group_label, category, sort_order, referenced_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id`,
-      [b.company || null, b.location || null, b.type || null, status, b.owner || null,
+      [b.company || null, b.location || null, normalizeType(b.type) || null, status, b.owner || null,
        b.email || null, b.phone || null, b.notes || null, grp, cat, so, b.referenced_by || null]
     );
     for (const f of (req.files || [])) {
@@ -4051,7 +4074,7 @@ app.post('/subs/:id', requireAuth, async (req, res) => {
     const cat = b.category || (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
     await pool.query(
       `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, notes=$8, category=$9, referenced_by=$10 WHERE id=$11`,
-      [b.company || null, b.location || null, b.type || null, b.status || null, b.owner || null,
+      [b.company || null, b.location || null, normalizeType(b.type) || null, b.status || null, b.owner || null,
        b.email || null, b.phone || null, b.notes || null, cat, b.referenced_by || null, req.params.id]
     );
     res.json({ ok: true });
@@ -4181,7 +4204,7 @@ app.post('/subs/import', requireAuth, async (req, res) => {
       await pool.query(
         `INSERT INTO subcontractors (company, location, type, status, owner, email, phone, projects, notes, group_label, sort_order, category)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [s.company, s.location || null, s.type || null, s.status || null, s.owner || null,
+        [s.company, s.location || null, normalizeType(s.type) || null, s.status || null, s.owner || null,
          s.email || null, s.phone || null, s.projects || null, s.notes || null, s.group_label || null, s.sort_order, s.category || 'sub']
       );
       have.add(s.company.toLowerCase());
