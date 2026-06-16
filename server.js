@@ -4024,6 +4024,7 @@ const TRADE_MAP = {
   'metal framing': 'Metal Framing',
   'masonry (block)': 'Masonry',
   'demo & foundation': 'Demolition, Foundation',          // split into two trades
+  'windows': 'Windows & Doors', 'doors': 'Windows & Doors',   // windows & doors = one trade
 };
 function normalizeType(raw) {
   let t = (raw || '').trim();
@@ -4113,7 +4114,7 @@ app.post('/subs/:id/status', requireAuth, async (req, res) => {
 
 // Move a sub to a different section/group (GC↔Sub and between buckets like Under Vetting → Active)
 // Inline-save a whitelisted contractor field (bid pipeline + license)
-const SUB_INLINE_FIELDS = { bid_status: 'text', bid_price: 'text', license_number: 'text', licensed: 'bool' };
+const SUB_INLINE_FIELDS = { bid_status: 'text', bid_price: 'text', license_number: 'text', licensed: 'bool', email: 'text', phone: 'text' };
 app.post('/subs/:id/field', requireAuth, async (req, res) => {
   try {
     const sets = [], vals = [];

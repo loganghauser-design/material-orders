@@ -9,6 +9,8 @@
     .subs-toolbar { display:flex; gap:.6rem; flex-wrap:wrap; align-items:center; margin-bottom:1rem; }
     .subs-toolbar input[type=search], .subs-toolbar select { padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); font-size:.9rem; }
     .subs-toolbar input[type=search] { min-width:240px; flex:1; }
+    .email-edit { background:none; border:none; cursor:pointer; font-size:.85rem; opacity:.55; padding:0 .2rem; }
+    .email-edit:hover { opacity:1; }
     .trade-select { min-width:170px; font-weight:600; }
     .trade-select:focus { outline:none; border-color:#1d4ed8; }
     .recent-toggle { display:inline-flex; align-items:center; gap:.4rem; font-size:.88rem; font-weight:700; color:#16794a; background:#e3f6ec; border:1px solid #9fdcb8; border-radius:9px; padding:.45rem .7rem; cursor:pointer; white-space:nowrap; }
@@ -274,7 +276,7 @@
                   <input type="text" class="lic-num" data-id="<%= s.id %>" value="<%= s.license_number || '' %>" placeholder="License #" onchange="saveLicenseNum(this)" style="<%= s.licensed===true ? '' : 'display:none' %>">
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
-                <td data-label="Email"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %><% } %></td>
+                <td data-label="Email" data-email="<%= s.email || '' %>"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button></td>
                 <td data-label="Phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></td>
                 <td class="refby" data-label="Ref. by"><%= s.referenced_by || '' %></td>
                 <td class="notes" data-label="Notes"><% if (flagged && s.reject_reason) { %><div class="reject-reason">⛔ <%= s.status %>: <%= s.reject_reason %></div><% } %><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
@@ -366,7 +368,7 @@
 <datalist id="tradeList">
   <option>General Contractor</option><option>Electrician</option><option>Plumber</option>
   <option>Drywall</option><option>Framing</option><option>Metal Framing</option><option>Painter</option><option>Handyman</option>
-  <option>HVAC</option><option>Flooring</option><option>Windows</option><option>Doors</option><option>Roofing</option><option>Concrete</option>
+  <option>HVAC</option><option>Flooring</option><option>Windows &amp; Doors</option><option>Roofing</option><option>Concrete</option>
   <option>Foundation</option><option>Masonry</option><option>Demolition</option><option>Junk Removal</option><option>Landscaping</option>
   <option>Tile</option><option>Stone</option><option>Countertops</option><option>Cabinets</option><option>Solar</option><option>Stucco</option>
   <option>Insulation</option><option>Fire Sprinklers</option><option>Decking</option><option>Finishes</option><option>Tree Removal</option><option>Methane</option>
@@ -473,7 +475,7 @@ function setGroupBy(key, mode) {
 captureStatusOrder();
 
 // ── Multi-select trades ──
-const TRADES = ['General Contractor','Electrician','Plumber','Drywall','Framing','Metal Framing','Painter','Handyman','HVAC','Flooring','Windows','Doors','Roofing','Concrete','Foundation','Masonry','Demolition','Junk Removal','Landscaping','Tile','Stone','Countertops','Cabinets','Solar','Stucco','Insulation','Fire Sprinklers','Decking','Finishes','Tree Removal','Methane'];
+const TRADES = ['General Contractor','Electrician','Plumber','Drywall','Framing','Metal Framing','Painter','Handyman','HVAC','Flooring','Windows & Doors','Roofing','Concrete','Foundation','Masonry','Demolition','Junk Removal','Landscaping','Tile','Stone','Countertops','Cabinets','Solar','Stucco','Insulation','Fire Sprinklers','Decking','Finishes','Tree Removal','Methane'];
 let selectedTrades = [];
 function renderTradeChips() {
   const all = [...new Set([...TRADES, ...selectedTrades])];
@@ -688,6 +690,14 @@ async function saveLicense(sel) {
 async function saveLicenseNum(inp) {
   const ok = await subField(inp.dataset.id, { license_number: inp.value });
   if (!ok) alert('Could not save license # — try again');
+}
+async function editEmail(id, btn) {
+  const td = btn.closest('td');
+  const cur = (td && td.dataset.email) || '';
+  const email = prompt('Email for this contractor:', cur);
+  if (email === null) return;   // cancelled
+  const ok = await subField(id, { email: email.trim() });
+  if (ok) location.reload(); else alert('Could not save email — try again');
 }
 
 // ── Drag & drop to move between buckets / sections ──
