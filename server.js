@@ -4069,6 +4069,15 @@ app.post('/subs/:id/status', requireAuth, async (req, res) => {
 });
 
 // Move a sub to a different section/group (GC↔Sub and between buckets like Under Vetting → Active)
+// Set just the note/reason on a flagged (rejected/blacklisted) contractor
+app.post('/subs/:id/reason', requireAuth, async (req, res) => {
+  try {
+    const reason = (req.body.reason != null && String(req.body.reason).trim()) ? String(req.body.reason).trim().slice(0, 500) : null;
+    await pool.query('UPDATE subcontractors SET reject_reason=$1 WHERE id=$2', [reason, req.params.id]);
+    res.json({ ok: true, reason });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.post('/subs/:id/move', requireAuth, async (req, res) => {
   try {
     const cat = req.body.category === 'gc' ? 'gc' : 'sub';

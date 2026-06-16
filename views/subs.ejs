@@ -20,6 +20,10 @@
     .row-reason .rr-name { flex:none; max-width:34%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:.7rem; border-right:2px solid rgba(255,255,255,.55); }
     .row-reason .rr-reason { flex:1; min-width:0; text-align:left; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .row-reason.off { display:none; }
+    .row-reason.black { background:rgba(15,15,17,.96); }
+    .row-reason .rr-actions { margin-left:auto; display:flex; gap:.3rem; flex:none; }
+    .row-reason .rr-actions button { background:rgba(255,255,255,.22); border:none; color:#fff; border-radius:5px; padding:.14rem .45rem; cursor:pointer; font-size:.82rem; line-height:1; }
+    .row-reason .rr-actions button:hover { background:rgba(255,255,255,.42); }
     .conote-btn { display:inline-block; font-size:.72rem; font-weight:700; color:#1d4ed8; cursor:pointer; margin-top:.25rem; }
     .conote-body { display:none; font-size:.8rem; font-weight:400; color:var(--text); margin-top:.3rem; white-space:normal; max-width:260px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.45rem .6rem; line-height:1.35; }
     .conote-body.show { display:block; }
@@ -220,7 +224,7 @@
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
-                <td class="co"><% if (flagged) { %><span class="row-reason" onclick="this.classList.toggle('off')" title="Click to hide / show"><span class="rr-name"><%= s.company || s.owner || 'Contractor' %></span><span class="rr-reason">⛔ <%= (s.status||'').toUpperCase() %><%= s.reject_reason ? ': ' + s.reject_reason : '' %></span></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><%= s.company || '—' %>
+                <td class="co"><% if (flagged) { var isBlack = /black/.test((s.status||'').toLowerCase()); %><span class="row-reason <%= isBlack ? 'black' : '' %>" data-reason="<%= s.reject_reason || '' %>"><span class="rr-name"><%= s.company || s.owner || 'Contractor' %></span><span class="rr-reason">⛔ <%= (s.status||'').toUpperCase() %><%= s.reject_reason ? ': ' + s.reject_reason : '' %></span><span class="rr-actions"><button type="button" onclick="blNote(<%= s.id %>, this)" title="Add / edit a note">✏️</button><button type="button" onclick="blReveal(this)" title="Reveal info underneath">👁</button></span></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
                   <% if (s.notes) { %><span class="conote-btn" onclick="this.nextElementSibling.classList.toggle('show')" title="Show / hide notes">📝 notes</span><div class="conote-body"><%= s.notes %></div><% } %>
                 </td>
@@ -595,6 +599,23 @@ function pillClassJS(st) { st = (st || '').toLowerCase();
   if (/approv/.test(st)) return 'pill-approved';
   if (/review|vetting|pending/.test(st)) return 'pill-review';
   return 'pill-default'; }
+// ── Blacklist / reject banner: add a note + reveal underneath ──
+async function blNote(id, btn) {
+  const banner = btn.closest('.row-reason');
+  const cur = banner ? (banner.dataset.reason || '') : '';
+  const reason = prompt('Note for this contractor (shows in the banner):', cur);
+  if (reason === null) return;   // cancelled
+  try {
+    const r = await fetch('/subs/' + id + '/reason', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ reason }) });
+    const d = await r.json();
+    if (d.ok) location.reload(); else alert('Could not save note — try again');
+  } catch (e) { alert('Could not save note — try again'); }
+}
+function blReveal(btn) {
+  const banner = btn.closest('.row-reason');
+  if (banner) banner.classList.add('off');   // hide banner → reveals the name + contact info underneath
+}
+
 // ── Drag & drop to move between buckets / sections ──
 let dragId = null;
 function onDragStart(e, id) { dragId = id; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', id); } catch (x) {} }
