@@ -28,6 +28,21 @@
     .dl-table tbody tr:hover { background: var(--bg); }
     .dl-miles { font-weight: 700; font-size: 1rem; }
     .pill-period { display:inline-block; background: rgba(255,255,255,.18); padding: 2px 10px; border-radius: 11px; font-size: .75rem; font-weight: 600; }
+    .route-box { border: 1px solid var(--border); border-radius: 12px; background: var(--bg); padding: .6rem 1rem; margin-bottom: 1rem; }
+    .route-node { display: flex; align-items: center; gap: .6rem; padding: .42rem 0; font-size: .92rem; }
+    .route-node + .route-node, #stopList + .route-node, .route-node + #stopList { border-top: 1px dashed var(--border); }
+    .route-node .dot { width: 24px; text-align: center; font-size: 1.05rem; flex: none; }
+    .route-home { font-weight: 700; color: #1d4ed8; }
+    .route-stop { border-top: 1px dashed var(--border); }
+    .route-x { margin-left: auto; background: none; border: none; color: #cc2222; cursor: pointer; font-size: .8rem; padding: 0 .3rem; }
+    .route-x:hover { text-decoration: underline; }
+    .route-empty { color: var(--muted); font-size: .85rem; padding: .5rem 0 .5rem 1.9rem; }
+    .add-stop { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: 1.3rem; }
+    .add-stop select, .add-stop input { padding: .55rem .6rem; border: 1px solid var(--border); border-radius: 9px; background: var(--surface); font-size: .9rem; font-family: inherit; }
+    .add-stop input { flex: 1; min-width: 200px; }
+    .add-stop .or { color: var(--muted); font-size: .82rem; }
+    .miles-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    @media (max-width: 640px) { .miles-grid { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -84,48 +99,47 @@
   <!-- Log a drive -->
   <div class="dl-card">
     <h2>➕ Log a Drive</h2>
-    <div class="hint">Each save adds a permanent row to your log below.</div>
-    <div class="form-grid">
-      <div class="form-group">
-        <label>Date</label>
-        <input type="date" id="tripDate" oninput="syncSave()">
-      </div>
-      <div class="form-group">
-        <label>Add a project stop</label>
-        <select id="stopPicker">
-          <option value="">— choose a project —</option>
-          <% projects.forEach(p => { %>
-            <option value="<%= p.full_address || p.address %>" data-label="<%= p.address %>"><%= p.address %></option>
-          <% }) %>
-        </select>
-      </div>
-    </div>
-    <div class="dl-row" style="margin-top:.6rem">
-      <button class="btn btn-ghost btn-sm" onclick="addStop()">+ Add project stop</button>
-      <div class="form-group" style="flex:1;min-width:240px">
-        <label>Or add any address (lumber yard, warehouse, etc.)</label>
-        <input type="text" id="customStop" placeholder="e.g. Ganahl Lumber, 10742 Los Alamitos Blvd, Los Alamitos, CA" style="width:100%">
-      </div>
-      <button class="btn btn-ghost btn-sm" onclick="addCustomStop()">+ Add address</button>
+    <div class="hint">Build your route — every trip starts and ends at Home.</div>
+
+    <div class="form-group" style="max-width:240px;margin-bottom:1.1rem">
+      <label>Date of trip</label>
+      <input type="date" id="tripDate" oninput="syncSave()">
     </div>
 
-    <div id="stopList" style="margin:1rem 0"></div>
+    <label style="font-size:.83rem;font-weight:700;color:#334155;display:block;margin-bottom:.3rem">Route</label>
+    <div class="route-box">
+      <div class="route-node route-home"><span class="dot">🏠</span><span>Home — start</span></div>
+      <div id="stopList"></div>
+      <div class="route-node route-home"><span class="dot">🏁</span><span>Home — end</span></div>
+    </div>
 
-    <div class="form-grid">
+    <div class="add-stop">
+      <select id="stopPicker">
+        <option value="">— pick a project —</option>
+        <% projects.forEach(p => { %>
+          <option value="<%= p.full_address || p.address %>" data-label="<%= p.address %>"><%= p.address %></option>
+        <% }) %>
+      </select>
+      <span class="or">or</span>
+      <input type="text" id="customStop" placeholder="type any address (lumber yard, warehouse…)">
+      <button class="btn btn-primary btn-sm" onclick="addStopSmart()">+ Add stop</button>
+    </div>
+
+    <div class="miles-grid">
       <div class="form-group">
-        <label>Route / note</label>
-        <input type="text" id="routeInput" placeholder="Home → Project → Home (auto-fills when you Calculate)">
+        <label>Miles</label>
+        <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+          <input type="number" id="milesInput" step="0.1" min="0" placeholder="e.g. 24.6" oninput="syncSave()" style="max-width:130px">
+          <% if (drivingEnabled) { %><button class="btn btn-ghost btn-sm" onclick="calcMiles()" id="calcBtn">📍 Auto-calculate</button><% } %>
+        </div>
       </div>
       <div class="form-group">
-        <label>Miles <span style="font-weight:400;color:var(--muted);font-size:.8rem">— Calculate, or type in manually</span></label>
-        <input type="number" id="milesInput" step="0.1" min="0" placeholder="e.g. 24.6" oninput="syncSave()">
+        <label>Note <span style="font-weight:400;color:var(--muted);font-size:.78rem">(optional)</span></label>
+        <input type="text" id="routeInput" placeholder="auto-fills from your route">
       </div>
     </div>
 
-    <div class="dl-row" style="margin-top:.7rem">
-      <% if (drivingEnabled) { %><button class="btn btn-ghost" onclick="calcMiles()" id="calcBtn">Calculate Miles</button><% } %>
-      <button class="btn btn-primary" onclick="saveTrip()" id="saveTripBtn" disabled>Save Trip</button>
-    </div>
+    <button class="btn btn-primary" onclick="saveTrip()" id="saveTripBtn" disabled style="margin-top:1.1rem;min-width:200px">Save Trip</button>
   </div>
 
   <!-- History -->
@@ -187,12 +201,22 @@ function addCustomStop() {
   renderStops(); autoRoute();
 }
 function removeStop(i) { stops.splice(i,1); renderStops(); autoRoute(); }
+// One "Add stop" button that takes whichever is filled — the project dropdown or a typed address
+function addStopSmart() {
+  const sel = document.getElementById('stopPicker');
+  const inp = document.getElementById('customStop');
+  if (sel.value) { const label = sel.options[sel.selectedIndex].dataset.label; stops.push({ address: sel.value, label }); sel.value = ''; }
+  else if (inp.value.trim()) { const v = inp.value.trim(); stops.push({ address: v, label: v }); inp.value = ''; }
+  else { showToast('Pick a project or type an address', true); return; }
+  renderStops(); autoRoute();
+}
+function escapeHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function renderStops() {
   const el = document.getElementById('stopList');
-  if (!stops.length) { el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">No stops added yet. Home → (stops) → Home.</div>'; return; }
-  el.innerHTML = '<ol style="margin-left:1.2rem">' + stops.map((s,i) =>
-    `<li style="margin-bottom:.3rem">${s.label} <button onclick="removeStop(${i})" class="btn btn-ghost btn-sm" style="padding:.1rem .4rem;margin-left:.4rem">✕</button></li>`
-  ).join('') + '</ol>';
+  if (!stops.length) { el.innerHTML = '<div class="route-empty">No stops yet — add one below.</div>'; return; }
+  el.innerHTML = stops.map((s,i) =>
+    `<div class="route-node route-stop"><span class="dot">📍</span><span>${escapeHtml(s.label)}</span><button class="route-x" onclick="removeStop(${i})">✕ remove</button></div>`
+  ).join('');
 }
 function autoRoute() {
   if (stops.length) document.getElementById('routeInput').value = ['Home', ...stops.map(s=>s.label), 'Home'].join(' → ');
