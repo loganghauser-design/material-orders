@@ -1178,7 +1178,7 @@ async function loadAccess() {
   } catch (e) { /* table may not exist yet */ }
 }
 function defaultPagesFor(key, role) {
-  if (key === 'rick') return new Set(['projects', 'subs']);   // Sales: projects + subs/bidding (tune on the Team page)
+  if (key === 'rick') return new Set(['subs']);               // Sales: Subs/bidding only (tune on the Team page)
   if (role === 'admin') return new Set(PAGE_KEYS);            // Jeff/Aziz default to everything
   if (canSuperViewSubs(key)) return new Set(['subs', 'warranty']);  // Bobby keeps his current access
   return new Set();                                          // other supers: portal only
@@ -1766,7 +1766,10 @@ app.post('/login', async (req, res) => {
     const admHash = (await getAdminCustomHash(adm.username)) || adm.passwordHash;
     if (await bcrypt.compare(password || '', admHash)) {
       req.session.authenticated = true; req.session.role = 'admin'; req.session.superEmail = null; req.session.userKey = adm.username;
-      return res.redirect('/');
+      // Restricted office users land on their first allowed page; full-access admins get the dashboard
+      const allowed = allowedPagesFor(adm.username, 'admin');
+      const landing = (allowed.size < PAGE_KEYS.length) ? (firstAllowedPath(allowed) || '/') : '/';
+      return res.redirect(landing);
     }
   }
   // Superintendent (logs in with their email or first-name username)
