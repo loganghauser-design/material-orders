@@ -21,6 +21,7 @@
       <div style="color:var(--muted);margin-top:.25rem"><%= project.version || '' %></div>
     </div>
     <span class="badge badge-<%= project.overall_status.toLowerCase().replace(/[\s-]+/g,'_') %>" style="font-size:.95rem;padding:.4rem 1rem"><%= project.overall_status %></span>
+    <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost btn-sm" title="Edit address, client name/email, status, notes">✎ Edit project</a>
     <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
     <% const _assigned = (project.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean); %>
     <div style="margin-left:auto;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:.4rem .65rem">
