@@ -784,6 +784,7 @@ async function changeStatus(sel) {
 }
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }
 const EMAIL_SUBJECT = 'ADU BID REQUEST BUILDOLY';
+const AREA_LIST = <%- JSON.stringify(typeof LOCATION_OPTS !== 'undefined' ? LOCATION_OPTS : []) %>;
 let composeName = '', composeTrade = '';
 const EMAIL_TEMPLATES = {
   altadena: `Hi {NAME},
@@ -797,7 +798,8 @@ We currently have a project that we would like to invite you to bid on. Before m
 • Contractor license number
 • Proof of workers' compensation insurance
 • General liability insurance information (COI, if available)
-• Service area(s) you cover (selected from below)
+• Service area(s) you cover (please check all that apply):
+{AREAS}
 • Other trades or scopes of work your company performs in addition to {TRADE}
 
 Project information is attached for your review. We would appreciate receiving your proposal by 07/01.
@@ -820,7 +822,8 @@ We currently have a project available for bidding and would appreciate the oppor
 • Contractor license number
 • Proof of workers' compensation insurance
 • General liability insurance information (COI, if available)
-• Service area(s) you cover (selected from below)
+• Service area(s) you cover (please check all that apply):
+{AREAS}
 • Other trades or scopes of work your company performs in addition to {TRADE}
 
 Project information is attached for your review. We look forward to learning more about your company and exploring opportunities to work together. We would appreciate receiving your proposal by 07/01.
@@ -834,8 +837,10 @@ function applyTemplate(sel) {
   if (!key || !EMAIL_TEMPLATES[key]) return;
   const name = composeName || '[Subcontractor Name]';
   const trade = composeTrade || '[trade]';
+  const areas = AREA_LIST.map(function (a) { return '     ☐ ' + a; }).join('\n');
   document.getElementById('emSubject').value = EMAIL_SUBJECT;
-  document.getElementById('emBody').value = EMAIL_TEMPLATES[key].split('{NAME}').join(name).split('{TRADE}').join(trade);
+  document.getElementById('emBody').value = EMAIL_TEMPLATES[key]
+    .split('{NAME}').join(name).split('{TRADE}').join(trade).split('{AREAS}').join(areas);
 }
 function openCompose(btn) {
   const email = btn.dataset.email || '';
