@@ -300,7 +300,7 @@
                       <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
                     </optgroup>
                   </select>
-                  <button onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)' title="Edit">✏</button><button class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" onclick="openCompose(this)" title="Email this sub"<%= s.email ? '' : ' disabled' %>>✉</button>
+                  <button onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)' title="Edit">✏</button><button class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" data-name="<%= s.company || s.owner || '' %>" data-trade="<%= (s.type || '').split(',')[0].trim() %>" onclick="openCompose(this)" title="Email this sub"<%= s.email ? '' : ' disabled' %>>✉</button>
                   <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
                     <label class="upl" title="Add photos (pick several at once — work, vehicle, job site)">📷<input type="file" name="photos" accept="image/*" multiple style="display:none" onchange="this.form.submit()"></label>
                   </form>
@@ -325,6 +325,13 @@
     <h2>✉ Email subcontractor</h2>
     <div style="font-size:.85rem;color:var(--muted);margin-bottom:.7rem">To: <span id="emTo" style="font-weight:700;color:var(--text)"></span></div>
     <form id="emForm" onsubmit="event.preventDefault();sendCompose()">
+      <div class="form-group" style="margin-bottom:.7rem"><label>Template</label>
+        <select id="emTemplate" onchange="applyTemplate(this)">
+          <option value="">— blank —</option>
+          <option value="altadena">Met in person (Altadena)</option>
+          <option value="marvin">Referred by Marvin Han</option>
+        </select>
+      </div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="emSubject" required></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Message</label><textarea id="emBody" rows="8" placeholder="Write your message…"></textarea></div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
@@ -776,12 +783,69 @@ async function changeStatus(sel) {
   } catch (e) { alert('Could not save status — try again'); }
 }
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }
+const EMAIL_SUBJECT = 'ADU BID REQUEST BUILDOLY';
+let composeName = '', composeTrade = '';
+const EMAIL_TEMPLATES = {
+  altadena: `Hi {NAME},
+
+It was a pleasure meeting you in Altadena last week.
+
+My name is Logan, and I am with Buildoly. We are a general contractor with more than 60 upcoming Resi + ADU construction projects and are currently expanding our subcontractor network.
+
+We currently have a project that we would like to invite you to bid on. Before moving forward, could you please provide the following information about your company:
+
+• Contractor license number
+• Proof of workers' compensation insurance
+• General liability insurance information (COI, if available)
+• Service area(s) you cover (selected from below)
+• Other trades or scopes of work your company performs in addition to {TRADE}
+
+Project information is attached for your review. We would appreciate receiving your proposal by 07/01.
+
+We look forward to the opportunity to work together on this project and future projects.
+
+Thank you,
+Logan
+Buildoly`,
+  marvin: `Hi {NAME},
+
+I hope you are doing well.
+
+My name is Logan, and I am with Buildoly. Marvin Han recently spoke highly of your company and recommended that we reach out to you regarding upcoming opportunities.
+
+We are a general contractor with more than 60 upcoming Resi + ADU construction projects and are actively expanding our subcontractor network.
+
+We currently have a project available for bidding and would appreciate the opportunity to review a proposal from your team. Before moving forward, could you please provide the following information:
+
+• Contractor license number
+• Proof of workers' compensation insurance
+• General liability insurance information (COI, if available)
+• Service area(s) you cover (selected from below)
+• Other trades or scopes of work your company performs in addition to {TRADE}
+
+Project information is attached for your review. We look forward to learning more about your company and exploring opportunities to work together. We would appreciate receiving your proposal by 07/01.
+
+Thank you,
+Logan
+Buildoly`,
+};
+function applyTemplate(sel) {
+  const key = sel.value;
+  if (!key || !EMAIL_TEMPLATES[key]) return;
+  const name = composeName || '[Subcontractor Name]';
+  const trade = composeTrade || '[trade]';
+  document.getElementById('emSubject').value = EMAIL_SUBJECT;
+  document.getElementById('emBody').value = EMAIL_TEMPLATES[key].split('{NAME}').join(name).split('{TRADE}').join(trade);
+}
 function openCompose(btn) {
   const email = btn.dataset.email || '';
   if (!email) { alert('No email on file for this sub — add one first with the ✏️ in the Email column.'); return; }
   document.getElementById('emForm').dataset.id = btn.dataset.id;
   document.getElementById('emTo').textContent = email;
-  document.getElementById('emSubject').value = '';
+  composeName = btn.dataset.name || '';
+  composeTrade = btn.dataset.trade || '';
+  document.getElementById('emTemplate').value = '';
+  document.getElementById('emSubject').value = EMAIL_SUBJECT;
   document.getElementById('emBody').value = '';
   const sb = document.getElementById('emSendBtn'); sb.disabled = false; sb.textContent = 'Send email';
   document.getElementById('emailModal').classList.add('show');
