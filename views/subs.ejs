@@ -31,6 +31,12 @@
     .conote-btn { display:inline-block; font-size:.72rem; font-weight:700; color:#1d4ed8; cursor:pointer; margin-top:.25rem; }
     .conote-body { display:none; font-size:.8rem; font-weight:400; color:var(--text); margin-top:.3rem; white-space:normal; max-width:260px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.45rem .6rem; line-height:1.35; }
     .conote-body.show { display:block; }
+    .emlog-btn { display:inline-block; font-size:.72rem; font-weight:700; color:#1d4ed8; cursor:pointer; margin-left:.35rem; white-space:nowrap; }
+    .emlog-body { display:none; margin-top:.35rem; }
+    .emlog-body.show { display:block; }
+    .emlog-item { font-size:.76rem; color:var(--text); border-top:1px solid var(--border); padding:.3rem 0; max-width:240px; white-space:normal; }
+    .emlog-date { color:var(--muted); font-size:.7rem; margin-right:.3rem; }
+    .emlog-text { color:var(--muted); margin-top:.15rem; white-space:pre-wrap; }
     .emptybucket-cell { color:var(--muted); font-size:.85rem; font-weight:600; padding:.7rem .9rem; border:2px dashed var(--border); border-radius:8px; background:var(--bg); text-align:center; }
     tr.emptybucket.drop-hi .emptybucket-cell { background:#fde8e7; border-color:#c0392b; color:#b4231f; }
     .sec-title { font-size:1.6rem; font-weight:800; margin:2.4rem 0 .6rem; padding:.7rem 1rem; border-radius:9px; display:flex; align-items:center; gap:.6rem; }
@@ -280,7 +286,7 @@
                   <input type="text" class="lic-num" data-id="<%= s.id %>" value="<%= s.license_number || '' %>" placeholder="License #" onchange="saveLicenseNum(this)" style="<%= s.licensed===true ? '' : 'display:none' %>">
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
-                <td data-label="Email" data-email="<%= s.email || '' %>"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button></td>
+                <td data-label="Email" data-email="<%= s.email || '' %>"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn" onclick="this.nextElementSibling.classList.toggle('show')" title="Emails sent to this sub">✉ <%= _em.length %></span><div class="emlog-body"><% _em.forEach(function(e){ %><div class="emlog-item"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><strong><%= e.subject %></strong><% if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %></div><% }) %></div><% } %></td>
                 <td data-label="Phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></td>
                 <td class="refby" data-label="Ref. by"><%= s.referenced_by || '' %></td>
                 <td class="notes" data-label="Notes"><% if (flagged && s.reject_reason) { %><div class="reject-reason">⛔ <%= s.status %>: <%= s.reject_reason %></div><% } %><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
@@ -294,7 +300,7 @@
                       <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
                     </optgroup>
                   </select>
-                  <button onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)' title="Edit">✏</button>
+                  <button onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)' title="Edit">✏</button><button class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" onclick="openCompose(this)" title="Email this sub"<%= s.email ? '' : ' disabled' %>>✉</button>
                   <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
                     <label class="upl" title="Add photos (pick several at once — work, vehicle, job site)">📷<input type="file" name="photos" accept="image/*" multiple style="display:none" onchange="this.form.submit()"></label>
                   </form>
@@ -311,6 +317,23 @@
       <% } %>
     </div>
   <% }) %>
+</div>
+
+<!-- Email subcontractor modal -->
+<div class="modal-bk" id="emailModal">
+  <div class="modal-card">
+    <h2>✉ Email subcontractor</h2>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:.7rem">To: <span id="emTo" style="font-weight:700;color:var(--text)"></span></div>
+    <form id="emForm" onsubmit="event.preventDefault();sendCompose()">
+      <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="emSubject" required></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Message</label><textarea id="emBody" rows="8" placeholder="Write your message…"></textarea></div>
+      <div style="display:flex;gap:.6rem;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost" onclick="closeEmail()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="emSendBtn">Send email</button>
+      </div>
+    </form>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.7rem">Sends from your Buildoly Gmail and saves a copy under this sub.</div>
+  </div>
 </div>
 
 <!-- Add / Edit modal -->
@@ -753,6 +776,31 @@ async function changeStatus(sel) {
   } catch (e) { alert('Could not save status — try again'); }
 }
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }
+function openCompose(btn) {
+  const email = btn.dataset.email || '';
+  if (!email) { alert('No email on file for this sub — add one first with the ✏️ in the Email column.'); return; }
+  document.getElementById('emForm').dataset.id = btn.dataset.id;
+  document.getElementById('emTo').textContent = email;
+  document.getElementById('emSubject').value = '';
+  document.getElementById('emBody').value = '';
+  const sb = document.getElementById('emSendBtn'); sb.disabled = false; sb.textContent = 'Send email';
+  document.getElementById('emailModal').classList.add('show');
+}
+function closeEmail() { document.getElementById('emailModal').classList.remove('show'); }
+async function sendCompose() {
+  const id = document.getElementById('emForm').dataset.id;
+  const subject = document.getElementById('emSubject').value.trim();
+  const body = document.getElementById('emBody').value;
+  if (!subject) { alert('Add a subject'); return; }
+  const sb = document.getElementById('emSendBtn'); sb.disabled = true; sb.textContent = 'Sending…';
+  try {
+    const r = await fetch('/subs/' + id + '/email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, body }) });
+    const data = await r.json();
+    if (data.ok) { closeEmail(); location.reload(); }
+    else { alert(data.error || 'Send failed'); sb.disabled = false; sb.textContent = 'Send email'; }
+  } catch (e) { alert('Send failed'); sb.disabled = false; sb.textContent = 'Send email'; }
+}
+document.getElementById('emailModal').addEventListener('click', e => { if (e.target.id === 'emailModal') closeEmail(); });
 document.getElementById('subForm').addEventListener('submit', async function (e) {
   const id = document.getElementById('editId').value;
   if (!id) return;

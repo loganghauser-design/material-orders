@@ -1445,6 +1445,13 @@ async function initDb() {
       filename TEXT, mime TEXT, data BYTEA,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Emails sent to a subcontractor (logged under each sub)
+    CREATE TABLE IF NOT EXISTS sub_emails (
+      id SERIAL PRIMARY KEY,
+      sub_id INTEGER REFERENCES subcontractors(id) ON DELETE CASCADE,
+      to_email TEXT, subject TEXT, body TEXT, sent_by TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -3686,10 +3693,13 @@ app.get('/subs', requireAuth, async (req, res) => {
     const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
     const photosBySub = {};
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
+    const { rows: emailRows } = await pool.query('SELECT id, sub_id, subject, body, to_email, created_at FROM sub_emails ORDER BY created_at DESC');
+    const emailsBySub = {};
+    emailRows.forEach(e => (emailsBySub[e.sub_id] = emailsBySub[e.sub_id] || []).push(e));
     const isSuper = req.session.role === 'super';
     const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
     const recentCount = subs.filter(s => s.recent_add).length;
-    res.render('subs', { subs, photosBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount,
+    res.render('subs', { subs, photosBySub, emailsBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -4165,6 +4175,26 @@ app.post('/subs/:id/move', requireAuth, async (req, res) => {
 app.post('/subs/:id/delete', requireAuth, async (req, res) => {
   try { await pool.query('DELETE FROM subcontractors WHERE id=$1', [req.params.id]); res.redirect('/subs'); }
   catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Email a subcontractor and log it under that sub
+app.post('/subs/:id/email', requireAuth, async (req, res) => {
+  try {
+    const subject = String(req.body.subject || '').trim();
+    const body = String(req.body.body || '');
+    if (!subject) return res.status(400).json({ ok: false, error: 'Add a subject.' });
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
+    const { rows: [sub] } = await pool.query('SELECT id, company, owner, email FROM subcontractors WHERE id=$1', [req.params.id]);
+    if (!sub) return res.status(404).json({ ok: false, error: 'Subcontractor not found.' });
+    if (!sub.email) return res.status(400).json({ ok: false, error: 'This sub has no email on file — add one first (✏️).' });
+    const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+    await sendMail({ to: sub.email, subject, html });
+    await pool.query(
+      'INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by) VALUES ($1,$2,$3,$4,$5)',
+      [sub.id, sub.email, subject, body, sessionKey(req)]
+    );
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Upload a photo (business card etc.) for a subcontractor
