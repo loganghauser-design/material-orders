@@ -1452,6 +1452,15 @@ async function initDb() {
       to_email TEXT, subject TEXT, body TEXT, sent_by TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Link each sub email to its Gmail thread so we can pull the sub's replies back
+    -- into the log. direction: 'out' = we sent it, 'in' = the sub replied.
+    ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS gmail_thread_id VARCHAR(255);
+    ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS gmail_message_id VARCHAR(255);
+    ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS direction VARCHAR(8) DEFAULT 'out';
+    ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS from_email TEXT;
+    -- Per-sub "unread reply" badge state
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reply_unread BOOLEAN DEFAULT false;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS replies_viewed_at TIMESTAMPTZ;
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -3693,7 +3702,7 @@ app.get('/subs', requireAuth, async (req, res) => {
     const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
     const photosBySub = {};
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
-    const { rows: emailRows } = await pool.query('SELECT id, sub_id, subject, body, to_email, created_at FROM sub_emails ORDER BY created_at DESC');
+    const { rows: emailRows } = await pool.query('SELECT id, sub_id, subject, body, to_email, from_email, direction, created_at FROM sub_emails ORDER BY created_at DESC');
     const emailsBySub = {};
     emailRows.forEach(e => (emailsBySub[e.sub_id] = emailsBySub[e.sub_id] || []).push(e));
     const isSuper = req.session.role === 'super';
@@ -4188,14 +4197,22 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     if (!sub) return res.status(404).json({ ok: false, error: 'Subcontractor not found.' });
     if (!sub.email) return res.status(400).json({ ok: false, error: 'This sub has no email on file — add one first (✏️).' });
     const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>`;
-    await sendMail({ to: sub.email, subject, html });
+    const sent = await sendMail({ to: sub.email, subject, html });
     await pool.query(
-      'INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by) VALUES ($1,$2,$3,$4,$5)',
-      [sub.id, sub.email, subject, body, sessionKey(req)]
+      "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
+      [sub.id, sub.email, subject, body, sessionKey(req), (sent && sent.threadId) || null, (sent && sent.messageId) || null]
     );
     // Sending an email advances the outreach pipeline to "Bid Sent"
     await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
     res.json({ ok: true, bid_status: 'Bid Sent' });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Mark a sub's replies as seen — clears the unread-reply badge on their row
+app.post('/subs/:id/replies/seen', requireAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE subcontractors SET reply_unread=false, replies_viewed_at=NOW() WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
@@ -4474,6 +4491,51 @@ async function checkUnreadThreads() {
   } catch (e) { console.error('checkUnreadThreads:', e.message); }
 }
 
+// Pull subcontractor REPLIES into each sub's email log + flag an unread badge.
+// Mirrors checkUnreadThreads (the supplier version): for every email we sent a sub,
+// fetch its Gmail thread, store any inbound messages we haven't logged yet, and mark
+// the sub as having an unread reply if a reply arrived after they last viewed the log.
+async function checkSubReplies() {
+  if (!useGmail) return;
+  try {
+    // Backfill thread ids for sends made before reply-linking existed (match by subject + sub email).
+    const { rows: noThread } = await pool.query(
+      "SELECT id, subject, to_email FROM sub_emails WHERE direction='out' AND gmail_thread_id IS NULL AND to_email IS NOT NULL");
+    for (const r of noThread) {
+      try {
+        const tids = await relatedThreadIds(r.subject, r.to_email);
+        if (tids.length) await pool.query('UPDATE sub_emails SET gmail_thread_id=$1 WHERE id=$2', [tids[0], r.id]);
+      } catch (e) { /* skip */ }
+    }
+    const { rows } = await pool.query(
+      "SELECT DISTINCT sub_id, gmail_thread_id, subject, to_email FROM sub_emails WHERE direction='out' AND gmail_thread_id IS NOT NULL");
+    for (const r of rows) {
+      try {
+        // Subs sometimes reply in a split-off thread (same subject + their address).
+        const ids = new Set([r.gmail_thread_id]);
+        (await relatedThreadIds(r.subject, r.to_email)).forEach(id => ids.add(id));
+        const inbound = [];
+        for (const id of ids) { try { inbound.push(...(await fetchThread(id)).filter(m => !m.fromMe)); } catch (e) { /* skip */ } }
+        if (!inbound.length) continue;
+        for (const m of inbound) {
+          const { rows: ex } = await pool.query('SELECT 1 FROM sub_emails WHERE gmail_message_id=$1 LIMIT 1', [m.id]);
+          if (ex.length) continue;   // already logged this reply
+          const raw = (!m.isHtml && m.body) ? stripQuotedPlain(m.body, false) : (m.snippet || '');
+          const text = raw.length > 2000 ? raw.slice(0, 2000) + '…' : raw;
+          const when = isNaN(new Date(m.date).getTime()) ? new Date() : new Date(m.date);
+          await pool.query(
+            "INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at) VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8)",
+            [r.sub_id, r.to_email, m.from, m.subject || r.subject, text, r.gmail_thread_id, m.id, when]);
+        }
+        const latest = new Date(Math.max(...inbound.map(m => new Date(m.date).getTime())));
+        const { rows: [sub] } = await pool.query('SELECT replies_viewed_at FROM subcontractors WHERE id=$1', [r.sub_id]);
+        const viewed = sub && sub.replies_viewed_at ? new Date(sub.replies_viewed_at) : new Date(0);
+        if (latest > viewed) await pool.query('UPDATE subcontractors SET reply_unread=true WHERE id=$1', [r.sub_id]);
+      } catch (e) { /* skip individual sub errors */ }
+    }
+  } catch (e) { console.error('checkSubReplies:', e.message); }
+}
+
 async function sendDeliveryReminder() {
   if (!emailEnabled) return;
   try {
@@ -4624,6 +4686,7 @@ async function runPermitIdleCheck() {
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
+  cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
   cron.schedule('0 16 * * *', runPermitIdleCheck);      // daily ~8am PT — idle permit alerts
@@ -4640,4 +4703,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); }).catch(err => console.error('DB init failed:', err.message));
