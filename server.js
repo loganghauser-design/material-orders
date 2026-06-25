@@ -4193,7 +4193,9 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
       'INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by) VALUES ($1,$2,$3,$4,$5)',
       [sub.id, sub.email, subject, body, sessionKey(req)]
     );
-    res.json({ ok: true });
+    // Sending an email advances the outreach pipeline to "Bid Sent"
+    await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
+    res.json({ ok: true, bid_status: 'Bid Sent' });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
