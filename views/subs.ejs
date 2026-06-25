@@ -798,7 +798,7 @@ We currently have a project that we would like to invite you to bid on. Before m
 • Contractor license number
 • Proof of workers' compensation insurance
 • General liability insurance information (COI, if available)
-• Service area(s) you cover (please check all that apply):
+• Service area(s) you cover (please list all that apply):
 {AREAS}
 • Other trades or scopes of work your company performs in addition to {TRADE}
 
@@ -822,7 +822,7 @@ We currently have a project available for bidding and would appreciate the oppor
 • Contractor license number
 • Proof of workers' compensation insurance
 • General liability insurance information (COI, if available)
-• Service area(s) you cover (please check all that apply):
+• Service area(s) you cover (please list all that apply):
 {AREAS}
 • Other trades or scopes of work your company performs in addition to {TRADE}
 
@@ -837,7 +837,7 @@ function applyTemplate(sel) {
   if (!key || !EMAIL_TEMPLATES[key]) return;
   const name = composeName || '[Subcontractor Name]';
   const trade = composeTrade || '[trade]';
-  const areas = AREA_LIST.map(function (a) { return '     ☐ ' + a; }).join('\n');
+  const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
   document.getElementById('emSubject').value = EMAIL_SUBJECT;
   document.getElementById('emBody').value = EMAIL_TEMPLATES[key]
     .split('{NAME}').join(name).split('{TRADE}').join(trade).split('{AREAS}').join(areas);
