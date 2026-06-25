@@ -1120,6 +1120,23 @@ async function sendMail({ to, cc, subject, text, html, attachments, threadId, in
   return { threadId: null, messageId: data && data.id };
 }
 
+// Read the user's Gmail signature (the HTML block they set in Gmail settings) so we can
+// append it to app-sent emails — the Gmail API does NOT add it automatically the way the
+// web compose UI does. Cached for the process; falls back to '' if the scope is missing.
+let _cachedSignature = null;
+async function getGmailSignature() {
+  if (!useGmail) return '';
+  if (_cachedSignature !== null) return _cachedSignature;
+  try {
+    const { data } = await gmailClient.users.settings.sendAs.list({ userId: 'me' });
+    const list = data.sendAs || [];
+    const mine = list.find(s => s.isDefault) ||
+      list.find(s => (s.sendAsEmail || '').toLowerCase() === String(gmailUser).toLowerCase()) || list[0];
+    _cachedSignature = (mine && mine.signature) ? mine.signature : '';
+  } catch (e) { console.error('getGmailSignature:', e.message); _cachedSignature = ''; }
+  return _cachedSignature;
+}
+
 // Superintendents — each project can be assigned a super, who gets @mentioned on
 // that project's delivery alerts. chatId is the Google Chat user ID (numeric) used
 // for the <users/ID> mention. Add more here as needed (look up their Chat user ID).
@@ -4196,11 +4213,22 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     const { rows: [sub] } = await pool.query('SELECT id, company, owner, email FROM subcontractors WHERE id=$1', [req.params.id]);
     if (!sub) return res.status(404).json({ ok: false, error: 'Subcontractor not found.' });
     if (!sub.email) return res.status(400).json({ ok: false, error: 'This sub has no email on file — add one first (✏️).' });
-    const html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+    // Optional Google Drive link to the construction-drawings (CD) set / plans.
+    const plansRaw = String(req.body.plans || '').trim();
+    if (plansRaw && !/^https?:\/\//i.test(plansRaw)) {
+      return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
+    }
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+    if (plansRaw) {
+      html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
+    }
+    const sig = await getGmailSignature();
+    if (sig) html += `<br><br>${sig}`;
     const sent = await sendMail({ to: sub.email, subject, html });
+    const logBody = plansRaw ? (body + (body ? '\n\n' : '') + 'Plans: ' + plansRaw) : body;
     await pool.query(
       "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
-      [sub.id, sub.email, subject, body, sessionKey(req), (sent && sent.threadId) || null, (sent && sent.messageId) || null]
+      [sub.id, sub.email, subject, logBody, sessionKey(req), (sent && sent.threadId) || null, (sent && sent.messageId) || null]
     );
     // Sending an email advances the outreach pipeline to "Bid Sent"
     await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);

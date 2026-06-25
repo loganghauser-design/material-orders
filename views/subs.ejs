@@ -338,6 +338,7 @@
       </div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="emSubject" required></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Message</label><textarea id="emBody" rows="8" placeholder="Write your message…"></textarea></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Plans link — Google Drive CD set <span style="font-weight:400;color:var(--muted)">(saved & auto-filled next time)</span></label><input type="url" id="emPlans" placeholder="https://drive.google.com/…"></div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
         <button type="button" class="btn btn-ghost" onclick="closeEmail()">Cancel</button>
         <button type="submit" class="btn btn-primary" id="emSendBtn">Send email</button>
@@ -865,6 +866,7 @@ function openCompose(btn) {
   document.getElementById('emTemplate').value = '';
   document.getElementById('emSubject').value = EMAIL_SUBJECT;
   document.getElementById('emBody').value = '';
+  document.getElementById('emPlans').value = localStorage.getItem('subPlansLink') || '';
   const sb = document.getElementById('emSendBtn'); sb.disabled = false; sb.textContent = 'Send email';
   document.getElementById('emailModal').classList.add('show');
 }
@@ -873,14 +875,61 @@ async function sendCompose() {
   const id = document.getElementById('emForm').dataset.id;
   const subject = document.getElementById('emSubject').value.trim();
   const body = document.getElementById('emBody').value;
+  const plans = document.getElementById('emPlans').value.trim();
   if (!subject) { alert('Add a subject'); return; }
+  // Remember the plans link so the next email pre-fills it (paste once, reuse).
+  if (plans) localStorage.setItem('subPlansLink', plans); else localStorage.removeItem('subPlansLink');
   const sb = document.getElementById('emSendBtn'); sb.disabled = true; sb.textContent = 'Sending…';
   try {
-    const r = await fetch('/subs/' + id + '/email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, body }) });
+    const r = await fetch('/subs/' + id + '/email', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subject, body, plans }) });
     const data = await r.json();
-    if (data.ok) { closeEmail(); location.reload(); }
-    else { alert(data.error || 'Send failed'); sb.disabled = false; sb.textContent = 'Send email'; }
+    if (data.ok) {
+      closeEmail();
+      updateRowAfterSend(id, data.bid_status, subject);   // in-place — NO reload, page stays put
+      showToast('✓ Email sent');
+    } else { alert(data.error || 'Send failed'); sb.disabled = false; sb.textContent = 'Send email'; }
   } catch (e) { alert('Send failed'); sb.disabled = false; sb.textContent = 'Send email'; }
+}
+// Update just the sub's row after a send — keeps scroll position (no full reload).
+function updateRowAfterSend(id, bidStatus, subject) {
+  const sel = document.querySelector('.bid-sel[data-id="' + id + '"]');
+  if (sel && bidStatus) {
+    sel.value = bidStatus;
+    BID_CLASSES.forEach(c => sel.classList.remove(c));
+    const c = bidClassJS(bidStatus); if (c) sel.classList.add(c);
+  }
+  const row = sel ? sel.closest('tr') : null;
+  if (!row) return;
+  const badge = row.querySelector('.emlog-btn');
+  if (badge) {
+    const m = badge.textContent.match(/\d+/);
+    const n = (m ? parseInt(m[0], 10) : 0) + 1;
+    if (badge.firstChild && badge.firstChild.nodeType === 3) badge.firstChild.textContent = '✉ ' + n + ' ';
+  } else {
+    const cell = row.querySelector('td[data-label="Email"]');
+    if (cell) {
+      const span = document.createElement('span');
+      span.className = 'emlog-btn'; span.title = 'Email history with this sub'; span.textContent = '✉ 1 ';
+      span.setAttribute('onclick', 'openEmlog(this, ' + id + ')');
+      const bodyDiv = document.createElement('div'); bodyDiv.className = 'emlog-body';
+      const item = document.createElement('div'); item.className = 'emlog-item';
+      const d = document.createElement('span'); d.className = 'emlog-date'; d.textContent = new Date().toLocaleDateString();
+      const st = document.createElement('strong'); st.textContent = subject || '';
+      item.appendChild(d); item.appendChild(st); bodyDiv.appendChild(item);
+      cell.appendChild(span); cell.appendChild(bodyDiv);
+    }
+  }
+}
+function showToast(msg) {
+  let t = document.getElementById('subToast');
+  if (!t) {
+    t = document.createElement('div'); t.id = 'subToast';
+    t.style.cssText = 'position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:#1a6b1a;color:#fff;padding:10px 18px;border-radius:10px;font-weight:700;font-size:.9rem;box-shadow:0 4px 18px rgba(0,0,0,.25);z-index:9999;opacity:0;transition:opacity .2s';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  requestAnimationFrame(function () { t.style.opacity = '1'; });
+  clearTimeout(t._h); t._h = setTimeout(function () { t.style.opacity = '0'; }, 2200);
 }
 document.getElementById('emailModal').addEventListener('click', e => { if (e.target.id === 'emailModal') closeEmail(); });
 document.getElementById('subForm').addEventListener('submit', async function (e) {
