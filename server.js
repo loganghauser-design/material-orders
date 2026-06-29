@@ -4603,16 +4603,32 @@ async function checkSubReplies() {
         for (const id of ids) { try { inbound.push(...(await fetchThread(id)).filter(m => !m.fromMe)); } catch (e) { /* skip */ } }
         if (!inbound.length) continue;
         for (const m of inbound) {
-          const { rows: ex } = await pool.query('SELECT 1 FROM sub_emails WHERE gmail_message_id=$1 LIMIT 1', [m.id]);
-          if (ex.length) continue;   // already logged this reply
+          // Real files the sub attached. Keep PDFs/docs even when flagged "inline" (a
+          // contractor license or COI frequently arrives inline); only drop inline IMAGES,
+          // which are signature logos / mail-icons, not documents.
+          const atts = (m.attachments || []).filter(a => a.filename && !(a.inline && /^image\//i.test(a.mimeType || '')));
+          const { rows: ex } = await pool.query('SELECT id FROM sub_emails WHERE gmail_message_id=$1 LIMIT 1', [m.id]);
+          if (ex.length) {
+            // Already logged — backfill its attachments if we missed them (e.g. reply
+            // predates attachment capture, or the old over-eager inline filter dropped them).
+            if (atts.length) {
+              const { rows: [ac] } = await pool.query('SELECT count(*)::int AS n FROM sub_email_attachments WHERE sub_email_id=$1', [ex[0].id]);
+              if (ac.n === 0) {
+                for (const a of atts) {
+                  await pool.query(
+                    "INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)",
+                    [ex[0].id, a.filename, a.mimeType || null, a.size || null, m.id, a.attachmentId]);
+                }
+              }
+            }
+            continue;
+          }
           const raw = (!m.isHtml && m.body) ? stripQuotedPlain(m.body, false) : (m.snippet || '');
           const text = raw.length > 2000 ? raw.slice(0, 2000) + '…' : raw;
           const when = isNaN(new Date(m.date).getTime()) ? new Date() : new Date(m.date);
           const { rows: [ins] } = await pool.query(
             "INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at) VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8) RETURNING id",
             [r.sub_id, r.to_email, m.from, m.subject || r.subject, text, r.gmail_thread_id, m.id, when]);
-          // Store any real (non-inline) files the sub attached — license PDFs, COI, photos.
-          const atts = (m.attachments || []).filter(a => !a.inline && a.filename);
           for (const a of atts) {
             await pool.query(
               "INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)",
