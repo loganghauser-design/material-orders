@@ -4262,6 +4262,45 @@ app.post('/subs/:id/replies/seen', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// Reply to a sub inside their existing Gmail thread — straight from the subs page
+app.post('/subs/:id/reply', requireAuth, async (req, res) => {
+  try {
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
+    const body = String(req.body.body || '').trim();
+    if (!body) return res.status(400).json({ ok: false, error: 'Write a reply first.' });
+    const { rows: [sub] } = await pool.query('SELECT id, email FROM subcontractors WHERE id=$1', [req.params.id]);
+    if (!sub) return res.status(404).json({ ok: false, error: 'Subcontractor not found.' });
+    if (!sub.email) return res.status(400).json({ ok: false, error: 'This sub has no email on file.' });
+    // Reply into the sub's most recent thread.
+    const { rows: [row] } = await pool.query(
+      "SELECT gmail_thread_id, subject FROM sub_emails WHERE sub_id=$1 AND gmail_thread_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+      [req.params.id]);
+    if (!row) return res.status(400).json({ ok: false, error: 'No email thread yet — use the ✉ button to start one.' });
+    let subject = row.subject || '';
+    let inReplyTo = null, references = '';
+    if (useGmail) {
+      try {
+        const messages = await fetchThread(row.gmail_thread_id);
+        if (messages.length) {
+          const last = messages[messages.length - 1];
+          subject = last.subject || subject;
+          inReplyTo = last.messageIdHeader || null;
+          references = [last.references, last.messageIdHeader].filter(Boolean).join(' ');
+        }
+      } catch (e) { /* fall back to stored subject without threading headers */ }
+    }
+    if (!/^re:/i.test(subject)) subject = 'Re: ' + subject;
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+    const sig = await getGmailSignature();
+    if (sig) html += `<br><br>${sig}`;
+    const sent = await sendMail({ to: sub.email, subject, html, threadId: row.gmail_thread_id, inReplyTo, references });
+    await pool.query(
+      "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
+      [sub.id, sub.email, subject, body, sessionKey(req), (sent && sent.threadId) || row.gmail_thread_id, (sent && sent.messageId) || null]);
+    res.json({ ok: true, subject });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Upload a photo (business card etc.) for a subcontractor
 app.post('/subs/:id/photo', requireAuth, upload.array('photos', 12), async (req, res) => {
   const ajax = req.headers['x-requested-with'] === 'fetch';
