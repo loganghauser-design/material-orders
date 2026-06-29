@@ -112,12 +112,12 @@
     </div>
 
     <div class="add-stop">
-      <select id="stopPicker">
-        <option value="">— pick a project —</option>
+            <input type="text" id="stopPicker" list="projDatalist" placeholder="Search a project by address…" autocomplete="off">
+      <datalist id="projDatalist">
         <% projects.forEach(p => { %>
-          <option value="<%= p.full_address || p.address %>" data-label="<%= p.address %>"><%= p.address %></option>
+          <option value="<%= p.address %>"><%= p.client_name || p.full_address || '' %></option>
         <% }) %>
-      </select>
+      </datalist>
       <span class="or">or</span>
       <input type="text" id="customStop" placeholder="type any address (lumber yard, warehouse…)">
       <button class="btn btn-primary btn-sm" onclick="addStopSmart()">+ Add stop</button>
@@ -172,12 +172,16 @@
 const HOME = <%- JSON.stringify(home || '') %>;
 const DRIVING_ENABLED = <%- JSON.stringify(!!drivingEnabled) %>;
 let stops = []; // { address, label }
-
+// Map each project's display address -> its full (routable) address for mileage.
+const PROJ_MAP = {};
+<% projects.forEach(p => { %>PROJ_MAP[<%- JSON.stringify(p.address) %>] = <%- JSON.stringify(p.full_address || p.address) %>;
+<% }) %>
 function addStop() {
   const sel = document.getElementById('stopPicker');
-  if (!sel.value) { showToast('Pick a project first', true); return; }
-  const label = sel.options[sel.selectedIndex].dataset.label;
-  stops.push({ address: sel.value, label });
+  const label = sel.value.trim();
+  if (!label) { showToast('Pick a project first', true); return; }
+  const full = PROJ_MAP[label] || label;
+  stops.push({ address: full, label });
   sel.value = '';
   renderStops(); autoRoute();
 }
@@ -194,7 +198,7 @@ function removeStop(i) { stops.splice(i,1); renderStops(); autoRoute(); syncSave
 function addStopSmart() {
   const sel = document.getElementById('stopPicker');
   const inp = document.getElementById('customStop');
-  if (sel.value) { const label = sel.options[sel.selectedIndex].dataset.label; stops.push({ address: sel.value, label }); sel.value = ''; }
+  if (sel.value.trim()) { const label = sel.value.trim(); const full = PROJ_MAP[label] || label; stops.push({ address: full, label }); sel.value = ''; }
   else if (inp.value.trim()) { const v = inp.value.trim(); stops.push({ address: v, label: v }); inp.value = ''; }
   else { showToast('Pick a project or type an address', true); return; }
   renderStops(); autoRoute(); syncSave();
