@@ -1764,6 +1764,7 @@ app.use((req, res, next) => {
   const p = req.path;
   if (p === '/logout' || p === '/login') return next();
   if (p === '/account' || p.startsWith('/account/')) return next();      // personal Account: everyone
+  if (p.startsWith('/threads/messages/')) return next();                 // email-attachment downloads — ids only appear on pages the user can already see
   const isSuper = req.session.role === 'super';
   if (isSuper && (p === '/my' || p.startsWith('/my/'))) return next();   // supers keep their portal
   const area = pageForPath(p);
