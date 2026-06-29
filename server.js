@@ -1023,7 +1023,13 @@ function extractAttachments(payload) {
   function walk(part) {
     if (!part) return;
     if (part.filename && part.body && part.body.attachmentId) {
-      out.push({ filename: part.filename, mimeType: part.mimeType, attachmentId: part.body.attachmentId, size: part.body.size });
+      // Flag inline parts (embedded in the HTML body, e.g. signature logos) so callers
+      // can hide them — a real attached file has Content-Disposition: attachment.
+      const hdrs = part.headers || [];
+      const dispo = hdrs.find(h => /^content-disposition$/i.test(h.name));
+      const cid = hdrs.find(h => /^content-id$/i.test(h.name));
+      const inline = (dispo && /inline/i.test(dispo.value)) || !!cid;
+      out.push({ filename: part.filename, mimeType: part.mimeType, attachmentId: part.body.attachmentId, size: part.body.size, inline });
     }
     if (part.parts) part.parts.forEach(walk);
   }
@@ -1478,6 +1484,15 @@ async function initDb() {
     -- Per-sub "unread reply" badge state
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reply_unread BOOLEAN DEFAULT false;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS replies_viewed_at TIMESTAMPTZ;
+    -- Files a sub attaches to a reply (license PDF, COI, insurance, photos). We store
+    -- metadata + the Gmail ids and stream the bytes on demand via the attachment route.
+    CREATE TABLE IF NOT EXISTS sub_email_attachments (
+      id SERIAL PRIMARY KEY,
+      sub_email_id INTEGER REFERENCES sub_emails(id) ON DELETE CASCADE,
+      filename TEXT, mime TEXT, size INTEGER,
+      gmail_message_id VARCHAR(255), gmail_attachment_id TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     -- Office/warehouse stock counts (Buildoly Stock + JEDCO). Keyed by Prod. Code
     -- (or item name when no code). Demand is derived live from the finish schedules;
@@ -3722,10 +3737,13 @@ app.get('/subs', requireAuth, async (req, res) => {
     const { rows: emailRows } = await pool.query('SELECT id, sub_id, subject, body, to_email, from_email, direction, created_at FROM sub_emails ORDER BY created_at DESC');
     const emailsBySub = {};
     emailRows.forEach(e => (emailsBySub[e.sub_id] = emailsBySub[e.sub_id] || []).push(e));
+    const { rows: attRows } = await pool.query('SELECT id, sub_email_id, filename, mime, gmail_message_id, gmail_attachment_id FROM sub_email_attachments ORDER BY id');
+    const attByEmail = {};
+    attRows.forEach(a => (attByEmail[a.sub_email_id] = attByEmail[a.sub_email_id] || []).push(a));
     const isSuper = req.session.role === 'super';
     const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
     const recentCount = subs.filter(s => s.recent_add).length;
-    res.render('subs', { subs, photosBySub, emailsBySub, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -4551,9 +4569,16 @@ async function checkSubReplies() {
           const raw = (!m.isHtml && m.body) ? stripQuotedPlain(m.body, false) : (m.snippet || '');
           const text = raw.length > 2000 ? raw.slice(0, 2000) + '…' : raw;
           const when = isNaN(new Date(m.date).getTime()) ? new Date() : new Date(m.date);
-          await pool.query(
-            "INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at) VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8)",
+          const { rows: [ins] } = await pool.query(
+            "INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at) VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8) RETURNING id",
             [r.sub_id, r.to_email, m.from, m.subject || r.subject, text, r.gmail_thread_id, m.id, when]);
+          // Store any real (non-inline) files the sub attached — license PDFs, COI, photos.
+          const atts = (m.attachments || []).filter(a => !a.inline && a.filename);
+          for (const a of atts) {
+            await pool.query(
+              "INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)",
+              [ins.id, a.filename, a.mimeType || null, a.size || null, m.id, a.attachmentId]);
+          }
         }
         const latest = new Date(Math.max(...inbound.map(m => new Date(m.date).getTime())));
         const { rows: [sub] } = await pool.query('SELECT replies_viewed_at FROM subcontractors WHERE id=$1', [r.sub_id]);
