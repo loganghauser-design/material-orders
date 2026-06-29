@@ -341,6 +341,7 @@
       <div class="form-group" style="margin-bottom:.7rem"><label>Template</label>
         <select id="emTemplate" onchange="applyTemplate(this)">
           <option value="">— blank —</option>
+          <option value="generic">Generic outreach</option>
           <option value="altadena">Met in person (Altadena)</option>
           <option value="marvin">Referred by Marvin Han</option>
         </select>
@@ -801,6 +802,22 @@ const EMAIL_SUBJECT = 'ADU BID REQUEST BUILDOLY';
 const AREA_LIST = <%- JSON.stringify(typeof LOCATION_OPTS !== 'undefined' ? LOCATION_OPTS : []) %>;
 let composeName = '', composeTrade = '';
 const EMAIL_TEMPLATES = {
+  generic: `Hi {NAME},
+
+My name is Logan, and I am with Buildoly. We are a general contractor with more than 60 upcoming Resi + ADU construction projects and are currently expanding our subcontractor network.
+
+We currently have a project that we would like to invite you to bid on. Before moving forward, could you please provide the following information about your company:
+
+• Contractor license number
+• Proof of workers' compensation insurance
+• General liability insurance information (COI, if available)
+• Service area(s) you cover (please list all that apply):
+{AREAS}
+• Other trades or scopes of work your company performs in addition to {TRADE}
+
+Project information is attached for your review. We would appreciate receiving your proposal by 07/01.
+
+We look forward to the opportunity to work together on this project and future projects.`,
   altadena: `Hi {NAME},
 
 It was a pleasure meeting you in Altadena last week.
