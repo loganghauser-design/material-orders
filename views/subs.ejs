@@ -57,6 +57,7 @@
     .sec-gc { background:#fce5cd; color:#7a4a16; }
     .sec-sub { background:#ead1dc; color:#7a2c52; }
     .sub-section:first-of-type .sec-title { margin-top:.4rem; }
+    .container.container-wide { max-width: 95vw; }
     .tbl-wrap { overflow:auto; max-height:76vh; border:1px solid var(--border); border-radius:10px; }
     .tbl-wrap::-webkit-scrollbar { height:13px; width:13px; }
     .tbl-wrap::-webkit-scrollbar-thumb { background:#aab0be; border-radius:7px; border:2px solid var(--surface); }
@@ -160,7 +161,7 @@
 <body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
 <%- include('_nav', { active: 'subs' }) %>
 
-<div class="container">
+<div class="container container-wide">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
     <h1>Subcontractors <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= subs.length %>)</span></h1>
     <div class="admin-actions" style="display:flex;gap:.5rem;flex-wrap:wrap">
