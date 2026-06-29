@@ -348,6 +348,7 @@
         </select>
       </div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="emSubject" required></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Proposal due date <span style="font-weight:400;color:var(--muted)">(sets the deadline in the email)</span></label><input type="date" id="emDeadline" onchange="updateDeadline(this)"></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Message</label><textarea id="emBody" rows="8" placeholder="Write your message…"></textarea></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Plans link — Google Drive CD set <span style="font-weight:400;color:var(--muted)">(saved & auto-filled next time)</span></label><input type="url" id="emPlans" placeholder="https://drive.google.com/…"></div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
@@ -680,7 +681,7 @@ async function delPhoto(id, el) {
     const d = await r.json();
     if (!d.ok) { alert('Could not remove photo.'); return; }
     if (el && el.closest('.thumb')) el.closest('.thumb').remove();   // remove in place (row + modal)
-    else location.reload();
+    else reloadKeepScroll();
   } catch (e) { alert('Could not remove photo.'); }
 }
 function pillClassJS(st) { st = (st || '').toLowerCase();
@@ -699,7 +700,7 @@ async function blNote(id, btn) {
   try {
     const r = await fetch('/subs/' + id + '/reason', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ reason }) });
     const d = await r.json();
-    if (d.ok) location.reload(); else alert('Could not save note — try again');
+    if (d.ok) reloadKeepScroll(); else alert('Could not save note — try again');
   } catch (e) { alert('Could not save note — try again'); }
 }
 function blReveal(btn) {
@@ -747,7 +748,7 @@ async function editEmail(id, btn) {
   const email = prompt('Email for this contractor:', cur);
   if (email === null) return;   // cancelled
   const ok = await subField(id, { email: email.trim() });
-  if (ok) location.reload(); else alert('Could not save email — try again');
+  if (ok) reloadKeepScroll(); else alert('Could not save email — try again');
 }
 
 // ── Drag & drop to move between buckets / sections ──
@@ -761,12 +762,12 @@ async function moveSubTo(id, cat, grp) {
   const body = new URLSearchParams({ category: cat, group_label: grp });
   if (/reject|black/i.test(grp)) {   // dropping into Rejected / Blacklisted → capture the reason
     const reason = prompt((/black/i.test(grp) ? 'Blacklist' : 'Reject') + ' this contractor — reason? (Shows over their whole row; the contact info gets blurred.)', '');
-    if (reason === null) { location.reload(); return; }   // cancelled
+    if (reason === null) { reloadKeepScroll(); return; }   // cancelled
     body.set('reason', reason || '');
   }
   try {
     const r = await fetch('/subs/' + id + '/move', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-    if (r.ok) location.reload(); else throw 0;
+    if (r.ok) reloadKeepScroll(); else throw 0;
   } catch (err) { alert('Could not move — try again'); }
 }
 async function onDrop(e) {
@@ -775,6 +776,24 @@ async function onDrop(e) {
   const id = dragId; dragId = null;
   await moveSubTo(id, t.dataset.cat, t.dataset.grp || '');
 }
+// Reload but keep the table/window scroll position so the page doesn't jump to the top.
+function reloadKeepScroll() {
+  try {
+    const tw = document.querySelector('.tbl-wrap');
+    sessionStorage.setItem('subsScroll', JSON.stringify({ w: window.scrollY, t: tw ? tw.scrollTop : 0, l: tw ? tw.scrollLeft : 0 }));
+  } catch (e) {}
+  location.reload();
+}
+window.addEventListener('DOMContentLoaded', function () {
+  try {
+    const s = sessionStorage.getItem('subsScroll'); if (!s) return;
+    sessionStorage.removeItem('subsScroll');
+    const o = JSON.parse(s);
+    const tw = document.querySelector('.tbl-wrap');
+    if (tw) { tw.scrollTop = o.t || 0; tw.scrollLeft = o.l || 0; }
+    window.scrollTo(0, o.w || 0);
+  } catch (e) {}
+});
 async function changeMove(sel) {
   if (!sel.value) return;
   const [cat, grp] = sel.value.split('||');
@@ -786,7 +805,7 @@ async function changeStatus(sel) {
   let reason = '';
   if (flag) {
     reason = prompt((/black/i.test(v) ? 'Blacklist' : 'Reject') + ' this contractor — reason? (Shows on the card; the contact info gets blurred.)', '');
-    if (reason === null) { location.reload(); return; }   // cancelled → restore previous status
+    if (reason === null) { reloadKeepScroll(); return; }   // cancelled → restore previous status
   }
   sel.className = 'spill ' + pillClassJS(v);   // recolor instantly
   const body = new URLSearchParams({ status: v });
@@ -795,7 +814,7 @@ async function changeStatus(sel) {
     const r = await fetch('/subs/' + sel.dataset.id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
     const data = await r.json();
     if (!r.ok || !data.ok) throw 0;
-    location.reload();   // refresh to move section + apply or clear the blur/reason
+    if (flag) reloadKeepScroll(); else showToast('✓ Status saved');   // reject/black moves sections (refresh, scroll kept); normal change already recolored in place
   } catch (e) { alert('Could not save status — try again'); }
 }
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }
@@ -816,7 +835,7 @@ We currently have a project that we would like to invite you to bid on. Before m
 {AREAS}
 • Other trades or scopes of work your company performs in addition to {TRADE}
 
-Project information is attached for your review. We would appreciate receiving your proposal by 07/01.
+Project information is attached for your review. We would appreciate receiving your proposal by {DEADLINE}.
 
 We look forward to the opportunity to work together on this project and future projects.`,
   altadena: `Hi {NAME},
@@ -834,7 +853,7 @@ We currently have a project that we would like to invite you to bid on. Before m
 {AREAS}
 • Other trades or scopes of work your company performs in addition to {TRADE}
 
-Project information is attached for your review. We would appreciate receiving your proposal by 07/01.
+Project information is attached for your review. We would appreciate receiving your proposal by {DEADLINE}.
 
 We look forward to the opportunity to work together on this project and future projects.`,
   marvin: `Hi {NAME},
@@ -854,8 +873,26 @@ We currently have a project available for bidding and would appreciate the oppor
 {AREAS}
 • Other trades or scopes of work your company performs in addition to {TRADE}
 
-Project information is attached for your review. We look forward to learning more about your company and exploring opportunities to work together. We would appreciate receiving your proposal by 07/01.`,
+Project information is attached for your review. We look forward to learning more about your company and exploring opportunities to work together. We would appreciate receiving your proposal by {DEADLINE}.`,
 };
+// Default proposal deadline = one week out (yyyy-mm-dd for the date input).
+function defaultDeadline() {
+  const d = new Date(); d.setDate(d.getDate() + 7);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+// Turn a yyyy-mm-dd value into "July 1, 2026" (no timezone shifts).
+function formatDeadline(iso) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return '[due date]';
+  const months = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  return months[+m[2] - 1] + ' ' + (+m[3]) + ', ' + m[1];
+}
+// When the date changes, remember it and update the deadline already in the email body.
+function updateDeadline(inp) {
+  if (inp.value) localStorage.setItem('subDeadline', inp.value); else localStorage.removeItem('subDeadline');
+  const body = document.getElementById('emBody');
+  if (body && body.value) body.value = body.value.replace(/proposal by [^.\n]+/i, 'proposal by ' + formatDeadline(inp.value));
+}
 function applyTemplate(sel) {
   const key = sel.value;
   if (!key || !EMAIL_TEMPLATES[key]) return;
@@ -864,7 +901,8 @@ function applyTemplate(sel) {
   const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
   document.getElementById('emSubject').value = EMAIL_SUBJECT;
   document.getElementById('emBody').value = EMAIL_TEMPLATES[key]
-    .split('{NAME}').join(name).split('{TRADE}').join(trade).split('{AREAS}').join(areas);
+    .split('{NAME}').join(name).split('{TRADE}').join(trade).split('{AREAS}').join(areas)
+    .split('{DEADLINE}').join(formatDeadline(document.getElementById('emDeadline').value));
 }
 function openEmlog(btn, id) {
   // Toggle the email-history panel; if there's an unread reply, clear the badge.
@@ -886,6 +924,7 @@ function openCompose(btn) {
   document.getElementById('emSubject').value = EMAIL_SUBJECT;
   document.getElementById('emBody').value = '';
   document.getElementById('emPlans').value = localStorage.getItem('subPlansLink') || '';
+  document.getElementById('emDeadline').value = localStorage.getItem('subDeadline') || defaultDeadline();
   const sb = document.getElementById('emSendBtn'); sb.disabled = false; sb.textContent = 'Send email';
   document.getElementById('emailModal').classList.add('show');
 }
@@ -988,7 +1027,7 @@ document.getElementById('subForm').addEventListener('submit', async function (e)
   ['company','owner','type','phone','email','location','status','notes','category','referenced_by'].forEach(k => body.set(k, document.getElementById('f_' + k).value));
   document.getElementById('saveBtn').textContent = 'Saving…';
   const r = await fetch('/subs/' + id, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
-  if (r.ok) location.reload(); else { alert('Could not save'); document.getElementById('saveBtn').textContent = 'Save'; }
+  if (r.ok) reloadKeepScroll(); else { alert('Could not save'); document.getElementById('saveBtn').textContent = 'Save'; }
 });
 document.getElementById('subModal').addEventListener('click', e => { if (e.target.id === 'subModal') closeModal(); });
 </script>
