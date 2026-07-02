@@ -50,6 +50,7 @@
     .emlog-reply-btn:hover { background:#1742b8; }
     .emlog-reply-btn:disabled { opacity:.6; cursor:default; }
     .emlog-reply-hint { display:block; font-size:.66rem; color:var(--muted); margin-top:.2rem; }
+    .emlog-fu { display:block; width:100%; max-width:240px; margin-bottom:.3rem; font-size:.74rem; font-weight:600; color:#1d4ed8; border:1px solid #c7d2fe; background:#eef2ff; border-radius:8px; padding:.28rem .4rem; cursor:pointer; }
     .emptybucket-cell { color:var(--muted); font-size:.85rem; font-weight:600; padding:.7rem .9rem; border:2px dashed var(--border); border-radius:8px; background:var(--bg); text-align:center; }
     tr.emptybucket.drop-hi .emptybucket-cell { background:#fde8e7; border-color:#c0392b; color:#b4231f; }
     .sec-title { font-size:1.6rem; font-weight:800; margin:2.4rem 0 .6rem; padding:.7rem 1rem; border-radius:9px; display:flex; align-items:center; gap:.6rem; }
@@ -300,7 +301,7 @@
                   <input type="text" class="lic-num" data-id="<%= s.id %>" value="<%= s.license_number || '' %>" placeholder="License #" onchange="saveLicenseNum(this)" style="<%= s.licensed===true ? '' : 'display:none' %>">
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
-                <td data-label="Email" data-email="<%= s.email || '' %>"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _em.length %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body"><% _em.forEach(function(e){ var _inb = e.direction === 'in'; %><div class="emlog-item<%= _inb ? ' inbound' : '' %>"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><% if (_inb) { %><span class="emlog-tag">↩ reply</span><% } %><strong><%= e.subject %></strong><% if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %><% var _att = (typeof attByEmail !== 'undefined' && attByEmail[e.id]) || []; if (_att.length) { %><div class="emlog-atts"><% _att.forEach(function(a){ %><a class="emlog-att" href="/threads/messages/<%= a.gmail_message_id %>/attachment/<%= a.gmail_attachment_id %>?name=<%= encodeURIComponent(a.filename||'file') %>&mime=<%= encodeURIComponent(a.mime||'') %>" target="_blank" rel="noopener" title="Open / download attachment">📎 <%= a.filename || 'attachment' %></a><% }) %></div><% } %></div><% }) %><% if (canEdit) { %><div class="emlog-reply"><textarea class="emlog-reply-text" rows="2" placeholder="Reply to this sub…"></textarea><button type="button" class="emlog-reply-btn" onclick="sendSubReply(this, <%= s.id %>)">Send reply</button><span class="emlog-reply-hint">✓ Your email signature is added automatically</span></div><% } %></div><% } %></td>
+                <td data-label="Email" data-email="<%= s.email || '' %>"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _em.length %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body"><% _em.forEach(function(e){ var _inb = e.direction === 'in'; %><div class="emlog-item<%= _inb ? ' inbound' : '' %>"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><% if (_inb) { %><span class="emlog-tag">↩ reply</span><% } %><strong><%= e.subject %></strong><% if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %><% var _att = (typeof attByEmail !== 'undefined' && attByEmail[e.id]) || []; if (_att.length) { %><div class="emlog-atts"><% _att.forEach(function(a){ %><a class="emlog-att" href="/threads/messages/<%= a.gmail_message_id %>/attachment/<%= a.gmail_attachment_id %>?name=<%= encodeURIComponent(a.filename||'file') %>&mime=<%= encodeURIComponent(a.mime||'') %>" target="_blank" rel="noopener" title="Open / download attachment">📎 <%= a.filename || 'attachment' %></a><% }) %></div><% } %></div><% }) %><% if (canEdit) { %><div class="emlog-reply"><select class="emlog-fu" data-name="<%= s.company || s.owner || '' %>" onchange="applyFollowup(this)"><option value="">Follow-up templates...</option><option value="checkin">Quick check-in</option><option value="docs">Missing docs reminder</option><option value="deadline">Proposal deadline nudge</option><option value="final">Final follow-up</option></select><textarea class="emlog-reply-text" rows="2" placeholder="Reply to this sub…"></textarea><button type="button" class="emlog-reply-btn" onclick="sendSubReply(this, <%= s.id %>)">Send reply</button><span class="emlog-reply-hint">✓ Your email signature is added automatically</span></div><% } %></div><% } %></td>
                 <td data-label="Phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></td>
                 <td class="refby" data-label="Ref. by"><%= s.referenced_by || '' %></td>
                 <td class="notes" data-label="Notes"><% if (flagged && s.reject_reason) { %><div class="reject-reason">⛔ <%= s.status %>: <%= s.reject_reason %></div><% } %><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
@@ -989,6 +990,45 @@ function showToast(msg) {
   requestAnimationFrame(function () { t.style.opacity = '1'; });
   clearTimeout(t._h); t._h = setTimeout(function () { t.style.opacity = '0'; }, 2200);
 }
+// Ready-made follow-up emails for the reply box. {NAME} = the sub's company/owner.
+// The reply sends in-thread ("Re: ADU BID REQUEST BUILDOLY") and your signature is
+// appended automatically, so these end at the last sentence.
+const FOLLOWUP_TEMPLATES = {
+  checkin: `Hi {NAME},
+
+I wanted to follow up on the bid request I sent over for our upcoming ADU project. Have you had a chance to review it?
+
+If you have any questions about the scope or need anything else from us to put a proposal together, just let me know.`,
+  docs: `Hi {NAME},
+
+Thanks again for your interest in working with Buildoly. To get you set up in our subcontractor network, we still need the following:
+
+- Contractor license number
+- Proof of workers' compensation insurance
+- General liability insurance (COI)
+- Service areas you cover
+
+Once we have these on file, we can include you in our upcoming bid rounds.`,
+  deadline: `Hi {NAME},
+
+Just a quick reminder that we're finalizing proposals for our current project soon, and we'd love to have yours in before we make decisions.
+
+If you're still interested, please send over your bid at your earliest convenience. If you need a little more time or have any questions, let me know.`,
+  final: `Hi {NAME},
+
+I haven't heard back on the bid request I sent over, so this will be my last follow-up for now.
+
+If you're still interested in working on Resi + ADU projects with Buildoly, just reply here and I'll get you into our next round of bids. Either way, we'd be glad to keep you in our network for future opportunities.`,
+};
+function applyFollowup(sel) {
+  const key = sel.value;
+  if (!key || !FOLLOWUP_TEMPLATES[key]) return;
+  const name = sel.dataset.name || '[Subcontractor Name]';
+  const ta = sel.closest('.emlog-reply').querySelector('.emlog-reply-text');
+  ta.value = FOLLOWUP_TEMPLATES[key].split('{NAME}').join(name);
+  ta.rows = 9;   // expand so the drafted follow-up is easy to review/edit
+  ta.focus();
+}
 async function sendSubReply(btn, id) {
   const bodyWrap = btn.closest('.emlog-body');
   const ta = btn.closest('.emlog-reply').querySelector('.emlog-reply-text');
@@ -1000,6 +1040,9 @@ async function sendSubReply(btn, id) {
     const data = await r.json();
     if (data.ok) {
       ta.value = '';
+      ta.rows = 2;
+      const fu = btn.closest('.emlog-reply').querySelector('.emlog-fu');
+      if (fu) fu.value = '';
       // Show the sent reply at the top of the log (newest-first), no reload.
       const item = document.createElement('div'); item.className = 'emlog-item';
       const d = document.createElement('span'); d.className = 'emlog-date'; d.textContent = new Date().toLocaleDateString();
