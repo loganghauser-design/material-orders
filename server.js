@@ -3815,7 +3815,11 @@ app.post('/warranty-claims/:id/delete', requireAuth, async (req, res) => {
 });
 
 // Retired boards (moved to the new system) - send stale bookmarks home.
-app.get(['/permits', '/permits/*', '/payments', '/payments/*'], requireAuth, (req, res) => res.redirect('/'));
+// Plain middleware (no path pattern) — Express 5's router rejects bare "*" wildcards.
+app.use((req, res, next) => {
+  if (req.path.startsWith('/permits') || req.path.startsWith('/payments')) return res.redirect('/');
+  next();
+});
 
 // ── Team hub: Logan manages who can see which page (only Logan reaches this) ───
 app.get('/team', requireAuth, async (req, res) => {
