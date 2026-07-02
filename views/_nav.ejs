@@ -1,78 +1,82 @@
 <%
   var A = (typeof active !== 'undefined') ? active : '';
-  function _nb(n){ return n ? ' <span class="navbadge">' + n + '</span>' : ''; }
   var pReq = (typeof pendingRequests !== 'undefined') ? pendingRequests : 0;
   var pIss = (typeof pendingIssues !== 'undefined') ? pendingIssues : 0;
   var pWar = (typeof openWarranty !== 'undefined') ? openWarranty : 0;
   var NP = (typeof navPages !== 'undefined') ? navPages : '*';
   function can(k){ return NP === '*' || (Array.isArray(NP) && NP.indexOf(k) >= 0); }
   var iL = (typeof isLogan !== 'undefined') ? isLogan : true;
-  // Grouped nav: primary tabs + two dropdowns keep the bar short.
-  var attn = [];
-  if (can('requests')) attn.push({ href: '/requests', key: 'requests', label: 'Requests', n: pReq });
-  if (can('issues')) attn.push({ href: '/issues', key: 'issues', label: 'Issues', n: pIss });
-  if (can('warranty')) attn.push({ href: '/warranty-claims', key: 'warranty', label: 'Warranty', n: pWar });
-  var attnTotal = attn.reduce(function (s, x) { return s + (Number(x.n) || 0); }, 0);
-  var attnActive = attn.some(function (x) { return x.key === A; });
-  var tools = [];
-  if (can('suppliers')) tools.push({ href: '/suppliers', key: 'suppliers', label: 'Suppliers' });
-  if (can('inventory')) tools.push({ href: '/inventory', key: 'inventory', label: 'Inventory' });
-  if (can('driving')) tools.push({ href: '/driving', key: 'driving', label: 'Driving Log' });
-  var toolsActive = tools.some(function (x) { return x.key === A; });
-  var userActive = ['account', 'team', 'settings'].indexOf(A) >= 0;
-%>
-<nav class="nav">
-  <div class="nav-left">
-    <a href="/" class="nav-brand">Buildoly Office</a>
-    <% if (can('projects')) { %><a href="/projects" class="nav-tab <%= A==='projects'?'active':'' %>">Projects</a><% } %>
-    <% if (can('deliveries')) { %><a href="/deliveries" class="nav-tab <%= A==='deliveries'?'active':'' %>">Deliveries</a><% } %>
-    <% if (can('subs')) { %><a href="/subs" class="nav-tab <%= A==='subs'?'active':'' %>">Subs</a><% } %>
-    <% if (attn.length) { %>
-    <div class="nav-dd">
-      <button type="button" class="nav-tab nav-dd-btn <%= attnActive?'active':'' %>" onclick="navToggle(event,'ddAttn')">Attention<%- _nb(attnTotal) %> <span class="chev">▾</span></button>
-      <div class="nav-dd-menu" id="ddAttn">
-        <% attn.forEach(function (x) { %><a href="<%= x.href %>" class="<%= A===x.key?'on':'' %>"><span><%= x.label %></span><%- x.n ? '<span class="navbadge">' + x.n + '</span>' : '' %></a><% }) %>
-      </div>
-    </div>
-    <% } %>
-    <% if (tools.length) { %>
-    <div class="nav-dd">
-      <button type="button" class="nav-tab nav-dd-btn <%= toolsActive?'active':'' %>" onclick="navToggle(event,'ddTools')">More <span class="chev">▾</span></button>
-      <div class="nav-dd-menu" id="ddTools">
-        <% tools.forEach(function (x) { %><a href="<%= x.href %>" class="<%= A===x.key?'on':'' %>"><%= x.label %></a><% }) %>
-      </div>
-    </div>
-    <% } %>
-  </div>
-  <div class="nav-actions">
-    <% if (can('projects')) { %><a href="/projects/new" class="btn btn-primary btn-sm">+ New</a><% } %>
-    <div class="nav-dd">
-      <button type="button" class="nav-tab nav-dd-btn nav-user-btn <%= userActive?'active':'' %>" onclick="navToggle(event,'ddUser')" title="Account & settings" aria-label="Account menu">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>
-      </button>
-      <div class="nav-dd-menu right" id="ddUser">
-        <a href="/account" class="<%= A==='account'?'on':'' %>">My account</a>
-        <% if (iL) { %><a href="/team" class="<%= A==='team'?'on':'' %>">Team</a><% } %>
-        <% if (can('settings')) { %><a href="/settings" class="<%= A==='settings'?'on':'' %>">Settings</a><% } %>
-        <div class="nav-dd-sep"></div>
-        <form method="POST" action="/logout"><button type="submit">Sign out</button></form>
-      </div>
-    </div>
-  </div>
-</nav>
-<script>
-function navToggle(e, id) {
-  e.stopPropagation();
-  document.querySelectorAll('.nav-dd-menu.open').forEach(function (m) { if (m.id !== id) { m.classList.remove('open'); var b = m.parentElement.querySelector('.nav-dd-btn'); if (b) b.classList.remove('menu-open'); } });
-  var m = document.getElementById(id); if (!m) return;
-  var btn = m.parentElement.querySelector('.nav-dd-btn');
-  var open = m.classList.toggle('open');
-  if (btn) btn.classList.toggle('menu-open', open);
-  if (open) {
-    document.addEventListener('click', function h() {
-      m.classList.remove('open'); if (btn) btn.classList.remove('menu-open');
-      document.removeEventListener('click', h);
-    });
+  // Simple stroke icons (feather-style), keyed by page.
+  var IC = {
+    projects: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
+    deliveries: '<rect x="1" y="3" width="15" height="13" rx="1"/><path d="M16 8h4l3 3v5h-7V8z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>',
+    subs: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    requests: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+    issues: '<path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+    warranty: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+    suppliers: '<line x1="16.5" y1="9.4" x2="7.5" y2="4.21"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/>',
+    inventory: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5" rx="1"/><line x1="10" y1="12" x2="14" y2="12"/>',
+    driving: '<polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"/><line x1="8" y1="2" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="22"/>',
+    account: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    team: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    settings: '<line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/>',
+    signout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
+  };
+  function icon(k){ return '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (IC[k] || '') + '</svg>'; }
+  function item(key, href, label, badge){
+    if (!can(key)) return '';
+    var b = badge ? '<span class="navbadge">' + badge + '</span>' : '';
+    return '<a href="' + href + '" class="sb-item ' + (A === key ? 'active' : '') + '">' + icon(key) + '<span>' + label + '</span>' + b + '</a>';
   }
+%>
+<style>@media (min-width: 901px) { body { padding-left: 222px; } }</style>
+
+<!-- Mobile top bar (sidebar becomes a slide-in drawer) -->
+<div class="sb-mobilebar">
+  <button type="button" class="sb-burger" onclick="sbToggle(event)" aria-label="Menu"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+  <a href="/" class="sb-mbrand">Buildoly Office</a>
+  <% if (can('projects')) { %><a href="/projects/new" class="btn btn-primary btn-sm">+ New</a><% } %>
+</div>
+<div class="sb-overlay" id="sbOverlay" onclick="sbClose()"></div>
+
+<aside class="sidebar" id="sidebar">
+  <a href="/" class="sb-brand">Buildoly Office</a>
+
+  <nav class="sb-nav">
+    <div class="sb-sec">Workspace</div>
+    <%- item('projects', '/projects', 'Projects') %>
+    <%- item('deliveries', '/deliveries', 'Deliveries') %>
+    <%- item('subs', '/subs', 'Subs') %>
+
+    <% if (can('requests') || can('issues') || can('warranty')) { %><div class="sb-sec">Attention</div><% } %>
+    <%- item('requests', '/requests', 'Requests', pReq) %>
+    <%- item('issues', '/issues', 'Issues', pIss) %>
+    <%- item('warranty', '/warranty-claims', 'Warranty', pWar) %>
+
+    <% if (can('suppliers') || can('inventory') || can('driving')) { %><div class="sb-sec">Tools</div><% } %>
+    <%- item('suppliers', '/suppliers', 'Suppliers') %>
+    <%- item('inventory', '/inventory', 'Inventory') %>
+    <%- item('driving', '/driving', 'Driving Log') %>
+  </nav>
+
+  <div class="sb-bottom">
+    <% if (can('projects')) { %><a href="/projects/new" class="sb-new">+ New Project</a><% } %>
+    <a href="/account" class="sb-item <%= A==='account'?'active':'' %>"><%- icon('account') %><span>My account</span></a>
+    <% if (iL) { %><a href="/team" class="sb-item <%= A==='team'?'active':'' %>"><%- icon('team') %><span>Team</span></a><% } %>
+    <% if (can('settings')) { %><a href="/settings" class="sb-item <%= A==='settings'?'active':'' %>"><%- icon('settings') %><span>Settings</span></a><% } %>
+    <form method="POST" action="/logout"><button type="submit"><%- icon('signout') %><span>Sign out</span></button></form>
+  </div>
+</aside>
+
+<script>
+function sbToggle(e) {
+  e.stopPropagation();
+  var s = document.getElementById('sidebar'), o = document.getElementById('sbOverlay');
+  var open = s.classList.toggle('open');
+  o.classList.toggle('show', open);
+}
+function sbClose() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sbOverlay').classList.remove('show');
 }
 </script>
