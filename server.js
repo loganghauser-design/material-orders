@@ -2851,10 +2851,15 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       const seen = new Set(updatedItems.map(u => u.code));
       bumped.forEach(u => { if (!seen.has(u.code)) updatedItems.push(u); });
     }
-    // Stamp Order Date (today) on everything this order touched
-    if (emailType === 'order') {
+    // Stamp Order Date (the send date) on everything this email touched.
+    // Orders always stamp; RFQ/quote sends fill the date only where it's still
+    // blank, so a later real order date is never clobbered by a follow-up quote.
+    if (emailType === 'order' || emailType === 'quote') {
       const stamp = [...new Set([...updatedItems.map(u => u.code), ...coveredCodes])];
-      if (stamp.length) await pool.query('UPDATE project_items SET order_date=CURRENT_DATE WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, stamp]);
+      if (stamp.length) {
+        const guard = emailType === 'quote' ? ' AND order_date IS NULL' : '';
+        await pool.query(`UPDATE project_items SET order_date=CURRENT_DATE WHERE project_id=$1 AND item_code = ANY($2)${guard}`, [req.params.id, stamp]);
+      }
     }
 
     res.json({ ok: true, sentTo: supplierEmail, updatedItems });
