@@ -7,7 +7,7 @@
   var NP = (typeof navPages !== 'undefined') ? navPages : '*';
   function can(k){ return NP === '*' || (Array.isArray(NP) && NP.indexOf(k) >= 0); }
   var iL = (typeof isLogan !== 'undefined') ? isLogan : true;
-  var showMore = can('payments') || can('suppliers') || can('inventory') || can('driving');
+  var showMore = can('suppliers') || can('inventory') || can('driving');
 %>
 <nav class="nav">
   <div class="nav-left">
@@ -18,12 +18,10 @@
     <% if (can('issues')) { %><a href="/issues" class="nav-tab <%= A==='issues'?'active':'' %>">Issues<%- _nb(pIss) %></a><% } %>
     <% if (can('warranty')) { %><a href="/warranty-claims" class="nav-tab <%= A==='warranty'?'active':'' %>">Warranty<%- _nb(pWar) %></a><% } %>
     <% if (can('subs')) { %><a href="/subs" class="nav-tab <%= A==='subs'?'active':'' %>">Subs</a><% } %>
-    <% if (can('permits')) { %><a href="/permits" class="nav-tab <%= A==='permits'?'active':'' %>">Permits</a><% } %>
     <% if (showMore) { %>
     <div class="nav-more">
-      <button type="button" class="nav-tab nav-more-btn <%= ['payments','suppliers','inventory','driving'].indexOf(A)>=0?'active':'' %>" onclick="navToggleMore(event)">More ▾</button>
+      <button type="button" class="nav-tab nav-more-btn <%= ['suppliers','inventory','driving'].indexOf(A)>=0?'active':'' %>" onclick="navToggleMore(event)">More ▾</button>
       <div class="nav-more-menu" id="navMoreMenu">
-        <% if (can('payments')) { %><a href="/payments" class="<%= A==='payments'?'on':'' %>">Payments</a><% } %>
         <% if (can('suppliers')) { %><a href="/suppliers" class="<%= A==='suppliers'?'on':'' %>">Suppliers</a><% } %>
         <% if (can('inventory')) { %><a href="/inventory" class="<%= A==='inventory'?'on':'' %>">Inventory</a><% } %>
         <% if (can('driving')) { %><a href="/driving" class="<%= A==='driving'?'on':'' %>">Driving Log</a><% } %>

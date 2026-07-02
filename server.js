@@ -1176,11 +1176,9 @@ const PAGE_META = [
   { key: 'requests', label: 'Requests', path: '/requests' },
   { key: 'issues', label: 'Issues', path: '/issues' },
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
-  { key: 'permits', label: 'Permits', path: '/permits' },
   { key: 'subs', label: 'Subs', path: '/subs' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
-  { key: 'payments', label: 'Payments', path: '/payments' },
   { key: 'driving', label: 'Driving Log', path: '/driving' },
   { key: 'settings', label: 'Settings', path: '/settings' },
 ];
@@ -1216,7 +1214,6 @@ function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
   if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
-  if (p.startsWith('/payments')) return 'payments';
   if (p.startsWith('/driving')) return 'driving';
   if (p.startsWith('/inventory') || p === '/stock-status') return 'inventory';
   if (p.startsWith('/requests')) return 'requests';
@@ -1224,7 +1221,6 @@ function pageForPath(p) {
   if (p.startsWith('/warranty-claims')) return 'warranty';
   if (p.startsWith('/suppliers')) return 'suppliers';
   if (p.startsWith('/subs') || p.startsWith('/sub-photo')) return 'subs';
-  if (p.startsWith('/permits')) return 'permits';
   if (p.startsWith('/settings')) return 'settings';
   if (p.startsWith('/team')) return 'team';
   return null;
@@ -1630,8 +1626,6 @@ async function initDb() {
       home_dashboard TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
-    -- Aziz runs permitting → start him on the Permits dashboard (he can still switch)
-    INSERT INTO user_prefs (user_key, home_dashboard) VALUES ('aziz','permits') ON CONFLICT (user_key) DO NOTHING;
     -- Per-user home/base address for the driving log (was a single global value)
     ALTER TABLE user_prefs ADD COLUMN IF NOT EXISTS home_address TEXT;
     INSERT INTO user_prefs (user_key, home_address)
@@ -1774,10 +1768,8 @@ app.use((req, res, next) => {
     return res.redirect(isSuper ? '/my' : (firstAllowedPath(allowed) || '/login'));
   }
   if (area === null && isSuper) return res.redirect('/my');              // supers stay locked to allowed pages
-  // Minimal office users (no Projects and no Permits) get no dashboard — the home
-  // page's Office/Permits views would show content for pages they can't access.
   // Send them straight to their one page instead.
-  if (p === '/' && !isSuper && !allowed.has('projects') && !allowed.has('permits')) {
+  if (p === '/' && !isSuper && !allowed.has('projects')) {
     return res.redirect(firstAllowedPath(allowed) || '/login');
   }
   next();
@@ -1930,7 +1922,7 @@ app.get('/account', requireAuth, async (req, res) => {
     }
     const allowedSet = allowedPagesFor(key, role);
     const accessLabels = PAGE_META.filter(m => allowedSet.has(m.key)).map(m => m.label);
-    const home = role === 'admin' ? await getHomeDashboard(key) : null;
+    const home = null;   // single dashboard now - no home-view picker
     res.render('account', { name, login, roleLabel, role, isLogan: key === 'logan', phone, accessLabels, home, pw: req.query.pw || '' });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
@@ -2290,50 +2282,6 @@ app.post('/requests/:id/delete', requireAuth, async (req, res) => {
 
 // ── Projects list ─────────────────────────────────────────────────────────────
 
-// ── Home-dashboard preference (each person picks their own landing view) ──────
-const HOME_DASHBOARDS = new Set(['office', 'permits']);
-async function getHomeDashboard(key) {
-  if (!key) return 'office';
-  try {
-    const { rows: [r] } = await pool.query('SELECT home_dashboard FROM user_prefs WHERE user_key=$1', [key]);
-    const v = r && r.home_dashboard;
-    return HOME_DASHBOARDS.has(v) ? v : 'office';
-  } catch (e) { return 'office'; }
-}
-async function renderPermitsDashboard(res, displayName) {
-  const { rows: permits } = await pool.query('SELECT * FROM permits');
-  const GROUP_ORDER = ['Active Permits', 'Issued Permits', 'Miscellaneous Projects', 'Cancelled Projects'];
-  const groups = {}; GROUP_ORDER.forEach(g => groups[g] = 0);
-  permits.forEach(p => { const g = GROUP_ORDER.includes(p.grp) ? p.grp : 'Active Permits'; groups[g]++; });
-  const total = permits.length;
-  const issued = permits.filter(p => p.permit_issued === 'Pulled').length;
-  const active = groups['Active Permits'];
-
-  // "Needs attention" — anything stuck / pending action (cancelled projects excluded)
-  const ATTN = {
-    dbs: ['Stuck'], clearances: ['Stuck'], resub: ['Stuck'], rti: ['Stuck'], update_col: ['Stuck'],
-    corrections: ['In Progress', 'PC Issued', 'Pending'], permit_issued: ['Pending Fees', 'Pending Precon'],
-    fees: ['Pending'], soils: ['Required'], survey: ['Need'], precon_mtg: ['Need to Schedule'],
-  };
-  const LABEL = {
-    dbs: 'DBS', clearances: 'Clearances', resub: 'Resub', rti: 'RTI', update_col: 'Update',
-    corrections: 'Corrections', permit_issued: 'Permit', fees: 'Fees', soils: 'Soils', survey: 'Survey', precon_mtg: 'Precon',
-  };
-  const attention = [];
-  permits.forEach(p => {
-    if (p.grp === 'Cancelled Projects') return;
-    const flags = [];
-    Object.keys(ATTN).forEach(col => { if (ATTN[col].includes(p[col])) flags.push({ col: LABEL[col] || col, val: p[col] }); });
-    if (flags.length) attention.push({ id: p.id, name: p.name || '(unnamed permit)', owner: p.owner || '', adu: p.adu_address || '', flags });
-  });
-  attention.sort((a, b) => b.flags.length - a.flags.length);
-
-  res.render('dashboard-permits', {
-    displayName, total, active, issued, groups, groupOrder: GROUP_ORDER,
-    attention, needsCount: attention.length, hasPermits: total > 0,
-  });
-}
-
 // ── Dashboard (home) ──────────────────────────────────────────────────────────
 app.get('/', requireAuth, async (req, res) => {
   try {
@@ -2343,9 +2291,6 @@ app.get('/', requireAuth, async (req, res) => {
     if (_key === 'logan') displayName = 'Logan';
     else { const a = ADMINS.find(x => x.username === _key); if (a) displayName = (a.name || '').split(' ')[0]; }
 
-    // Each person's chosen landing view (Aziz defaults to Permits)
-    const home = await getHomeDashboard(_key);
-    if (home === 'permits') return await renderPermitsDashboard(res, displayName);
 
     const { rows: [stats] } = await pool.query(`
       SELECT
@@ -2467,21 +2412,6 @@ app.get('/projects', requireAuth, async (req, res) => {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
   }
-});
-
-// Save the signed-in person's home-dashboard choice (each person picks their own)
-app.post('/dashboard-pref', requireAuth, async (req, res) => {
-  try {
-    const key = sessionKey(req);
-    const dash = HOME_DASHBOARDS.has(req.body && req.body.dashboard) ? req.body.dashboard : 'office';
-    if (!key) return res.json({ ok: false, error: 'no user' });
-    await pool.query(
-      `INSERT INTO user_prefs (user_key, home_dashboard, updated_at) VALUES ($1,$2,NOW())
-       ON CONFLICT (user_key) DO UPDATE SET home_dashboard=EXCLUDED.home_dashboard, updated_at=NOW()`,
-      [key, dash]
-    );
-    res.json({ ok: true, dashboard: dash });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // ── New project ───────────────────────────────────────────────────────────────
@@ -3512,42 +3442,6 @@ app.get('/projects/:id/status-pdf', requireAuth, async (req, res) => {
   doc.end();
 });
 
-// ── Milestone payment ledger ──────────────────────────────────────────────────
-
-app.get('/payments', requireAuth, async (req, res) => {
-  try {
-    await initDb();
-    const { rows: payments } = await pool.query(`
-      SELECT mp.*, p.address FROM milestone_payments mp
-      JOIN projects p ON p.id = mp.project_id
-      ORDER BY mp.paid ASC, mp.requested_at DESC
-    `);
-    const { rows: [tot] } = await pool.query(`
-      SELECT
-        COALESCE(SUM(amount) FILTER (WHERE NOT paid), 0) AS outstanding,
-        COALESCE(SUM(amount) FILTER (WHERE paid), 0) AS collected,
-        COALESCE(SUM(amount), 0) AS total
-      FROM milestone_payments
-    `);
-    res.render('payments', { payments, totals: tot });
-  } catch (err) {
-    res.status(500).send('Error: ' + err.message);
-  }
-});
-
-app.post('/payments/:id/toggle', requireAuth, async (req, res) => {
-  await pool.query(
-    `UPDATE milestone_payments SET paid = NOT paid, paid_at = CASE WHEN paid THEN NULL ELSE NOW() END WHERE id=$1`,
-    [req.params.id]
-  );
-  res.json({ ok: true });
-});
-
-app.post('/payments/:id/delete', requireAuth, async (req, res) => {
-  await pool.query('DELETE FROM milestone_payments WHERE id=$1', [req.params.id]);
-  res.redirect('/payments');
-});
-
 // ── Deliveries dashboard ──────────────────────────────────────────────────────
 
 const ITEM_NAME = {};
@@ -3910,117 +3804,8 @@ app.post('/warranty-claims/:id/delete', requireAuth, async (req, res) => {
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-// ── Permit tracking board (mirrors the Monday "Permits" board) ────────────────
-const PERMIT_COLUMNS = [
-  { key: 'owner', title: 'Owner', type: 'text', w: 130 },
-  { key: 'adu_address', title: 'ADU #', type: 'text', w: 64 },
-  { key: 'project_range', title: 'Project (10 Mo)', type: 'range', start: 'project_start', end: 'project_end', months: 10 },
-  { key: 'permit_range', title: 'Permit (4 Mo)', type: 'range', start: 'permit_start', end: 'permit_end', months: 4 },
-  { key: 'scope', title: 'Scope', type: 'status', opts: [['M1 - 497sf','#037f4c'],['M2 - 749sf','#df2f4a'],['M2B - 749sf','#bb3354'],['M3 - 1000sf','#216edf'],['M3 XL -1200sf','#225091'],['M4 - 800sf','#757575'],['M5 - 1000sf','#563e3e'],['MS - 340sf','#ffcb00'],['M5 XL - 1200sf','#cd9282'],['Old M2 - 600sf','#c4c4c4'],['Old M3 - 996sf','#74afcc'],['Custom 3B2B','#9aadbd'],['Custom 1B','#a9bee8'],['Custom M1','#00c875'],['Custom M2','#ff7575'],['Custom M2 - 792sf','#ff007f'],['Custom M3','#007eb5']] },
-  { key: 'soils', title: 'Soils', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Required','#ff7575'],['NA','#c4c4c4']] },
-  { key: 'survey', title: 'Survey', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Need','#df2f4a'],['Not Needed','#9cd326'],['NA','#c4c4c4']] },
-  { key: 'sd', title: 'SD', type: 'status', opts: [['In Progress','#fdab3d'],['Done','#00c875'],['Need','#df2f4a'],['Pending','#007eb5'],['NN','#7f5347'],['NA','#c4c4c4']] },
-  { key: 'permit_set', title: 'Permit', type: 'status', opts: [['Working on it','#fdab3d'],['Completed','#00c875'],['Need','#df2f4a'],['Pending','#9d50dd']] },
-  { key: 'eng', title: 'Eng', type: 'status', opts: [['Ordered','#fdab3d'],['Completed','#00c875'],['Need','#df2f4a']] },
-  { key: 'planning', title: 'Planning', type: 'status', opts: [['Submitted','#fdab3d'],['Approved','#00c875'],['PC Issued','#df2f4a'],['NA','#c4c4c4']] },
-  { key: 'dbs', title: 'DBS', type: 'status', opts: [['Working on it','#fdab3d'],['Submitted','#00c875'],['Stuck','#df2f4a']] },
-  { key: 'fees', title: 'Fees', type: 'status', opts: [['Pending','#fdab3d'],['Paid','#00c875'],['Issued','#df2f4a']] },
-  { key: 'update_col', title: 'Update', type: 'status', opts: [['Working on it','#fdab3d'],['Done','#00c875'],['Stuck','#df2f4a']] },
-  { key: 'corrections', title: 'Corrections', type: 'status', opts: [['In Progress','#fdab3d'],['Complete','#037f4c'],['PC Issued','#df2f4a'],['Pending','#007eb5']] },
-  { key: 'clearances', title: 'Clearances', type: 'status', opts: [['Working on it','#fdab3d'],['Approved','#00c875'],['Stuck','#df2f4a']] },
-  { key: 'resub', title: 'Resub', type: 'status', opts: [['Working on it','#fdab3d'],['Done','#00c875'],['Stuck','#df2f4a']] },
-  { key: 'rti', title: 'RTI', type: 'status', opts: [['Working on it','#fdab3d'],['RTI','#00c875'],['Stuck','#df2f4a']] },
-  { key: 'precon_mtg', title: 'Precon Mtg', type: 'status', opts: [['Scheduled','#fdab3d'],['Completed','#00c875'],['Need to Schedule','#df2f4a']] },
-  { key: 'client_verify', title: 'Client Verify', type: 'status', opts: [['Pending Precon','#fdab3d'],['Verified','#00c875']] },
-  { key: 'permit_issued', title: 'Permit Issued', type: 'status', opts: [['Pending Fees','#fdab3d'],['Pulled','#00c875'],['Pending Precon','#df2f4a']] },
-  { key: 'timeline_num', title: 'Timeline', type: 'number', w: 70 },
-];
-const PERMIT_EDITABLE = new Set(['name','owner','adu_address','project_start','project_end','permit_start','permit_end','scope','soils','survey','sd','permit_set','eng','planning','dbs','fees','update_col','corrections','clearances','resub','rti','precon_mtg','client_verify','permit_issued','timeline_num']);
-const PERMIT_GROUPS = ['Active Permits', 'Issued Permits', 'Miscellaneous Projects', 'Cancelled Projects'];
-
-app.get('/permits', requireAuth, async (req, res) => {
-  try {
-    await initDb();
-    const { rows } = await pool.query('SELECT * FROM permits ORDER BY sort_order NULLS LAST, id');
-    res.render('permits', { permits: rows, COLS: PERMIT_COLUMNS, GROUPS: PERMIT_GROUPS });
-  } catch (err) { res.status(500).send('Error: ' + err.message); }
-});
-app.post('/permits/:id/cell', requireAuth, async (req, res) => {
-  try {
-    const col = String(req.body.col || '');
-    if (!PERMIT_EDITABLE.has(col)) return res.status(400).json({ ok: false, error: 'bad column' });
-    let val = req.body.value;
-    if (val === '' || val === undefined) val = null;
-    if (col === 'timeline_num') val = (val == null ? null : (parseInt(val, 10) || null));
-    await pool.query(
-      `UPDATE permits SET ${col}=$1, last_activity=NOW(),
-         cell_activity = COALESCE(cell_activity,'{}'::jsonb) || jsonb_build_object($3::text, to_jsonb(NOW()))
-       WHERE id=$2`,
-      [val, req.params.id, col]
-    );
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
-app.post('/permits/new', requireAuth, async (req, res) => {
-  try {
-    const grp = PERMIT_GROUPS.includes(req.body.grp) ? req.body.grp : 'Active Permits';
-    const { rows: [m] } = await pool.query('SELECT MAX(sort_order) s FROM permits WHERE grp=$1', [grp]);
-    const so = (m && m.s != null) ? Number(m.s) + 1 : 9999;
-    await pool.query('INSERT INTO permits (name, grp, sort_order, last_activity) VALUES ($1,$2,$3,NOW())', [String(req.body.name || 'New permit').slice(0, 200), grp, so]);
-    res.redirect('/permits');
-  } catch (err) { res.status(500).send('Error: ' + err.message); }
-});
-app.post('/permits/:id/delete', requireAuth, async (req, res) => {
-  try { await pool.query('DELETE FROM permits WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
-  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
-
-// Permit idle-notification settings (the "🔔 Notifications" button on the board)
-app.get('/permits/notifications', requireAuth, async (req, res) => {
-  try {
-    await initDb();
-    const settings = await getPermitNotifSettings();
-    const boxes = PERMIT_STATUS_BOXES.map(b => { const r = boxRule(settings, b.key); return { key: b.key, title: b.title, on: r.on, days: r.days, opts: b.opts, done: r.done || [] }; });
-    const stale = await findStaleBoxes(settings, false);
-    res.render('permit-notifications', {
-      settings, boxes, stale, chatOn: !!CHAT_WEBHOOK_URL, emailOn: emailEnabled,
-      saved: req.query.saved === '1', tested: req.query.tested || '',
-    });
-  } catch (err) { res.status(500).send('Error: ' + err.message); }
-});
-app.post('/permits/notifications', requireAuth, async (req, res) => {
-  try {
-    const b = req.body || {};
-    const enabled = !!b.enabled;
-    let idle_days = parseInt(b.idle_days, 10); if (!(idle_days >= 1 && idle_days <= 90)) idle_days = 7;
-    const channel = ['email', 'chat', 'both'].includes(b.channel) ? b.channel : 'both';
-    const email_to = String(b.email_to || '').trim().slice(0, 300) || null;
-    const active_only = !!b.active_only;
-    const col_rules = {};
-    for (const box of PERMIT_STATUS_BOXES) {
-      const on = !!b['watch_' + box.key];
-      let days = parseInt(b['days_' + box.key], 10); if (!(days >= 1 && days <= 90)) days = idle_days;
-      let done = b['done_' + box.key];
-      if (done == null) done = [];
-      else if (!Array.isArray(done)) done = [done];
-      done = done.filter(v => box.opts.indexOf(v) >= 0);   // keep only real options for this box
-      col_rules[box.key] = { on, days, done };
-    }
-    await pool.query(
-      'UPDATE permit_notif SET enabled=$1, idle_days=$2, channel=$3, email_to=$4, active_only=$5, col_rules=$6, updated_at=NOW() WHERE id=1',
-      [enabled, idle_days, channel, email_to, active_only, JSON.stringify(col_rules)]
-    );
-    res.redirect('/permits/notifications?saved=1');
-  } catch (err) { res.status(500).send('Error: ' + err.message); }
-});
-app.post('/permits/notifications/test', requireAuth, async (req, res) => {
-  try {
-    const settings = await getPermitNotifSettings();
-    const stale = await findStaleBoxes(settings, false);
-    await sendPermitBoxNotice(stale, settings, true);
-    res.redirect('/permits/notifications?tested=ok');
-  } catch (err) { console.error('permit test notif:', err.message); res.redirect('/permits/notifications?tested=err'); }
-});
+// Retired boards (moved to the new system) - send stale bookmarks home.
+app.get(['/permits', '/permits/*', '/payments', '/payments/*'], requireAuth, (req, res) => res.redirect('/'));
 
 // ── Team hub: Logan manages who can see which page (only Logan reaches this) ───
 app.get('/team', requireAuth, async (req, res) => {
@@ -4673,14 +4458,12 @@ async function sendWeeklyDigest() {
       COUNT(*) AS total FROM projects`);
     const { rows: deliv } = await pool.query(`SELECT COUNT(*) c FROM project_items WHERE delivery_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '7 days' AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`);
     const { rows: overdue } = await pool.query(`SELECT COUNT(*) c FROM project_items WHERE COALESCE(delivery_date_end, delivery_date) < CURRENT_DATE AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`);
-    const { rows: [pay] } = await pool.query(`SELECT COALESCE(SUM(amount) FILTER (WHERE NOT paid),0) outstanding FROM milestone_payments`);
     const { rows: [unr] } = await pool.query(`SELECT COUNT(DISTINCT project_id) c FROM vendor_emails WHERE has_unread=true`);
     const html = `<div style="font-family:Arial,sans-serif;font-size:14px">
       <h2 style="margin:0 0 10px">Weekly Buildoly Office Digest</h2>
       <ul style="line-height:1.7">
         <li><strong>${s.total}</strong> projects (${s.in_progress} in progress, ${s.not_yet} not started)</li>
         <li><strong>${deliv[0].c}</strong> deliveries due this week${Number(overdue[0].c) ? `, <span style="color:#cc0000"><strong>${overdue[0].c} overdue</strong></span>` : ''}</li>
-        <li><strong>$${Number(pay.outstanding).toLocaleString(undefined,{minimumFractionDigits:2})}</strong> in outstanding milestone payments</li>
         <li><strong>${unr.c}</strong> project(s) with unread vendor replies</li>
       </ul>
       <p><a href="https://buildoly.up.railway.app">Open the app →</a></p></div>`;
@@ -4689,116 +4472,12 @@ async function sendWeeklyDigest() {
   } catch (e) { console.error('sendWeeklyDigest:', e.message); }
 }
 
-// ── Permit per-box idle notifications ─────────────────────────────────────────
-// Each status column ("box") can be watched independently with its own idle window.
-const PERMIT_STATUS_BOXES = PERMIT_COLUMNS.filter(c => c.type === 'status' && c.key !== 'scope').map(c => ({ key: c.key, title: c.title, opts: (c.opts || []).map(o => o[0]) }));
-
-async function getPermitNotifSettings() {
-  try {
-    const { rows: [r] } = await pool.query('SELECT * FROM permit_notif WHERE id=1');
-    if (r) return r;
-  } catch (e) { /* table may not exist yet */ }
-  return { enabled: true, idle_days: 7, channel: 'both', email_to: 'aziz@buildoly.com', active_only: true, col_rules: {}, last_run: null };
-}
-// Effective rule for one box: its explicit per-box rule, else the global default window.
-function boxRule(settings, key) {
-  const r = (settings.col_rules || {})[key];
-  const def = Number(settings.idle_days) > 0 ? Number(settings.idle_days) : 7;
-  if (r && typeof r === 'object') return { on: r.on !== false, days: Number(r.days) > 0 ? Number(r.days) : def, done: Array.isArray(r.done) ? r.done : [] };
-  return { on: true, days: def, done: [] };
-}
-function fmtDay(d) { return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; }
-// Permits with one or more watched boxes that hold a value but haven't changed past
-// that box's window. onlyUnnotified=true skips boxes already alerted this stretch.
-async function findStaleBoxes(settings, onlyUnnotified) {
-  const scope = settings.active_only ? "grp = 'Active Permits'" : "COALESCE(grp,'') <> 'Cancelled Projects'";
-  const { rows } = await pool.query(`SELECT * FROM permits WHERE ${scope}`);
-  const now = Date.now();
-  const out = [];
-  for (const p of rows) {
-    const act = p.cell_activity || {};
-    const notif = p.cell_notified || {};
-    const boxes = [];
-    for (const b of PERMIT_STATUS_BOXES) {
-      const rule = boxRule(settings, b.key);
-      if (!rule.on) continue;
-      const val = p[b.key];
-      if (val === null || val === undefined || val === '') continue;   // only watch boxes that hold a value
-      if (rule.done && rule.done.indexOf(val) >= 0) continue;          // silenced: this status means "done", stop alerting
-      const tsStr = act[b.key];
-      if (!tsStr) continue;                                            // no change recorded yet → can't measure
-      const ts = new Date(tsStr).getTime();
-      const idleDays = Math.floor((now - ts) / 86400000);
-      if (idleDays < rule.days) continue;
-      if (onlyUnnotified) {
-        const nts = notif[b.key] ? new Date(notif[b.key]).getTime() : 0;
-        if (nts && (now - nts) < rule.days * 86400000) continue;       // repeat only after this box's frequency has elapsed
-      }
-      boxes.push({ key: b.key, title: b.title, val, days: idleDays, last: fmtDay(ts) });
-    }
-    if (boxes.length) out.push({ id: p.id, name: p.name || '(unnamed permit)', owner: p.owner || '', adu: p.adu_address || '', boxes });
-  }
-  return out;
-}
-async function sendPermitBoxNotice(results, settings, isTest) {
-  if (!results.length && !isTest) return;
-  const ch = settings.channel || 'both';
-  const url = 'https://buildoly.up.railway.app/permits';
-  const boxCount = results.reduce((n, r) => n + r.boxes.length, 0);
-  const title = isTest
-    ? '🔔 Permit notifications — test'
-    : `🔔 Permit alert — ${boxCount} box${boxCount === 1 ? '' : 'es'} idle on ${results.length} permit${results.length === 1 ? '' : 's'}`;
-  const permitLabel = r => r.name + (r.owner ? ' (' + r.owner + ')' : '') + (r.adu ? ' · ADU ' + r.adu : '');
-  if (ch === 'chat' || ch === 'both') {
-    let txt = title + '\n';
-    if (results.length) results.forEach(r => { txt += `\n• ${permitLabel(r)}: ${r.boxes.map(b => `${b.title} idle ${b.days}d`).join(', ')}`; });
-    else txt += '\nNo boxes are idle right now — notifications are working ✅';
-    txt += `\n\nUpdate them: ${url}`;
-    await postToChat(txt, 'permit-idle');
-  }
-  if ((ch === 'email' || ch === 'both') && emailEnabled && settings.email_to) {
-    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222"><p style="font-size:15px"><strong>${escapeHtml(title)}</strong></p>`;
-    if (results.length) {
-      html += '<table style="border-collapse:collapse"><tr><th style="border:1px solid #ccc;padding:5px 9px;text-align:left">Permit</th><th style="border:1px solid #ccc;padding:5px 9px;text-align:left">Idle box</th><th style="border:1px solid #ccc;padding:5px 9px">Idle</th><th style="border:1px solid #ccc;padding:5px 9px">Last change</th></tr>';
-      results.forEach(r => r.boxes.forEach((b, i) => {
-        html += `<tr>${i === 0 ? `<td style="border:1px solid #ccc;padding:5px 9px" rowspan="${r.boxes.length}">${escapeHtml(permitLabel(r))}</td>` : ''}<td style="border:1px solid #ccc;padding:5px 9px">${escapeHtml(b.title)} <span style="color:#888">(${escapeHtml(String(b.val))})</span></td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${b.days} days</td><td style="border:1px solid #ccc;padding:5px 9px;text-align:center">${escapeHtml(b.last)}</td></tr>`;
-      }));
-      html += '</table>';
-    } else { html += '<p>No boxes are idle right now — notifications are working ✅</p>'; }
-    html += `<p><a href="${url}">Open the permit board →</a></p></div>`;
-    const subject = isTest ? 'Test — Buildoly permit notifications' : `${boxCount} permit box(es) idle`;
-    await sendMail({ to: settings.email_to, subject, html });
-  }
-}
-async function markBoxesNotified(results) {
-  const nowIso = new Date().toISOString();
-  for (const r of results) {
-    const patch = {};
-    r.boxes.forEach(b => { patch[b.key] = nowIso; });
-    await pool.query(`UPDATE permits SET cell_notified = COALESCE(cell_notified,'{}'::jsonb) || $2::jsonb WHERE id=$1`, [r.id, JSON.stringify(patch)]);
-  }
-}
-async function runPermitIdleCheck() {
-  try {
-    const settings = await getPermitNotifSettings();
-    if (!settings.enabled) return;
-    const stale = await findStaleBoxes(settings, true);
-    if (stale.length) {
-      await sendPermitBoxNotice(stale, settings, false);
-      await markBoxesNotified(stale);
-      console.log('Permit box alert sent for', stale.length, 'permit(s)');
-    }
-    await pool.query('UPDATE permit_notif SET last_run = NOW() WHERE id=1');
-  } catch (e) { console.error('runPermitIdleCheck:', e.message); }
-}
-
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
   cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
-  cron.schedule('0 16 * * *', runPermitIdleCheck);      // daily ~8am PT — idle permit alerts
   console.log('Cron jobs scheduled');
 }
 
