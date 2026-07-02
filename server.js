@@ -432,12 +432,13 @@ async function advanceVendorItems(projectId, clickedCode, emailType) {
 // Move a specific list of materials forward to a target status (never backward)
 async function bumpItemsForward(projectId, codes, target) {
   const targetRank = STATUS_RANK[target];
-  if (targetRank == null || !codes.length) return;
+  if (targetRank == null || !codes.length) return [];
   const { rows: current } = await pool.query(
     'SELECT item_code, status FROM project_items WHERE project_id=$1 AND item_code = ANY($2)', [projectId, codes]
   );
   const cur = {};
   current.forEach(r => cur[r.item_code] = r.status);
+  const updated = [];
   for (const code of codes) {
     const c = cur[code] || 'Not yet placed';
     if (c === 'N/A' || c === 'Issue') continue;
@@ -447,7 +448,9 @@ async function bumpItemsForward(projectId, codes, target) {
        ON CONFLICT (project_id, item_code) DO UPDATE SET status=$3`,
       [projectId, code, target]
     );
+    updated.push({ code, status: target });
   }
+  return updated;
 }
 
 // ── Driving distance via OpenRouteService ─────────────────────────────────────
@@ -2839,11 +2842,14 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
     // Auto-advance the status of all this vendor's materials on the project
     const updatedItems = itemCode ? await advanceVendorItems(req.params.id, itemCode, emailType) : [];
 
-    // Vendor-dropdown orders pass the covered material codes; advance + stamp those too
+    // Vendor-dropdown sends pass the covered material codes; advance those too —
+    // quotes land on "RFQ sent", orders on "Order Placed" (never backward).
     const validCodes = new Set(ALL_ITEMS.map(i => i.code));
     const coveredCodes = [].concat(req.body.coveredCodes || []).filter(c => validCodes.has(c));
-    if (emailType === 'order' && coveredCodes.length) {
-      await bumpItemsForward(req.params.id, coveredCodes, 'Order Placed');
+    if (coveredCodes.length && TYPE_TARGET[emailType]) {
+      const bumped = await bumpItemsForward(req.params.id, coveredCodes, TYPE_TARGET[emailType]);
+      const seen = new Set(updatedItems.map(u => u.code));
+      bumped.forEach(u => { if (!seen.has(u.code)) updatedItems.push(u); });
     }
     // Stamp Order Date (today) on everything this order touched
     if (emailType === 'order') {
@@ -3181,6 +3187,10 @@ ${signoff}
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
       [req.params.id, category || null, null, to, subject, emailType || 'delivery', sent.threadId || null, sent.messageId || null]
     );
+    // Advance the category's material too — quote → "RFQ sent", order → "Order Placed"
+    if (category && ALL_ITEMS.find(i => i.code === category) && TYPE_TARGET[emailType]) {
+      await bumpItemsForward(req.params.id, [category], TYPE_TARGET[emailType]);
+    }
     res.json({ ok: true, sentTo: to });
   } catch (err) {
     console.error('Category request error:', err.code || '', '-', err.message);

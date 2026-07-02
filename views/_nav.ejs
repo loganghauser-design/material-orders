@@ -7,36 +7,72 @@
   var NP = (typeof navPages !== 'undefined') ? navPages : '*';
   function can(k){ return NP === '*' || (Array.isArray(NP) && NP.indexOf(k) >= 0); }
   var iL = (typeof isLogan !== 'undefined') ? isLogan : true;
-  var showMore = can('suppliers') || can('inventory') || can('driving');
+  // Grouped nav: primary tabs + two dropdowns keep the bar short.
+  var attn = [];
+  if (can('requests')) attn.push({ href: '/requests', key: 'requests', label: 'Requests', n: pReq });
+  if (can('issues')) attn.push({ href: '/issues', key: 'issues', label: 'Issues', n: pIss });
+  if (can('warranty')) attn.push({ href: '/warranty-claims', key: 'warranty', label: 'Warranty', n: pWar });
+  var attnTotal = attn.reduce(function (s, x) { return s + (Number(x.n) || 0); }, 0);
+  var attnActive = attn.some(function (x) { return x.key === A; });
+  var tools = [];
+  if (can('suppliers')) tools.push({ href: '/suppliers', key: 'suppliers', label: 'Suppliers' });
+  if (can('inventory')) tools.push({ href: '/inventory', key: 'inventory', label: 'Inventory' });
+  if (can('driving')) tools.push({ href: '/driving', key: 'driving', label: 'Driving Log' });
+  var toolsActive = tools.some(function (x) { return x.key === A; });
+  var userActive = ['account', 'team', 'settings'].indexOf(A) >= 0;
 %>
 <nav class="nav">
   <div class="nav-left">
     <a href="/" class="nav-brand">Buildoly Office</a>
     <% if (can('projects')) { %><a href="/projects" class="nav-tab <%= A==='projects'?'active':'' %>">Projects</a><% } %>
     <% if (can('deliveries')) { %><a href="/deliveries" class="nav-tab <%= A==='deliveries'?'active':'' %>">Deliveries</a><% } %>
-    <% if (can('requests')) { %><a href="/requests" class="nav-tab <%= A==='requests'?'active':'' %>">Requests<%- _nb(pReq) %></a><% } %>
-    <% if (can('issues')) { %><a href="/issues" class="nav-tab <%= A==='issues'?'active':'' %>">Issues<%- _nb(pIss) %></a><% } %>
-    <% if (can('warranty')) { %><a href="/warranty-claims" class="nav-tab <%= A==='warranty'?'active':'' %>">Warranty<%- _nb(pWar) %></a><% } %>
     <% if (can('subs')) { %><a href="/subs" class="nav-tab <%= A==='subs'?'active':'' %>">Subs</a><% } %>
-    <% if (showMore) { %>
-    <div class="nav-more">
-      <button type="button" class="nav-tab nav-more-btn <%= ['suppliers','inventory','driving'].indexOf(A)>=0?'active':'' %>" onclick="navToggleMore(event)">More ▾</button>
-      <div class="nav-more-menu" id="navMoreMenu">
-        <% if (can('suppliers')) { %><a href="/suppliers" class="<%= A==='suppliers'?'on':'' %>">Suppliers</a><% } %>
-        <% if (can('inventory')) { %><a href="/inventory" class="<%= A==='inventory'?'on':'' %>">Inventory</a><% } %>
-        <% if (can('driving')) { %><a href="/driving" class="<%= A==='driving'?'on':'' %>">Driving Log</a><% } %>
+    <% if (attn.length) { %>
+    <div class="nav-dd">
+      <button type="button" class="nav-tab nav-dd-btn <%= attnActive?'active':'' %>" onclick="navToggle(event,'ddAttn')">Attention<%- _nb(attnTotal) %> <span class="chev">▾</span></button>
+      <div class="nav-dd-menu" id="ddAttn">
+        <% attn.forEach(function (x) { %><a href="<%= x.href %>" class="<%= A===x.key?'on':'' %>"><span><%= x.label %></span><%- x.n ? '<span class="navbadge">' + x.n + '</span>' : '' %></a><% }) %>
       </div>
     </div>
     <% } %>
-    <% if (iL) { %><a href="/team" class="nav-tab <%= A==='team'?'active':'' %>">Team</a><% } %>
-    <% if (can('settings')) { %><a href="/settings" class="nav-tab <%= A==='settings'?'active':'' %>">Settings</a><% } %>
-    <a href="/account" class="nav-tab <%= A==='account'?'active':'' %>">Account</a>
+    <% if (tools.length) { %>
+    <div class="nav-dd">
+      <button type="button" class="nav-tab nav-dd-btn <%= toolsActive?'active':'' %>" onclick="navToggle(event,'ddTools')">More <span class="chev">▾</span></button>
+      <div class="nav-dd-menu" id="ddTools">
+        <% tools.forEach(function (x) { %><a href="<%= x.href %>" class="<%= A===x.key?'on':'' %>"><%= x.label %></a><% }) %>
+      </div>
+    </div>
+    <% } %>
   </div>
   <div class="nav-actions">
     <% if (can('projects')) { %><a href="/projects/new" class="btn btn-primary btn-sm">+ New</a><% } %>
-    <form method="POST" action="/logout" style="margin:0"><button type="submit" class="btn btn-ghost btn-sm">Sign out</button></form>
+    <div class="nav-dd">
+      <button type="button" class="nav-tab nav-dd-btn nav-user-btn <%= userActive?'active':'' %>" onclick="navToggle(event,'ddUser')" title="Account & settings" aria-label="Account menu">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>
+      </button>
+      <div class="nav-dd-menu right" id="ddUser">
+        <a href="/account" class="<%= A==='account'?'on':'' %>">My account</a>
+        <% if (iL) { %><a href="/team" class="<%= A==='team'?'on':'' %>">Team</a><% } %>
+        <% if (can('settings')) { %><a href="/settings" class="<%= A==='settings'?'on':'' %>">Settings</a><% } %>
+        <div class="nav-dd-sep"></div>
+        <form method="POST" action="/logout"><button type="submit">Sign out</button></form>
+      </div>
+    </div>
   </div>
 </nav>
 <script>
-function navToggleMore(e){ e.stopPropagation(); var m=document.getElementById('navMoreMenu'); if(!m) return; var open=m.classList.toggle('open'); if(open){ document.addEventListener('click', function h(){ m.classList.remove('open'); document.removeEventListener('click', h); }); } }
+function navToggle(e, id) {
+  e.stopPropagation();
+  document.querySelectorAll('.nav-dd-menu.open').forEach(function (m) { if (m.id !== id) { m.classList.remove('open'); var b = m.parentElement.querySelector('.nav-dd-btn'); if (b) b.classList.remove('menu-open'); } });
+  var m = document.getElementById(id); if (!m) return;
+  var btn = m.parentElement.querySelector('.nav-dd-btn');
+  var open = m.classList.toggle('open');
+  if (btn) btn.classList.toggle('menu-open', open);
+  if (open) {
+    document.addEventListener('click', function h() {
+      m.classList.remove('open'); if (btn) btn.classList.remove('menu-open');
+      document.removeEventListener('click', h);
+    });
+  }
+}
 </script>

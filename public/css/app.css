@@ -17,44 +17,49 @@ body { font-family: system-ui, -apple-system, sans-serif; background: var(--bg);
 a { color: var(--accent); text-decoration: none; }
 
 /* Nav */
-.nav { background: #15161a; border-bottom: 1px solid #27272b; padding: 0 1.3rem; display: flex; align-items: center; justify-content: space-between; height: 56px; }
-.nav-brand { display: inline-block; width: 112px; height: 26px; background: url(/logo.png) left center / contain no-repeat; filter: invert(1); margin-right: .7rem; text-indent: -2000px; overflow: hidden; white-space: nowrap; flex: none; }
-.nav-tab { font-size: .88rem; color: #a0a0a6; text-decoration: none; padding: .42rem .62rem; border-radius: 9px; white-space: nowrap; flex: none; }
-.nav-tab:hover { color: #fff; background: rgba(255,255,255,.08); text-decoration: none; }
-.nav-tab.active { color: #fff; background: rgba(255,255,255,.16); }
+.nav { position: sticky; top: 0; z-index: 100; background: #131417; border-bottom: 1px solid #26262b; padding: 0 1.1rem; display: flex; align-items: center; justify-content: space-between; height: 58px; box-shadow: 0 1px 14px rgba(0,0,0,.28); }
+.nav-brand { display: inline-block; width: 112px; height: 26px; background: url(/logo.png) left center / contain no-repeat; filter: invert(1); margin-right: 1rem; text-indent: -2000px; overflow: hidden; white-space: nowrap; flex: none; }
+.nav-tab { font-size: .9rem; font-weight: 500; color: #9b9ba3; text-decoration: none; padding: .46rem .85rem; border-radius: 99px; white-space: nowrap; flex: none; transition: color .15s, background .15s; }
+.nav-tab:hover { color: #fff; background: rgba(255,255,255,.07); text-decoration: none; }
+.nav-tab.active { color: #131417; background: #fff; }
+.nav-tab.active .navbadge { background: #e5484d; }
 .nav-actions { display: flex; gap: .55rem; align-items: center; }
+.nav .btn-primary { background: #fff; color: #15161a; border-radius: 99px; }
+.nav .btn-primary:hover { background: #e2e2e6; }
 .nav .btn-ghost { color: #cfcfd3; border-color: #3a3a3e; background: transparent; }
 .nav .btn-ghost:hover { background: #2a2a2e; color: #fff; }
-.nav .btn-primary { background: #fff; color: #15161a; }
-.nav .btn-primary:hover { background: #e6e6e6; }
 
-.nav-left { display: flex; align-items: center; gap: .18rem; flex-wrap: nowrap; }
-.navbadge { background: #e5484d; color: #fff; border-radius: 8px; padding: 0 6px; font-size: .72rem; font-weight: 600; vertical-align: middle; margin-left: 2px; }
-.nav-more { position: relative; display: inline-block; }
-.nav-more-btn { background: none; border: none; cursor: pointer; font: inherit; }
-.nav-more-menu { position: absolute; top: 100%; left: 0; margin-top: .4rem; background: #1f2024; border: 1px solid #313136; border-radius: 12px; padding: .4rem; min-width: 168px; display: none; z-index: 50; box-shadow: 0 12px 30px rgba(0,0,0,.45); }
-.nav-more-menu.open { display: block; }
-.nav-more-menu a { display: block; padding: .55rem .75rem; color: #cfcfd3; text-decoration: none; border-radius: 8px; font-size: .9rem; }
-.nav-more-menu a:hover { background: #2c2c31; color: #fff; }
-.nav-more-menu a.on { background: #2c2c31; color: #fff; }
+.nav-left { display: flex; align-items: center; gap: .22rem; flex-wrap: nowrap; }
+.navbadge { background: #e5484d; color: #fff; border-radius: 99px; padding: 1px 7px; font-size: .7rem; font-weight: 700; vertical-align: middle; margin-left: 3px; }
+
+/* Dropdown groups (Attention / More / user menu) */
+.nav-dd { position: relative; display: inline-block; }
+.nav-dd-btn { background: none; border: none; cursor: pointer; font: inherit; display: inline-flex; align-items: center; gap: .3rem; }
+.nav-dd-btn .chev { font-size: .6rem; opacity: .65; transition: transform .15s; }
+.nav-dd-btn.menu-open .chev { transform: rotate(180deg); }
+.nav-dd-menu { position: absolute; top: calc(100% + 9px); left: 0; background: #1b1c21; border: 1px solid #303036; border-radius: 13px; padding: .38rem; min-width: 190px; display: none; z-index: 120; box-shadow: 0 16px 38px rgba(0,0,0,.5); }
+.nav-dd-menu.open { display: block; animation: navdd .13s ease-out; }
+@keyframes navdd { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: none; } }
+.nav-dd-menu a { display: flex; justify-content: space-between; align-items: center; gap: .9rem; padding: .58rem .8rem; color: #cfcfd3; text-decoration: none; border-radius: 9px; font-size: .9rem; }
+.nav-dd-menu a:hover, .nav-dd-menu a.on { background: #2b2c31; color: #fff; }
+.nav-dd-menu form { margin: 0; }
+.nav-dd-menu form button { display: block; width: 100%; text-align: left; background: none; border: none; cursor: pointer; font: inherit; font-size: .9rem; padding: .58rem .8rem; color: #cfcfd3; border-radius: 9px; }
+.nav-dd-menu form button:hover { background: #2b2c31; color: #fff; }
+.nav-dd-sep { height: 1px; background: #2c2c31; margin: .32rem .45rem; }
+.nav-dd-menu.right { left: auto; right: 0; }
+.nav-user-btn { width: 36px; height: 36px; padding: 0; justify-content: center; border-radius: 99px; }
+.nav-user-btn svg { display: block; }
 
 /* Phone: let the nav wrap onto multiple lines instead of running off the right edge */
 @media (max-width: 760px) {
   .nav { padding: .5rem .8rem; height: auto; flex-wrap: wrap; row-gap: .35rem; }
-  .nav > div { flex-wrap: wrap; gap: .5rem .9rem; }
+  .nav > div { flex-wrap: wrap; gap: .4rem .6rem; }
   .nav-left { flex-wrap: wrap; }
-  .nav-brand { font-size: 1rem; }
-  .nav-tab { font-size: .85rem; }
+  .nav-brand { margin-right: .5rem; }
+  .nav-tab { font-size: .85rem; padding: .4rem .7rem; }
   .nav-actions { gap: .5rem; }
+  .nav-dd-menu.right { right: -8px; }
 }
-
-/* Dashboard home-view switch (shared by Office + Permits dashboards) */
-.dash-switch { display: flex; align-items: center; gap: .55rem; flex: none; }
-.dash-switch .dsw-label { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 800; }
-.dsw-group { display: inline-flex; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 3px; gap: 2px; }
-.dsw { border: none; background: transparent; font: inherit; font-size: .84rem; font-weight: 700; color: var(--muted); padding: .34rem .85rem; border-radius: 8px; cursor: pointer; }
-.dsw:hover { color: var(--text); }
-.dsw.on { background: #15161a; color: #fff; }
 
 /* Buttons */
 .btn { display: inline-flex; align-items: center; gap: .4rem; padding: .45rem 1rem; border-radius: 6px; border: none; cursor: pointer; font-size: .875rem; font-weight: 500; transition: background .15s; text-decoration: none; }
