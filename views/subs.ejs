@@ -90,6 +90,12 @@
     .bid-price { width:78px; margin-top:.25rem; padding:3px 6px; border:1px solid var(--border); border-radius:7px; font-size:.8rem; }
     .lic-sel { border:1px solid var(--border); border-radius:8px; padding:3px 5px; font-size:.76rem; cursor:pointer; }
     .lic-num { width:108px; margin-top:.25rem; padding:3px 6px; border:1px solid var(--border); border-radius:7px; font-size:.8rem; }
+    .vbtn { background:none; border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:.72rem; padding:1px 6px; vertical-align:middle; }
+    .vbtn:hover { background:var(--bg); }
+    .licb { display:block; margin-top:.25rem; font-size:.68rem; font-weight:700; padding:2px 7px; border-radius:9px; max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; }
+    .licb-ok { background:#dcfce7; color:#166534; }
+    .licb-amber { background:#fde68a; color:#7a5b00; }
+    .licb-red { background:#dc2626; color:#fff; }
     .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
     .subs-table .co { font-weight:600; }
     .subs-table .notes { color:var(--muted); max-width:260px; }
@@ -184,6 +190,8 @@
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
     <h1>Subcontractors <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= subs.length %>)</span></h1>
     <div class="admin-actions" style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <a href="/subs/finder" class="btn btn-primary" title="Search the state license board (CSLB) by trade + county and add contractors">🔎 Find subs</a>
+      <button type="button" class="btn btn-ghost" onclick="verifyAllLic(this)" title="Check every contractor's license against CSLB — flags expired / suspended / disciplinary">🛡 Verify licenses</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
@@ -355,7 +363,18 @@
                     <option value="true" <%= s.licensed===true?'selected':'' %>>✓ Licensed</option>
                     <option value="false" <%= s.licensed===false?'selected':'' %>>✕ Not licensed</option>
                   </select>
+                  <span class="admin-actions"><button type="button" class="vbtn" onclick="verifyLic(<%= s.id %>, this)" title="Verify this license against CSLB (state license board)">🛡</button></span>
                   <input type="text" class="lic-num" data-id="<%= s.id %>" value="<%= s.license_number || '' %>" placeholder="License #" onchange="saveLicenseNum(this)" style="<%= s.licensed===true ? '' : 'display:none' %>">
+                  <%
+                    var _lf = []; try { _lf = JSON.parse(s.license_flags || '[]'); } catch (e) {}
+                    var _worst = _lf.some(function(f){return f.level==='red';}) ? 'red' : (_lf.some(function(f){return f.level==='amber';}) ? 'amber' : (s.license_checked_at ? 'ok' : null));
+                    var _tip = _lf.map(function(f){return f.text;}).join('  |  ');
+                  %>
+                  <% if (_worst === 'ok') { %>
+                    <span class="licb licb-ok" title="CSLB verified <%= new Date(s.license_checked_at).toLocaleDateString() %><%= s.license_business ? ' · ' + s.license_business : '' %>">✓ Active<%= s.license_expire ? ' · exp ' + new Date(s.license_expire).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) : '' %></span>
+                  <% } else if (_worst) { %>
+                    <span class="licb licb-<%= _worst %>" title="<%= _tip %>"><%= _worst==='red' ? '⛔' : '⚠' %> <%= (_lf.find(function(f){return f.level===_worst;})||{}).text %></span>
+                  <% } %>
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
                 <td data-label="Email" data-email="<%= s.email || '' %>"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _em.length %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body"><% _em.forEach(function(e){ var _inb = e.direction === 'in'; %><div class="emlog-item<%= _inb ? ' inbound' : '' %>"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><% if (_inb) { %><span class="emlog-tag">↩ reply</span><% } %><strong><%= e.subject %></strong><% if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %><% var _att = (typeof attByEmail !== 'undefined' && attByEmail[e.id]) || []; if (_att.length) { %><div class="emlog-atts"><% _att.forEach(function(a){ %><% var _isImg = /^image\//i.test(a.mime || '') || /\.(png|jpe?g|gif|webp|heic)$/i.test(a.filename || ''); var _aurl = '/threads/messages/' + a.gmail_message_id + '/attachment/' + a.gmail_attachment_id + '?name=' + encodeURIComponent(a.filename || 'file') + '&mime=' + encodeURIComponent(a.mime || ''); %><% if (_isImg) { %><a class="emlog-att emlog-attimg" href="<%= _aurl %>" target="_blank" rel="noopener" title="<%= a.filename || 'image' %> - click to open full size"><img src="<%= _aurl %>" alt="" loading="lazy"></a><% } else { %><a class="emlog-att" href="<%= _aurl %>" target="_blank" rel="noopener" title="Open / download attachment">&#128206; <%= a.filename || 'attachment' %></a><% } %><% }) %></div><% } %></div><% }) %><% if (canEdit) { %><div class="emlog-reply"><select class="emlog-fu" data-name="<%= s.company || s.owner || '' %>" onchange="applyFollowup(this)"><option value="">Follow-up templates...</option><option value="checkin">Quick check-in</option><option value="docs">Missing docs reminder</option><option value="deadline">Proposal deadline nudge</option><option value="final">Final follow-up</option></select><textarea class="emlog-reply-text" rows="2" placeholder="Reply to this sub…"></textarea><button type="button" class="emlog-reply-btn" onclick="sendSubReply(this, <%= s.id %>)">Send reply</button><span class="emlog-reply-hint">✓ Your email signature is added automatically</span></div><% } %></div><% } %></td>
@@ -801,6 +820,26 @@ async function saveLicense(sel) {
 async function saveLicenseNum(inp) {
   const ok = await subField(inp.dataset.id, { license_number: inp.value });
   if (!ok) alert('Could not save license # — try again');
+}
+// ── License Watchdog (CSLB verification) ──
+async function verifyLic(id, btn) {
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = '…';
+  try {
+    const r = await fetch('/subs/' + id + '/verify-license', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else { alert(d.error || 'Could not verify'); btn.disabled = false; btn.textContent = orig; }
+  } catch (e) { alert('Verify failed — try again'); btn.disabled = false; btn.textContent = orig; }
+}
+async function verifyAllLic(btn) {
+  if (!confirm('Check every contractor with a license number against CSLB? Takes about a second per license.')) return;
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = '🛡 Verifying…';
+  try {
+    const r = await fetch('/subs/licenses/verify-all', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) { alert('Checked ' + d.checked + ' license(s) — ' + d.flagged + ' flagged. Reloading…'); location.reload(); }
+    else { alert(d.error || 'Failed'); btn.disabled = false; btn.textContent = orig; }
+  } catch (e) { alert('Failed — try again'); btn.disabled = false; btn.textContent = orig; }
 }
 async function editEmail(id, btn) {
   const td = btn.closest('td');

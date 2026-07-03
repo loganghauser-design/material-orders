@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sub Finder — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .sf-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1.2rem 1.3rem; margin-bottom:1.1rem; }
+    .sf-row { display:flex; gap:.8rem; align-items:flex-end; flex-wrap:wrap; }
+    .sf-row label { display:block; font-size:.78rem; font-weight:700; color:#334155; margin-bottom:.3rem; }
+    .sf-row select, .sf-row input[type=text] { padding:.55rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); font-size:.92rem; font-family:inherit; }
+    .cty { display:flex; flex-wrap:wrap; gap:.4rem; }
+    .cty-chip { padding:.4rem .85rem; border:1px solid var(--border); border-radius:16px; background:var(--bg); font-size:.85rem; font-weight:600; cursor:pointer; user-select:none; }
+    .cty-chip.on { background:#111; color:#fff; border-color:#111; }
+    .sf-go { background:#111; color:#fff; border:none; border-radius:10px; padding:.65rem 1.5rem; font-weight:700; font-size:.95rem; cursor:pointer; }
+    .sf-go:disabled { opacity:.55; }
+    .sf-note { font-size:.78rem; color:var(--muted); margin-top:.5rem; }
+    .res-bar { display:flex; gap:.8rem; align-items:center; flex-wrap:wrap; margin-bottom:.7rem; }
+    .res-bar input[type=search] { flex:1; min-width:220px; padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
+    .sf-table { width:100%; border-collapse:collapse; font-size:.86rem; }
+    .sf-table th { text-align:left; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:.5rem .6rem; border-bottom:1px solid var(--border); white-space:nowrap; position:sticky; top:0; background:var(--surface); }
+    .sf-table td { padding:.45rem .6rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .sf-table tr:hover td { background:var(--bg); }
+    .inlist { background:#ede0fb; color:#5b2a86; font-size:.7rem; font-weight:700; padding:1px 8px; border-radius:9px; white-space:nowrap; }
+    .st-clear { color:#16a34a; font-weight:700; font-size:.78rem; }
+    .st-other { color:#b45309; font-weight:700; font-size:.78rem; }
+    .addbar { position:sticky; bottom:0; background:var(--surface); border-top:1px solid var(--border); padding:.7rem; display:flex; gap:.8rem; align-items:center; }
+    .spinner { width:26px; height:26px; border:3px solid var(--border); border-top-color:#111; border-radius:50%; animation:sfspin .8s linear infinite; }
+    @keyframes sfspin { to { transform:rotate(360deg); } }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'subs' }) %>
+
+<div class="container">
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+    <div>
+      <h1 style="margin:0">🔎 Sub Finder</h1>
+      <div style="color:var(--muted);font-size:.88rem">Search the state license board (CSLB) for licensed contractors by trade + county — with phone numbers, license status, bond &amp; workers' comp.</div>
+    </div>
+    <a href="/subs" class="btn btn-ghost btn-sm">← Back to Subs</a>
+  </div>
+
+  <div class="sf-card">
+    <div class="sf-row">
+      <div>
+        <label>Trade needed</label>
+        <select id="tradeSel" onchange="syncClass()">
+          <% Object.keys(CSLB_CLASS_BY_TRADE).forEach(t => { %>
+            <option value="<%= t %>" data-class="<%= CSLB_CLASS_BY_TRADE[t] %>"><%= t %> (<%= CSLB_CLASS_BY_TRADE[t] %>)</option>
+          <% }) %>
+        </select>
+      </div>
+      <div>
+        <label>CSLB classification <span style="font-weight:400;color:var(--muted)">(auto)</span></label>
+        <input type="text" id="classSel" value="B" style="width:90px" title="Override the classification code if needed">
+      </div>
+      <button class="sf-go" id="goBtn" onclick="runSearch()">Search CSLB</button>
+    </div>
+    <div style="margin-top:.9rem">
+      <label style="display:block;font-size:.78rem;font-weight:700;color:#334155;margin-bottom:.35rem">Counties <span style="font-weight:400;color:var(--muted)">(tap all that apply)</span></label>
+      <div class="cty" id="ctyChips"></div>
+    </div>
+    <div class="sf-note">Live from cslb.ca.gov — currently renewed licenses only. Contractors already in your Subs list get a purple tag.</div>
+  </div>
+
+  <div id="resultsWrap" style="display:none">
+    <div class="res-bar">
+      <strong id="resCount"></strong>
+      <input type="search" id="resFilter" placeholder="Filter by name, city, or zip…" oninput="renderRows()">
+      <label style="font-size:.85rem;display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="clearOnly" checked onchange="renderRows()"> Clear status only</label>
+      <label style="font-size:.85rem;display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="hideInList" checked onchange="renderRows()"> Hide ones I have</label>
+    </div>
+    <div class="sf-card" style="padding:0;overflow:auto;max-height:64vh">
+      <table class="sf-table">
+        <thead><tr>
+          <th><input type="checkbox" id="chkAll" onchange="toggleAll(this)"></th>
+          <th>Business</th><th>City</th><th>Phone</th><th>License #</th><th>Classes</th><th>Expires</th><th>Bond</th><th>Workers Comp</th><th></th>
+        </tr></thead>
+        <tbody id="resBody"></tbody>
+      </table>
+      <div class="addbar">
+        <button class="sf-go" id="addBtn" onclick="addSelected()" disabled>➕ Add selected (0) to Subs</button>
+        <span style="font-size:.8rem;color:var(--muted)">Added contractors land in <strong>Under Vetting</strong> with the 🆕 tag, license pre-verified.</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="loading" style="display:none;text-align:center;padding:2.5rem;color:var(--muted)">
+    <div class="spinner" style="margin:0 auto .8rem"></div>
+    Pulling licensed contractors from CSLB… (a big county can take ~10 seconds)
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+const SERVICE_COUNTIES = ['Los Angeles','Orange','Riverside','San Bernardino','San Diego','Ventura'];
+let picked = ['Los Angeles'];
+let ROWS = [];
+const sel = new Set();
+
+(function initChips() {
+  const box = document.getElementById('ctyChips');
+  box.innerHTML = SERVICE_COUNTIES.map(c =>
+    `<span class="cty-chip${picked.includes(c) ? ' on' : ''}" data-c="${c}" onclick="toggleCty(this)">${c}</span>`).join('');
+})();
+function toggleCty(el) {
+  const c = el.dataset.c;
+  const i = picked.indexOf(c);
+  if (i >= 0) picked.splice(i, 1); else picked.push(c);
+  el.classList.toggle('on');
+}
+function syncClass() {
+  const o = document.getElementById('tradeSel').selectedOptions[0];
+  document.getElementById('classSel').value = o ? o.dataset.class : 'B';
+}
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function runSearch() {
+  if (!picked.length) { showToast('Pick at least one county', true); return; }
+  const btn = document.getElementById('goBtn');
+  btn.disabled = true;
+  document.getElementById('resultsWrap').style.display = 'none';
+  document.getElementById('loading').style.display = 'block';
+  sel.clear(); syncAddBtn();
+  try {
+    const r = await fetch('/subs/finder/search', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ classification: document.getElementById('classSel').value.trim(), counties: picked }) });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Search failed', true); return; }
+    ROWS = d.rows || [];
+    document.getElementById('resultsWrap').style.display = '';
+    renderRows();
+  } catch (e) { showToast('Search failed — try again', true); }
+  finally { btn.disabled = false; document.getElementById('loading').style.display = 'none'; }
+}
+
+function renderRows() {
+  const q = (document.getElementById('resFilter').value || '').toLowerCase().trim();
+  const clearOnly = document.getElementById('clearOnly').checked;
+  const hideIn = document.getElementById('hideInList').checked;
+  const list = ROWS.filter(r =>
+    (!clearOnly || /clear/i.test(r.status)) &&
+    (!hideIn || !r.inList) &&
+    (!q || (r.name + ' ' + r.city + ' ' + r.zip).toLowerCase().includes(q)));
+  const CAP = 500;
+  const shown = list.slice(0, CAP);
+  document.getElementById('resCount').textContent =
+    list.length.toLocaleString() + ' contractors' + (list.length > CAP ? ' (showing first ' + CAP + ' — filter to narrow)' : '') +
+    ' · ' + ROWS.filter(r => r.inList).length + ' already in your list';
+  document.getElementById('resBody').innerHTML = shown.map(r => `
+    <tr>
+      <td>${r.inList ? '' : `<input type="checkbox" ${sel.has(r.licNum) ? 'checked' : ''} onchange="tick('${r.licNum}', this.checked)">`}</td>
+      <td><strong>${esc(r.name)}</strong></td>
+      <td>${esc(r.city)}</td>
+      <td>${r.phone ? `<a href="tel:${esc(r.phone.replace(/[^0-9]/g,''))}">${esc(r.phone)}</a>` : ''}</td>
+      <td>${esc(r.licNum)}</td>
+      <td style="font-size:.76rem;color:var(--muted)">${esc(r.classes)}</td>
+      <td>${esc(r.expires)}</td>
+      <td>${r.bonded ? '✓' : '<span style="color:#b45309">—</span>'}</td>
+      <td style="font-size:.76rem">${/exempt/i.test(r.wc) ? '<span style="color:#b45309">Exempt</span>' : (r.wc ? '✓ Insured' : '—')}</td>
+      <td>${r.inList ? '<span class="inlist">In your list</span>' : `<span class="${/clear/i.test(r.status) ? 'st-clear' : 'st-other'}">${esc(r.status)}</span>`}</td>
+    </tr>`).join('') || '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:1.6rem">No matches with these filters.</td></tr>';
+}
+function tick(lic, on) { if (on) sel.add(lic); else sel.delete(lic); syncAddBtn(); }
+function toggleAll(chk) {
+  document.querySelectorAll('#resBody input[type=checkbox]').forEach(c => { c.checked = chk.checked; c.onchange && tick(c.getAttribute('onchange').match(/'([^']+)'/)[1], chk.checked); });
+  syncAddBtn();
+}
+function syncAddBtn() {
+  const b = document.getElementById('addBtn');
+  if (b) { b.disabled = sel.size === 0; b.textContent = '➕ Add selected (' + sel.size + ') to Subs'; }
+}
+async function addSelected() {
+  const items = ROWS.filter(r => sel.has(r.licNum));
+  if (!items.length) return;
+  const b = document.getElementById('addBtn');
+  b.disabled = true; b.textContent = 'Adding…';
+  try {
+    const r = await fetch('/subs/finder/add', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ items, trade: document.getElementById('tradeSel').value }) });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✓ Added ' + d.added + (d.skipped ? ' (' + d.skipped + ' already in list)' : ''));
+      items.forEach(it => { it.inList = true; sel.delete(it.licNum); });
+      renderRows(); syncAddBtn();
+    } else showToast(d.error || 'Could not add', true);
+  } catch (e) { showToast('Could not add — try again', true); }
+  finally { syncAddBtn(); }
+}
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 2600);
+}
+syncClass();
+</script>
+</body>
+</html>

@@ -1527,6 +1527,13 @@ async function initDb() {
     -- Per-sub "unread reply" badge state
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reply_unread BOOLEAN DEFAULT false;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS replies_viewed_at TIMESTAMPTZ;
+    -- CSLB license verification results (License Watchdog)
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_status TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_expire DATE;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_classes TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_flags TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_business TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_checked_at TIMESTAMPTZ;
     -- Files a sub attaches to a reply (license PDF, COI, insurance, photos). We store
     -- metadata + the Gmail ids and stream the bytes on demand via the attachment route.
     CREATE TABLE IF NOT EXISTS sub_email_attachments (
@@ -4151,7 +4158,161 @@ app.post('/subs/:id/status', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-// Move a sub to a different section/group (GC↔Sub and between buckets like Under Vetting → Active)
+// ── CSLB (California Contractors State License Board) integration ─────────────
+// Two capabilities: (1) Sub Finder — pull licensed contractors by classification +
+// county with contact info; (2) License Watchdog — verify a license number and
+// flag problems (expired / expiring / suspended / no bond / disciplinary).
+const CSLB_UA = { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' };
+// Our trade names → CSLB classification codes
+const CSLB_CLASS_BY_TRADE = {
+  'General Contractor': 'B', 'Electrician': 'C-10', 'Plumber': 'C-36', 'Drywall': 'C-9',
+  'Framing': 'C-5', 'Metal Framing': 'C-5', 'Painter': 'C-33', 'HVAC': 'C-20',
+  'Flooring': 'C-15', 'Windows & Doors': 'C-17', 'Roofing': 'C-39', 'Concrete': 'C-8',
+  'Foundation': 'C-8', 'Masonry': 'C-29', 'Demolition': 'C-21', 'Landscaping': 'C-27',
+  'Tile': 'C-54', 'Stone': 'C-29', 'Countertops': 'C-6', 'Cabinets': 'C-6',
+  'Solar': 'C-46', 'Stucco': 'C-35', 'Insulation': 'C-2', 'Fire Sprinklers': 'C-16',
+  'Decking': 'C-5', 'Finishes': 'C-6', 'Tree Removal': 'D-49',
+};
+// CSLB county display names → our location labels
+function cslbCountyToLocation(county) {
+  const c = String(county || '').trim();
+  if (/^los angeles$/i.test(c)) return 'LA County';
+  return c ? c + ' County' : '';
+}
+// Open a CSLB page and capture the ASP.NET session (cookies + viewstate)
+async function cslbSession(url) {
+  const r = await fetch(url, { headers: CSLB_UA });
+  if (!r.ok) throw new Error('CSLB unreachable (HTTP ' + r.status + ')');
+  const cookies = (r.headers.getSetCookie ? r.headers.getSetCookie() : [r.headers.get('set-cookie')])
+    .filter(Boolean).map(c => String(c).split(';')[0]).join('; ');
+  const html = await r.text();
+  const grab = n => { const m = html.match(new RegExp('id="' + n + '" value="([^"]*)"')); return m ? m[1] : ''; };
+  return { cookies, html, state: { '__VIEWSTATE': grab('__VIEWSTATE'), '__VIEWSTATEGENERATOR': grab('__VIEWSTATEGENERATOR'), '__EVENTVALIDATION': grab('__EVENTVALIDATION') } };
+}
+function cslbDate(s) {   // "11/30/2027" → Date or null
+  const m = String(s || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  return m ? new Date(Number(m[3]), Number(m[1]) - 1, Number(m[2])) : null;
+}
+// Verify one license number against CSLB — returns parsed detail
+async function cslbLicenseDetail(licNum) {
+  licNum = String(licNum || '').replace(/\D/g, '');
+  if (!licNum) throw new Error('No license number.');
+  const base = 'https://www2.cslb.ca.gov/onlineservices/checklicenseII/checklicense.aspx';
+  const s = await cslbSession(base);
+  const btn = s.html.match(/name="ctl00.MainContent.Contractor_License_Number_Search"[^>]*value="([^"]*)"/);
+  const body = new URLSearchParams({ ...s.state, 'ctl00$MainContent$LicNo': licNum, 'ctl00$MainContent$Contractor_License_Number_Search': btn ? btn[1] : 'Search' });
+  const r2 = await fetch(base, { method: 'POST', redirect: 'manual', headers: { ...CSLB_UA, 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': s.cookies, 'Referer': base }, body });
+  const loc = r2.headers.get('location');
+  if (!loc || !/LicenseDetail/i.test(loc)) throw new Error('License #' + licNum + ' not found on CSLB.');
+  const r3 = await fetch(new URL(loc, base).href, { headers: { ...CSLB_UA, 'Cookie': s.cookies, 'Referer': base } });
+  const raw = await r3.text();
+  const lines = raw.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '').replace(/<[^>]+>/g, '\n')
+    .replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'")
+    .split('\n').map(x => x.trim()).filter(Boolean);
+  // Disciplinary detection: any VISIBLE line with a risk word that isn't one of the
+  // 4 boilerplate sentences every license page shows (verified against clean pages).
+  const RISK_BOILERPLATE = [
+    /^CSLB complaint disclosure is restricted by law/i,
+    /^If this entity is subject to public complaint disclosure/i,
+    /^Only construction related civil judgments reported to CSLB/i,
+    /^Arbitrations are not listed unless the contractor fails to comply/i,
+  ];
+  const riskLines = lines.filter(l =>
+    /complaint|disciplin|citation|accusation|civil judgment|suspend|revok|arbitrat/i.test(l) &&
+    !RISK_BOILERPLATE.some(re => re.test(l)));
+  const idx = re => lines.findIndex(l => re.test(l));
+  const efter = (re, n) => { const i = idx(re); return i >= 0 ? (lines[i + (n || 1)] || '') : ''; };
+  const iBiz = idx(/^Business Information$/i);
+  const bizLines = iBiz >= 0 ? lines.slice(iBiz + 1, iBiz + 6) : [];
+  const phoneIdx = bizLines.findIndex(l => /Business Phone/i.test(l));
+  const det = {
+    licNum,
+    businessName: bizLines[0] || '',
+    address: bizLines.slice(1, phoneIdx > 0 ? phoneIdx : 3).join(', '),
+    phone: (raw.match(/Business Phone Number:\s*<[^>]*>?\s*\(?([\d() \-]{7,})/) || [,''])[1].trim() || (bizLines.find(l => /Phone/i.test(l)) || '').replace(/[^0-9() \-]/g, '').trim(),
+    entity: efter(/^Entity$/i),
+    issueDate: efter(/^Issue Date$/i),
+    expireDate: efter(/^Expire Date$/i),
+    statusText: efter(/^License Status$/i),
+    classifications: (() => { const i = idx(/^Classifications$/i); if (i < 0) return ''; const out = []; for (let j = i + 1; j < lines.length && j < i + 8; j++) { if (/^Bonding|^Additional Status/i.test(lines[j])) break; if (/^[A-D]-?\d*\s*-\s*/.test(lines[j])) out.push(lines[j]); } return out.join(' | '); })(),
+    hasBond: /filed a Contractor'?s Bond|Bond Amount/i.test(raw),
+    wcText: /has workers'? compensation insurance/i.test(raw) ? 'Insured' : (/exempt/i.test(raw) && /workers'? comp/i.test(raw) ? 'Exempt' : ''),
+    disciplinary: riskLines.length > 0,
+    discNote: (riskLines[0] || '').slice(0, 140),
+  };
+  if (!det.businessName) throw new Error('License #' + licNum + ' not found on CSLB.');
+  return det;
+}
+// Compute red/amber flags from a parsed detail
+function cslbFlags(det) {
+  const flags = [];
+  const st = det.statusText || '';
+  if (st && !/current and active/i.test(st)) flags.push({ level: 'red', text: 'Status: ' + st.slice(0, 120) });
+  const exp = cslbDate(det.expireDate);
+  if (exp) {
+    const days = Math.floor((exp - new Date()) / 86400000);
+    if (days < 0) flags.push({ level: 'red', text: 'License EXPIRED ' + det.expireDate });
+    else if (days <= 90) flags.push({ level: 'amber', text: 'Expires in ' + days + 'd (' + det.expireDate + ')' });
+  }
+  if (det.disciplinary) flags.push({ level: 'red', text: 'CSLB record: ' + (det.discNote || 'complaint / disciplinary disclosure on file') });
+  if (!det.hasBond) flags.push({ level: 'amber', text: 'No contractor bond on file' });
+  if (det.wcText === 'Exempt') flags.push({ level: 'info', text: "Workers' comp: exempt (no employees)" });
+  return flags;
+}
+// Verify + persist for one contractor row. Pulls the license # from the field,
+// or extracts it from the company name / notes ("... Lic 1076518").
+async function verifySubLicense(sub) {
+  let lic = String(sub.license_number || '').replace(/\D/g, '');
+  if (!lic) {
+    const m = ((sub.company || '') + ' ' + (sub.notes || '')).match(/\b(?:lic(?:ense)?|csl[b#]?|#)\s*\.?\s*#?\s*(\d{5,8})\b/i);
+    if (m) lic = m[1];
+  }
+  if (!lic) return { ok: false, error: 'No license number on file.' };
+  const det = await cslbLicenseDetail(lic);
+  const flags = cslbFlags(det);
+  const exp = cslbDate(det.expireDate);
+  await pool.query(
+    `UPDATE subcontractors SET license_number=$1, licensed=true, license_status=$2, license_expire=$3,
+       license_classes=$4, license_flags=$5, license_business=$6, license_checked_at=NOW() WHERE id=$7`,
+    [lic, det.statusText || null, exp ? exp.toISOString().slice(0, 10) : null,
+     det.classifications || null, JSON.stringify(flags), det.businessName || null, sub.id]
+  );
+  return { ok: true, detail: det, flags };
+}
+// Search CSLB for licensed contractors by classification + counties → rows
+async function cslbSearchByCounty(classification, counties) {
+  const XLSX = require('xlsx');
+  const url = 'https://www.cslb.ca.gov/onlineservices/dataportal/ListByCounty';
+  const s = await cslbSession(url);
+  // county display name → form value, parsed live from the page
+  const countyVals = [];
+  for (const want of [].concat(counties || [])) {
+    const m = s.html.match(new RegExp('<option value="(\\d+)">' + String(want).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '<'));
+    if (m) countyVals.push(m[1]);
+  }
+  if (!countyVals.length) throw new Error('No valid county selected.');
+  const body = new URLSearchParams(s.state);
+  body.append('ctl00$MainContent$lbClassification', classification);
+  countyVals.forEach(v => body.append('ctl00$MainContent$lbCounty', v));
+  body.append('ctl00$MainContent$btnSearch', 'Download');
+  const r2 = await fetch(url, { method: 'POST', headers: { ...CSLB_UA, 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': s.cookies, 'Referer': url }, body });
+  const ct = r2.headers.get('content-type') || '';
+  if (!/spreadsheet|octet-stream/i.test(ct)) throw new Error('CSLB did not return a data file (got ' + ct.slice(0, 60) + ').');
+  const buf = Buffer.from(await r2.arrayBuffer());
+  const wb = XLSX.read(buf, { type: 'buffer' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 });
+  const head = (rows[0] || []).map(h => String(h || '').toLowerCase());
+  const col = name => head.findIndex(h => h.includes(name));
+  const c = { lic: col('licensenumber'), name: col('businessname'), addr: col('address'), city: col('city'), zip: col('zip'), county: col('county'), phone: col('phonenumber'), issue: col('issuedate'), exp: col('expirationdate'), cls: col('classification'), status: col('status'), bond: col('suretycompany'), wc: col('workerscompcoveragetype') };
+  return rows.slice(1).filter(r => r && r[c.lic]).map(r => ({
+    licNum: String(r[c.lic]), name: String(r[c.name] || '').trim(), address: String(r[c.addr] || '').trim(),
+    city: String(r[c.city] || '').trim(), zip: String(r[c.zip] || '').trim(), county: String(r[c.county] || '').trim(),
+    phone: String(r[c.phone] || '').trim(), issued: String(r[c.issue] || '').trim(), expires: String(r[c.exp] || '').trim(),
+    classes: String(r[c.cls] || '').replace(/\s+/g, ' ').trim(), status: String(r[c.status] || '').trim(),
+    bonded: !!(r[c.bond] && String(r[c.bond]).trim()), wc: String(r[c.wc] || '').trim(),
+  }));
+}
+
 // Inline-save a whitelisted contractor field (bid pipeline + license)
 const SUB_INLINE_FIELDS = { bid_status: 'text', bid_price: 'text', license_number: 'text', licensed: 'bool', email: 'text', phone: 'text' };
 app.post('/subs/:id/field', requireAuth, async (req, res) => {
@@ -4168,6 +4329,93 @@ app.post('/subs/:id/field', requireAuth, async (req, res) => {
     vals.push(req.params.id);
     await pool.query(`UPDATE subcontractors SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── License Watchdog + Sub Finder endpoints ───────────────────────────────────
+// Verify one contractor's license against CSLB (live)
+app.post('/subs/:id/verify-license', requireAuth, async (req, res) => {
+  try {
+    const { rows: [sub] } = await pool.query('SELECT id, company, notes, license_number FROM subcontractors WHERE id=$1', [req.params.id]);
+    if (!sub) return res.status(404).json({ ok: false, error: 'Contractor not found.' });
+    const out = await verifySubLicense(sub);
+    res.json(out.ok ? { ok: true, detail: out.detail, flags: out.flags } : { ok: false, error: out.error });
+  } catch (err) { res.json({ ok: false, error: err.message }); }
+});
+
+// Verify every contractor that has (or embeds) a license number. Sequential +
+// polite delay so we don't hammer CSLB. Returns a summary.
+app.post('/subs/licenses/verify-all', requireAuth, async (req, res) => {   // 3-segment path so /subs/:id can't swallow it
+  try {
+    const { rows } = await pool.query("SELECT id, company, notes, license_number FROM subcontractors ORDER BY id");
+    const withLic = rows.filter(s => String(s.license_number || '').replace(/\D/g, '') ||
+      /\b(?:lic(?:ense)?|csl[b#]?|#)\s*\.?\s*#?\s*\d{5,8}\b/i.test((s.company || '') + ' ' + (s.notes || '')));
+    const results = [];
+    for (const s of withLic) {
+      try { const r = await verifySubLicense(s); results.push({ id: s.id, company: s.company, ok: r.ok, flags: r.ok ? r.flags : [], error: r.error }); }
+      catch (e) { results.push({ id: s.id, company: s.company, ok: false, error: e.message }); }
+      await new Promise(r => setTimeout(r, 700));   // politeness delay
+    }
+    const flagged = results.filter(r => (r.flags || []).some(f => f.level !== 'info'));
+    res.json({ ok: true, checked: results.length, flagged: flagged.length, results });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Sub Finder page (lives under /subs so it inherits the Subs access rules — Rick can use it)
+app.get('/subs/finder', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    res.render('subfinder', { CSLB_CLASS_BY_TRADE });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Search CSLB by classification + counties → JSON rows, annotated with what's already in your list
+app.post('/subs/finder/search', requireAuth, async (req, res) => {
+  try {
+    const classification = String(req.body.classification || '').trim().toUpperCase();
+    const counties = [].concat(req.body.counties || []).filter(Boolean);
+    if (!classification) return res.json({ ok: false, error: 'Pick a classification.' });
+    if (!counties.length) return res.json({ ok: false, error: 'Pick at least one county.' });
+    const rows = await cslbSearchByCounty(classification, counties);
+    // Mark contractors already in the Subs list (by license # or company name)
+    const { rows: mine } = await pool.query("SELECT license_number, LOWER(company) co FROM subcontractors");
+    const licSet = new Set(mine.map(m => String(m.license_number || '').replace(/\D/g, '')).filter(Boolean));
+    const nameSet = new Set(mine.map(m => (m.co || '').trim()).filter(Boolean));
+    rows.forEach(r => { r.inList = licSet.has(String(r.licNum)) || nameSet.has(r.name.toLowerCase()); });
+    res.json({ ok: true, count: rows.length, rows });
+  } catch (err) { res.json({ ok: false, error: err.message }); }
+});
+
+// Add selected CSLB results to the Subs list (Under Vetting), deduped by license #
+app.post('/subs/finder/add', requireAuth, async (req, res) => {
+  try {
+    const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 100) : [];
+    const trade = normalizeType(String(req.body.trade || '').slice(0, 100));
+    if (!items.length) return res.json({ ok: false, error: 'Nothing selected.' });
+    const { rows: mine } = await pool.query('SELECT license_number FROM subcontractors');
+    const licSet = new Set(mine.map(m => String(m.license_number || '').replace(/\D/g, '')).filter(Boolean));
+    let added = 0, skipped = 0;
+    for (const it of items) {
+      const lic = String(it.licNum || '').replace(/\D/g, '');
+      if (!lic || licSet.has(lic)) { skipped++; continue; }
+      licSet.add(lic);
+      const isGC = /(^|\|)\s*B\s*($|\|)/.test(String(it.classes || '')) && /general contractor/i.test(trade || '');
+      const cat = isGC || /general contractor/i.test(trade) ? 'gc' : 'sub';
+      const grp = cat === 'gc' ? 'Under Vetting' : 'Under Vetting';
+      const name = String(it.name || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      const title = name.replace(/\w\S*/g, w => /^(LLC|INC|DBA|CA|USA|HVAC|II|III|IV)\.?,?$/i.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase());
+      const exp = cslbDate(it.expires);
+      await pool.query(
+        `INSERT INTO subcontractors (company, location, type, status, phone, notes, group_label, category, sort_order,
+           license_number, licensed, license_status, license_expire, license_classes, license_checked_at, recent_add)
+         VALUES ($1,$2,$3,'Under Review',$4,$5,$6,$7,9999,$8,true,$9,$10,$11,NOW(),TRUE)`,
+        [title, cslbCountyToLocation(it.county), trade || null, it.phone || null,
+         ('Sourced from CSLB ' + new Date().toLocaleDateString() + (it.city ? ' · ' + it.city : '') + (it.address ? ' · ' + it.address : '')).slice(0, 480),
+         grp, cat, lic, it.status || null, exp ? exp.toISOString().slice(0, 10) : null, it.classes || null]
+      );
+      added++;
+    }
+    res.json({ ok: true, added, skipped });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
@@ -4684,6 +4932,30 @@ async function autoCompleteWarranty() {
   } catch (e) { console.error('autoCompleteWarranty:', e.message); }
 }
 
+// License Watchdog: weekly re-check of every contractor license against CSLB.
+// Chat-alerts any red/amber findings (expired / expiring / suspended / disciplinary).
+async function licenseWatchdog() {
+  try {
+    const { rows } = await pool.query("SELECT id, company, notes, license_number FROM subcontractors WHERE license_number IS NOT NULL AND license_number <> ''");
+    const findings = [];
+    for (const s of rows) {
+      try {
+        const r = await verifySubLicense(s);
+        if (r.ok) {
+          const bad = (r.flags || []).filter(f => f.level === 'red' || f.level === 'amber');
+          if (bad.length) findings.push('• *' + (s.company || 'Lic ' + s.license_number) + '* — ' + bad.map(f => f.text).join('; '));
+        }
+      } catch (e) { /* single-license failure shouldn't kill the run */ }
+      await new Promise(r => setTimeout(r, 900));
+    }
+    if (findings.length) {
+      const LOGAN = '106404376271648731086';
+      postToChat(['🛡️ *License Watchdog* <users/' + LOGAN + '> — ' + findings.length + ' contractor(s) need attention:', ...findings.slice(0, 15)].join('\n'));
+    }
+    console.log('licenseWatchdog: checked ' + rows.length + ', flagged ' + findings.length);
+  } catch (e) { console.error('licenseWatchdog:', e.message); }
+}
+
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
@@ -4691,6 +4963,7 @@ function startCron() {
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
+  cron.schedule('40 15 * * 1', licenseWatchdog);        // Mondays — CSLB license re-check
   console.log('Cron jobs scheduled');
 }
 
