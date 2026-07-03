@@ -15,6 +15,9 @@
     <select class="phase-select phsel-<%= _slug %>" data-project="<%= p.id %>" onchange="savePhase(this)" title="Project status">
       <% PROJECT_PHASES.forEach(ph => { %><option value="<%= ph %>" <%- _cur===ph?'selected':'' %>><%= ph %></option><% }) %>
     </select>
+    <% if (_cur === 'Under Warranty' && p.warranty_started_at) { var _wend = new Date(new Date(p.warranty_started_at).getTime() + 365 * 24 * 3600 * 1000); %>
+    <div class="ph-hint" title="Moves to Complete automatically one year after entering warranty">Completes <%= _wend.toLocaleDateString() %></div>
+    <% } %>
   </td>
   <% codes.forEach((code, i) => {
     const st = (im[code] && im[code].status) || 'Not yet placed';

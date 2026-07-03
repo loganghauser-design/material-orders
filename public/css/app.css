@@ -218,6 +218,7 @@ textarea { resize: vertical; min-height: 80px; }
 .phb-under_construction { background: #dbeafe; color: #1e40af; }
 .phb-complete { background: #d1fae5; color: #065f46; }
 .phb-under_warranty { background: #ede9fe; color: #6d28d9; }
+.ph-hint { font-size: .68rem; color: var(--muted); margin-top: .25rem; white-space: nowrap; }
 
 /* Settings — suppliers */
 .supplier-stage { font-weight: 700; font-size: .85rem; color: var(--text); margin: 1.25rem 0 .6rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); }

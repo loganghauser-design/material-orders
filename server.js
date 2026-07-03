@@ -259,7 +259,7 @@ const PROJECT_STATUSES = ['Not Yet', 'In Progress', 'All Delivered', 'Draft - Co
 // Lifecycle phases — THE project status (single dropdown, in pipeline order).
 // The legacy overall_status above is kept in sync behind the scenes so the
 // dashboard/digest/portal queries built on it keep working.
-const PROJECT_PHASES = ['In Permitting', 'Pre-Construction', 'Under Construction', 'Complete', 'Under Warranty'];
+const PROJECT_PHASES = ['In Permitting', 'Pre-Construction', 'Under Construction', 'Under Warranty', 'Complete'];
 function statusForPhase(phase, current) {
   if (phase === 'Complete' || phase === 'Under Warranty') return 'Fully Delivered';
   if (phase === 'In Permitting' || phase === 'Pre-Construction') return 'Not Yet';
@@ -1407,6 +1407,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS phase TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_started_at TIMESTAMPTZ;
     ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_date_end DATE;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS sort_order INTEGER;
@@ -2578,7 +2579,12 @@ app.post('/projects/:id', requireAuth, async (req, res) => {
   const { rows: [cur] } = await pool.query('SELECT phase, overall_status FROM projects WHERE id=$1', [req.params.id]);
   const phase = PROJECT_PHASES.includes(req.body.phase) ? req.body.phase : (cur && cur.phase) || 'Pre-Construction';
   await pool.query(
-    `UPDATE projects SET address=$1, version=$2, phase=$3, overall_status=$4, notes=$5, client_name=$6, client_email=$7, full_address=$8, finish_schedule_url=$9, updated_at=NOW() WHERE id=$10`,
+    `UPDATE projects SET address=$1, version=$2, phase=$3, overall_status=$4, notes=$5, client_name=$6, client_email=$7, full_address=$8, finish_schedule_url=$9, updated_at=NOW(),
+       warranty_started_at = CASE
+         WHEN $3 = 'Under Warranty' THEN COALESCE(warranty_started_at, NOW())
+         WHEN $3 = 'Complete' THEN warranty_started_at
+         ELSE NULL END
+     WHERE id=$10`,
     [address, version||null, phase, statusForPhase(phase, cur ? cur.overall_status : null), notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null, req.params.id]
   );
   res.redirect(`/projects/${req.params.id}`);
@@ -2593,7 +2599,15 @@ app.post('/projects/:id/phase', requireAuth, async (req, res) => {
     if (!PROJECT_PHASES.includes(phase)) return res.status(400).json({ ok: false, error: 'Unknown phase.' });
     const { rows: [cur] } = await pool.query('SELECT overall_status FROM projects WHERE id=$1', [req.params.id]);
     if (!cur) return res.status(404).json({ ok: false, error: 'Project not found.' });
-    await pool.query('UPDATE projects SET phase=$1, overall_status=$2, updated_at=NOW() WHERE id=$3',
+    // Entering Under Warranty starts the 1-year clock (kept if re-picked); moving
+    // back to an earlier phase resets it; Complete preserves the history.
+    await pool.query(
+      `UPDATE projects SET phase=$1, overall_status=$2, updated_at=NOW(),
+         warranty_started_at = CASE
+           WHEN $1 = 'Under Warranty' THEN COALESCE(warranty_started_at, NOW())
+           WHEN $1 = 'Complete' THEN warranty_started_at
+           ELSE NULL END
+       WHERE id=$3`,
       [phase, statusForPhase(phase, cur.overall_status), req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -4518,10 +4532,22 @@ async function sendWeeklyDigest() {
   } catch (e) { console.error('sendWeeklyDigest:', e.message); }
 }
 
+// A year after a project enters Under Warranty it graduates to Complete on its own.
+async function autoCompleteWarranty() {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE projects SET phase='Complete', overall_status='Fully Delivered', updated_at=NOW()
+       WHERE phase='Under Warranty' AND warranty_started_at IS NOT NULL AND warranty_started_at < NOW() - INTERVAL '1 year'
+       RETURNING address`);
+    if (rows.length) console.log('Warranty ended, auto-completed:', rows.map(r => r.address).join(', '));
+  } catch (e) { console.error('autoCompleteWarranty:', e.message); }
+}
+
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
   cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
+  cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
   console.log('Cron jobs scheduled');
@@ -4537,4 +4563,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
