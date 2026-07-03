@@ -4419,6 +4419,101 @@ app.post('/subs/finder/add', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// ── Online sub search (Yelp / Google Places) — handymen & small operators that
+//    aren't in the state license database. Uses whichever API key is configured.
+async function yelpSearch(term, location) {
+  const key = process.env.YELP_API_KEY;
+  const u = 'https://api.yelp.com/v3/businesses/search?' + new URLSearchParams({ term, location, limit: '50', sort_by: 'best_match' });
+  const r = await fetch(u, { headers: { Authorization: 'Bearer ' + key } });
+  if (!r.ok) throw new Error('Yelp: HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
+  const d = await r.json();
+  return (d.businesses || []).map(b => ({
+    source: 'Yelp', name: b.name || '', phone: b.display_phone || '',
+    address: (b.location && (b.location.display_address || []).join(', ')) || '',
+    rating: b.rating || null, reviews: b.review_count || 0, link: b.url || '',
+    tags: (b.categories || []).map(c => c.title).join(', '),
+  }));
+}
+async function googlePlacesSearch(term, location) {
+  const key = process.env.GOOGLE_PLACES_API_KEY;
+  const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key,
+      'X-Goog-FieldMask': 'places.displayName,places.nationalPhoneNumber,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.types' },
+    body: JSON.stringify({ textQuery: term + ' in ' + location, pageSize: 20 }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error('Google Places: ' + ((d.error && d.error.message) || 'HTTP ' + r.status).slice(0, 150));
+  return (d.places || []).map(p => ({
+    source: 'Google', name: (p.displayName && p.displayName.text) || '', phone: p.nationalPhoneNumber || '',
+    address: p.formattedAddress || '', rating: p.rating || null, reviews: p.userRatingCount || 0,
+    link: p.googleMapsUri || '', tags: (p.types || []).slice(0, 3).join(', ').replace(/_/g, ' '),
+  }));
+}
+app.post('/subs/finder/online-search', requireAuth, async (req, res) => {
+  try {
+    const term = String(req.body.term || '').trim().slice(0, 80);
+    const location = String(req.body.location || '').trim().slice(0, 80) || 'Los Angeles, CA';
+    if (!term) return res.json({ ok: false, error: 'Type what you need (e.g. handyman).' });
+    const providers = [];
+    if (process.env.YELP_API_KEY) providers.push(yelpSearch(term, location).catch(e => ({ err: e.message })));
+    if (process.env.GOOGLE_PLACES_API_KEY) providers.push(googlePlacesSearch(term, location).catch(e => ({ err: e.message })));
+    if (!providers.length) return res.json({ ok: false, needsSetup: true, error: 'Online search isn\'t connected yet — a Yelp or Google Places API key needs to be added.' });
+    const settled = await Promise.all(providers);
+    const errors = settled.filter(s => s && s.err).map(s => s.err);
+    const all = settled.filter(Array.isArray).flat();
+    // Merge Yelp + Google results, dedupe by normalized business name
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const byName = new Map();
+    for (const r of all) {
+      const k = norm(r.name);
+      if (!k) continue;
+      const prev = byName.get(k);
+      if (!prev) byName.set(k, { ...r });
+      else {
+        prev.source += ' + ' + r.source;
+        if (!prev.phone && r.phone) prev.phone = r.phone;
+        prev.reviews = Math.max(prev.reviews || 0, r.reviews || 0);
+        if (!prev.rating && r.rating) prev.rating = r.rating;
+      }
+    }
+    const rows = [...byName.values()].sort((a, b) => (b.reviews || 0) - (a.reviews || 0));
+    const { rows: mine } = await pool.query('SELECT LOWER(company) co FROM subcontractors');
+    const nameSet = new Set(mine.map(m => norm(m.co)));
+    rows.forEach(r => { r.inList = nameSet.has(norm(r.name)); });
+    res.json({ ok: true, count: rows.length, rows, errors });
+  } catch (err) { res.json({ ok: false, error: err.message }); }
+});
+// Add selected online results to the Subs list (deduped by company name)
+app.post('/subs/finder/add-online', requireAuth, async (req, res) => {
+  try {
+    const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 50) : [];
+    const trade = normalizeType(String(req.body.trade || '').slice(0, 100));
+    if (!items.length) return res.json({ ok: false, error: 'Nothing selected.' });
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const { rows: mine } = await pool.query('SELECT LOWER(company) co FROM subcontractors');
+    const nameSet = new Set(mine.map(m => norm(m.co)));
+    let added = 0, skipped = 0;
+    for (const it of items) {
+      const name = String(it.name || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      const k = norm(name);
+      if (!k || nameSet.has(k)) { skipped++; continue; }
+      nameSet.add(k);
+      const bits = ['Sourced from ' + (String(it.source || 'online').slice(0, 30)) + ' ' + new Date().toLocaleDateString()];
+      if (it.rating) bits.push('★' + it.rating + (it.reviews ? ' (' + it.reviews + ' reviews)' : ''));
+      if (it.address) bits.push(String(it.address).slice(0, 120));
+      if (it.link) bits.push(String(it.link).split('?')[0].slice(0, 140));
+      await pool.query(
+        `INSERT INTO subcontractors (company, type, status, phone, notes, group_label, category, sort_order, recent_add)
+         VALUES ($1,$2,'Under Review',$3,$4,'Under Vetting','sub',9999,TRUE)`,
+        [name, trade || null, String(it.phone || '').slice(0, 40) || null, bits.join(' · ').slice(0, 480)]
+      );
+      added++;
+    }
+    res.json({ ok: true, added, skipped });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Set just the note/reason on a flagged (rejected/blacklisted) contractor
 app.post('/subs/:id/reason', requireAuth, async (req, res) => {
   try {

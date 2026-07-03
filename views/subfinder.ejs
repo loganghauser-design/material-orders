@@ -28,6 +28,11 @@
     .addbar { position:sticky; bottom:0; background:var(--surface); border-top:1px solid var(--border); padding:.7rem; display:flex; gap:.8rem; align-items:center; }
     .spinner { width:26px; height:26px; border:3px solid var(--border); border-top-color:#111; border-radius:50%; animation:sfspin .8s linear infinite; }
     @keyframes sfspin { to { transform:rotate(360deg); } }
+    .sf-tabs { display:flex; gap:.4rem; margin-bottom:1rem; }
+    .sf-tab { padding:.55rem 1.2rem; border:1px solid var(--border); border-radius:11px; background:var(--surface); font-size:.92rem; font-weight:700; cursor:pointer; }
+    .sf-tab.on { background:#111; color:#fff; border-color:#111; }
+    .setup-hint { background:#fff7e6; border:1px solid #f0d9a8; border-radius:11px; padding:.9rem 1.1rem; font-size:.88rem; line-height:1.5; margin-bottom:1rem; }
+    .src-tag { font-size:.68rem; font-weight:700; padding:1px 7px; border-radius:8px; background:#eef0f4; color:#555; white-space:nowrap; }
   </style>
 </head>
 <body>
@@ -42,6 +47,12 @@
     <a href="/subs" class="btn btn-ghost btn-sm">← Back to Subs</a>
   </div>
 
+  <div class="sf-tabs">
+    <button type="button" class="sf-tab on" id="tabbtn_cslb" onclick="showTab('cslb')">🏛 Licensed (state board)</button>
+    <button type="button" class="sf-tab" id="tabbtn_online" onclick="showTab('online')">🌐 Online (Yelp / Google)</button>
+  </div>
+
+  <div id="tab_cslb">
   <div class="sf-card">
     <div class="sf-row">
       <div>
@@ -91,6 +102,53 @@
     <div class="spinner" style="margin:0 auto .8rem"></div>
     Pulling licensed contractors from CSLB… (a big county can take ~10 seconds)
   </div>
+  </div><!-- /tab_cslb -->
+
+  <div id="tab_online" style="display:none">
+    <div id="onlineSetup" class="setup-hint" style="display:none">
+      🔌 <strong>Online search isn't connected yet.</strong> It needs a (free-tier) API key from Yelp or Google Places —
+      ask Claude to set one up: Yelp takes ~2 minutes at <em>yelp.com/developers</em>, or Google Places can be enabled on your existing Google Cloud project.
+    </div>
+    <div class="sf-card">
+      <div class="sf-row">
+        <div style="flex:1;min-width:200px">
+          <label>What do you need?</label>
+          <input type="text" id="oTerm" placeholder="e.g. handyman, junk removal, tree service, demolition" style="width:100%" onkeydown="if(event.key==='Enter')runOnline()">
+        </div>
+        <div>
+          <label>Area (city or zip)</label>
+          <input type="text" id="oLoc" value="Los Angeles, CA" style="width:200px" onkeydown="if(event.key==='Enter')runOnline()">
+        </div>
+        <button class="sf-go" id="oGoBtn" onclick="runOnline()">Search online</button>
+      </div>
+      <div class="sf-note">Searches Yelp and/or Google (whichever is connected), merges duplicates, and tags who's already in your list. Good for handyman-scale work — bigger jobs should come from the Licensed tab. 💡 After adding someone, hit 🛡 on the Subs page to check if they hold a license anyway.</div>
+    </div>
+
+    <div id="oResultsWrap" style="display:none">
+      <div class="res-bar">
+        <strong id="oResCount"></strong>
+        <input type="search" id="oResFilter" placeholder="Filter by name or address…" oninput="renderOnline()">
+        <label style="font-size:.85rem;display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="oHideInList" checked onchange="renderOnline()"> Hide ones I have</label>
+      </div>
+      <div class="sf-card" style="padding:0;overflow:auto;max-height:64vh">
+        <table class="sf-table">
+          <thead><tr>
+            <th></th><th>Business</th><th>Rating</th><th>Phone</th><th>Address</th><th>Category</th><th>Source</th><th></th>
+          </tr></thead>
+          <tbody id="oResBody"></tbody>
+        </table>
+        <div class="addbar">
+          <button class="sf-go" id="oAddBtn" onclick="addOnline()" disabled>➕ Add selected (0) to Subs</button>
+          <span style="font-size:.8rem;color:var(--muted)">Lands in <strong>Under Vetting</strong> with the 🆕 tag + source noted (rating, address, link).</span>
+        </div>
+      </div>
+    </div>
+
+    <div id="oLoading" style="display:none;text-align:center;padding:2.5rem;color:var(--muted)">
+      <div class="spinner" style="margin:0 auto .8rem"></div>
+      Searching online listings…
+    </div>
+  </div><!-- /tab_online -->
 </div>
 
 <div id="toast" class="toast"></div>
@@ -194,6 +252,87 @@ function showToast(msg, err) {
   const t = document.getElementById('toast');
   t.textContent = msg; t.className = 'toast show' + (err ? ' error' : '');
   setTimeout(() => t.className = 'toast', 2600);
+}
+
+// ── Tabs ──
+function showTab(t) {
+  ['cslb', 'online'].forEach(k => {
+    document.getElementById('tab_' + k).style.display = (k === t) ? '' : 'none';
+    document.getElementById('tabbtn_' + k).classList.toggle('on', k === t);
+  });
+  if (t === 'online' && !document.getElementById('oTerm').value) {
+    // prefill from the CSLB trade picker for a smooth handoff
+    const tr = document.getElementById('tradeSel').value;
+    if (tr && !/general contractor/i.test(tr)) document.getElementById('oTerm').value = tr.toLowerCase();
+  }
+}
+
+// ── Online (Yelp / Google) search ──
+let OROWS = [];
+const osel = new Set();
+async function runOnline() {
+  const term = document.getElementById('oTerm').value.trim();
+  if (!term) { showToast('Type what you need (e.g. handyman)', true); return; }
+  const btn = document.getElementById('oGoBtn');
+  btn.disabled = true;
+  document.getElementById('oResultsWrap').style.display = 'none';
+  document.getElementById('onlineSetup').style.display = 'none';
+  document.getElementById('oLoading').style.display = 'block';
+  osel.clear(); syncOAdd();
+  try {
+    const r = await fetch('/subs/finder/online-search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ term, location: document.getElementById('oLoc').value.trim() }) });
+    const d = await r.json();
+    if (!d.ok) {
+      if (d.needsSetup) document.getElementById('onlineSetup').style.display = '';
+      else showToast(d.error || 'Search failed', true);
+      return;
+    }
+    OROWS = d.rows || [];
+    (d.errors || []).forEach(e => showToast(e, true));
+    document.getElementById('oResultsWrap').style.display = '';
+    renderOnline();
+  } catch (e) { showToast('Search failed — try again', true); }
+  finally { btn.disabled = false; document.getElementById('oLoading').style.display = 'none'; }
+}
+function renderOnline() {
+  const q = (document.getElementById('oResFilter').value || '').toLowerCase().trim();
+  const hideIn = document.getElementById('oHideInList').checked;
+  const list = OROWS.filter(r => (!hideIn || !r.inList) && (!q || (r.name + ' ' + r.address).toLowerCase().includes(q)));
+  document.getElementById('oResCount').textContent = list.length + ' businesses · ' + OROWS.filter(r => r.inList).length + ' already in your list';
+  document.getElementById('oResBody').innerHTML = list.map((r, i) => `
+    <tr>
+      <td>${r.inList ? '' : `<input type="checkbox" ${osel.has(r.name) ? 'checked' : ''} onchange="otick(${OROWS.indexOf(r)}, this.checked)">`}</td>
+      <td><strong>${esc(r.name)}</strong></td>
+      <td>${r.rating ? '★' + r.rating + ' <span style="color:var(--muted);font-size:.76rem">(' + (r.reviews || 0) + ')</span>' : ''}</td>
+      <td>${r.phone ? `<a href="tel:${esc(String(r.phone).replace(/[^0-9]/g, ''))}">${esc(r.phone)}</a>` : ''}</td>
+      <td style="font-size:.8rem">${esc(r.address)}</td>
+      <td style="font-size:.76rem;color:var(--muted)">${esc(r.tags || '')}</td>
+      <td><span class="src-tag">${esc(r.source)}</span>${r.link ? ` <a href="${esc(r.link)}" target="_blank" rel="noopener" title="Open listing">↗</a>` : ''}</td>
+      <td>${r.inList ? '<span class="inlist">In your list</span>' : ''}</td>
+    </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:1.6rem">No matches.</td></tr>';
+}
+function otick(i, on) { const r = OROWS[i]; if (!r) return; if (on) osel.add(r.name); else osel.delete(r.name); syncOAdd(); }
+function syncOAdd() {
+  const b = document.getElementById('oAddBtn');
+  if (b) { b.disabled = osel.size === 0; b.textContent = '➕ Add selected (' + osel.size + ') to Subs'; }
+}
+async function addOnline() {
+  const items = OROWS.filter(r => osel.has(r.name));
+  if (!items.length) return;
+  const b = document.getElementById('oAddBtn');
+  b.disabled = true; b.textContent = 'Adding…';
+  try {
+    const r = await fetch('/subs/finder/add-online', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items, trade: document.getElementById('oTerm').value.trim() }) });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✓ Added ' + d.added + (d.skipped ? ' (' + d.skipped + ' already in list)' : ''));
+      items.forEach(it => { it.inList = true; osel.delete(it.name); });
+      renderOnline(); syncOAdd();
+    } else showToast(d.error || 'Could not add', true);
+  } catch (e) { showToast('Could not add — try again', true); }
+  finally { syncOAdd(); }
 }
 syncClass();
 </script>
