@@ -1527,6 +1527,20 @@ async function initDb() {
     -- Per-sub "unread reply" badge state
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reply_unread BOOLEAN DEFAULT false;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS replies_viewed_at TIMESTAMPTZ;
+    -- Supplier directory (candidates found via the Supplier Finder — separate from
+    -- the per-material RFQ contacts, which stay in the suppliers table)
+    CREATE TABLE IF NOT EXISTS supplier_directory (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      category TEXT,
+      phone TEXT,
+      email TEXT,
+      website TEXT,
+      address TEXT,
+      rating TEXT,
+      notes TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
     -- CSLB license verification results (License Watchdog)
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_status TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_expire DATE;
@@ -3783,7 +3797,8 @@ app.get('/suppliers', requireAuth, async (req, res) => {
   try {
     await initDb();
     const suppliers = await getSuppliers();
-    res.render('suppliers', { STAGES, suppliers, saved: req.query.saved === '1' });
+    const { rows: directory } = await pool.query('SELECT * FROM supplier_directory ORDER BY category NULLS LAST, name');
+    res.render('suppliers', { STAGES, suppliers, directory, saved: req.query.saved === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -4483,18 +4498,19 @@ async function yelpSearch(term, location) {
     tags: (b.categories || []).map(c => c.title).join(', '),
   }));
 }
-async function googlePlacesSearch(term, location) {
+async function googlePlacesSearch(term, location, opts = {}) {
   const key = process.env.GOOGLE_PLACES_API_KEY;
   const r = await fetch('https://places.googleapis.com/v1/places:searchText', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key,
-      'X-Goog-FieldMask': 'places.displayName,places.nationalPhoneNumber,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.types' },
+      'X-Goog-FieldMask': 'places.displayName,places.nationalPhoneNumber,places.formattedAddress,places.rating,places.userRatingCount,places.googleMapsUri,places.websiteUri,places.types' },
     body: JSON.stringify({ textQuery: term + ' in ' + location, pageSize: 20 }),
   });
   const d = await r.json();
   if (!r.ok) throw new Error('Google Places: ' + ((d.error && d.error.message) || 'HTTP ' + r.status).slice(0, 150));
   return (d.places || []).filter(p => {
-    // Drop retail shops (tile stores, lumber yards) unless Google also types them as a contractor
+    if (opts.keepRetail) return true;   // supplier search: stores ARE the target
+    // Sub search: drop retail shops unless Google also types them as a contractor
     const types = p.types || [];
     const retail = types.some(t => ONLINE_RETAIL_TYPES.includes(t));
     const contractor = types.some(t => ONLINE_CONTRACTOR_TYPES.includes(t));
@@ -4502,7 +4518,7 @@ async function googlePlacesSearch(term, location) {
   }).map(p => ({
     source: 'Google', name: (p.displayName && p.displayName.text) || '', phone: p.nationalPhoneNumber || '',
     address: p.formattedAddress || '', rating: p.rating || null, reviews: p.userRatingCount || 0,
-    link: p.googleMapsUri || '', tags: (p.types || []).slice(0, 3).join(', ').replace(/_/g, ' '),
+    link: p.googleMapsUri || '', website: p.websiteUri || '', tags: (p.types || []).slice(0, 3).join(', ').replace(/_/g, ' '),
   }));
 }
 app.post('/subs/finder/online-search', requireAuth, async (req, res) => {
@@ -4575,6 +4591,129 @@ app.post('/subs/finder/add-online', requireAuth, async (req, res) => {
     }
     res.json({ ok: true, added, skipped });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── Supplier Finder — same county-wide online search, tuned for material suppliers ──
+const SUPPLIER_QUERIES = {
+  'Lumber': 'lumber yard',
+  'Building Materials': 'building materials supplier',
+  'Plumbing Supply': 'plumbing supply house',
+  'Electrical Supply': 'electrical supply house',
+  'Lighting': 'lighting showroom',
+  'HVAC Supply': 'HVAC supply house',
+  'Tile & Stone': 'tile and stone supplier',
+  'Countertops / Slabs': 'granite quartz slab supplier',
+  'Flooring': 'flooring supplier',
+  'Cabinets & Millwork': 'kitchen cabinet supplier',
+  'Doors & Windows': 'door and window supplier',
+  'Hardware': 'builders hardware supplier',
+  'Appliances': 'appliance store',
+  'Paint': 'paint store',
+  'Drywall Supply': 'drywall supplier',
+  'Stucco / Plaster Supply': 'stucco supply',
+  'Roofing Supply': 'roofing supply',
+  'Concrete / Masonry Supply': 'concrete and masonry supply',
+  'Insulation': 'insulation supplier',
+  'Shower Doors / Glass': 'glass and shower door company',
+  'Water Heaters': 'water heater supplier',
+  'Fasteners / Rebar': 'fastener and rebar supplier',
+  'Tool Rental': 'tool and equipment rental',
+};
+app.get('/suppliers/finder', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    res.render('supfinder', { SUPPLIER_CATS: Object.keys(SUPPLIER_QUERIES) });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/suppliers/finder/search', requireAuth, async (req, res) => {
+  try {
+    const cat = String(req.body.category || '').trim();
+    let term = String(req.body.term || '').trim().slice(0, 80);
+    if (!term && SUPPLIER_QUERIES[cat]) term = SUPPLIER_QUERIES[cat];
+    if (!term) return res.json({ ok: false, error: 'Pick a category (or type a custom search).' });
+    const city = String(req.body.location || '').trim().slice(0, 80);
+    const county = String(req.body.county || '').trim();
+    const zones = city ? [city] : (ONLINE_COUNTY_ZONES[county] || ['Los Angeles, CA']);
+    const providers = [];
+    for (const z of zones) {
+      if (process.env.YELP_API_KEY) providers.push(yelpSearch(term, z).catch(e => ({ err: e.message })));
+      if (process.env.GOOGLE_PLACES_API_KEY) providers.push(googlePlacesSearch(term, z, { keepRetail: true }).catch(e => ({ err: e.message })));
+    }
+    if (!providers.length) return res.json({ ok: false, needsSetup: true, error: 'Online search isn\'t connected yet — a Yelp or Google Places API key needs to be added.' });
+    const settled = await Promise.all(providers);
+    const errors = [...new Set(settled.filter(s => s && s.err).map(s => s.err))];
+    const all = settled.filter(Array.isArray).flat();
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const byName = new Map();
+    for (const r of all) {
+      const k = norm(r.name);
+      if (!k) continue;
+      const prev = byName.get(k);
+      if (!prev) byName.set(k, { ...r });
+      else {
+        prev.source += ' + ' + r.source;
+        if (!prev.phone && r.phone) prev.phone = r.phone;
+        if (!prev.website && r.website) prev.website = r.website;
+        prev.reviews = Math.max(prev.reviews || 0, r.reviews || 0);
+        if (!prev.rating && r.rating) prev.rating = r.rating;
+      }
+    }
+    const rows = [...byName.values()].sort((a, b) => (b.reviews || 0) - (a.reviews || 0));
+    // already known? check the directory AND the per-material RFQ contacts
+    const { rows: dir } = await pool.query('SELECT LOWER(name) nm FROM supplier_directory');
+    const { rows: rfq } = await pool.query('SELECT LOWER(supplier_name) nm FROM suppliers WHERE supplier_name IS NOT NULL');
+    const known = new Set([...dir, ...rfq].map(m => norm(m.nm)).filter(Boolean));
+    rows.forEach(r => { r.inList = known.has(norm(r.name)); });
+    res.json({ ok: true, count: rows.length, rows, errors });
+  } catch (err) { res.json({ ok: false, error: err.message }); }
+});
+app.post('/suppliers/finder/add', requireAuth, async (req, res) => {
+  try {
+    const items = Array.isArray(req.body.items) ? req.body.items.slice(0, 50) : [];
+    const category = String(req.body.category || '').trim().slice(0, 60) || null;
+    if (!items.length) return res.json({ ok: false, error: 'Nothing selected.' });
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const { rows: dir } = await pool.query('SELECT LOWER(name) nm FROM supplier_directory');
+    const known = new Set(dir.map(m => norm(m.nm)));
+    let added = 0, skipped = 0;
+    for (const it of items) {
+      const name = String(it.name || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+      const k = norm(name);
+      if (!k || known.has(k)) { skipped++; continue; }
+      known.add(k);
+      await pool.query(
+        `INSERT INTO supplier_directory (name, category, phone, website, address, rating, notes)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [name, category, String(it.phone || '').slice(0, 40) || null,
+         String(it.website || it.link || '').split('?')[0].slice(0, 200) || null,
+         String(it.address || '').slice(0, 200) || null,
+         it.rating ? ('★' + it.rating + (it.reviews ? ' (' + it.reviews + ')' : '')) : null,
+         'Found via Supplier Finder ' + new Date().toLocaleDateString()]
+      );
+      added++;
+    }
+    res.json({ ok: true, added, skipped });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+// Inline edits + delete for directory entries
+app.post('/suppliers/directory/:id/field', requireAuth, async (req, res) => {
+  try {
+    const allowed = ['email', 'phone', 'notes', 'category'];
+    const sets = [], vals = [];
+    for (const k of allowed) {
+      if (!(k in req.body)) continue;
+      const v = (req.body[k] != null && String(req.body[k]).trim()) ? String(req.body[k]).trim().slice(0, 200) : null;
+      sets.push(`${k}=$${vals.length + 1}`); vals.push(v);
+    }
+    if (!sets.length) return res.json({ ok: true });
+    vals.push(req.params.id);
+    await pool.query(`UPDATE supplier_directory SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/suppliers/directory/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM supplier_directory WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Set just the note/reason on a flagged (rejected/blacklisted) contractor

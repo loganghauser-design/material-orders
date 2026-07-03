@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supplier Finder — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .sf-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1.2rem 1.3rem; margin-bottom:1.1rem; }
+    .sf-row { display:flex; gap:.8rem; align-items:flex-end; flex-wrap:wrap; }
+    .sf-row label { display:block; font-size:.78rem; font-weight:700; color:#334155; margin-bottom:.3rem; }
+    .sf-row select, .sf-row input[type=text] { padding:.55rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); font-size:.92rem; font-family:inherit; }
+    .sf-go { background:#111; color:#fff; border:none; border-radius:10px; padding:.65rem 1.5rem; font-weight:700; font-size:.95rem; cursor:pointer; }
+    .sf-go:disabled { opacity:.55; }
+    .sf-note { font-size:.78rem; color:var(--muted); margin-top:.5rem; }
+    .res-bar { display:flex; gap:.8rem; align-items:center; flex-wrap:wrap; margin-bottom:.7rem; }
+    .res-bar input[type=search] { flex:1; min-width:220px; padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
+    .sf-table { width:100%; border-collapse:collapse; font-size:.86rem; }
+    .sf-table th { text-align:left; font-size:.7rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); padding:.5rem .6rem; border-bottom:1px solid var(--border); white-space:nowrap; position:sticky; top:0; background:var(--surface); }
+    .sf-table td { padding:.45rem .6rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .sf-table tr:hover td { background:var(--bg); }
+    .inlist { background:#ede0fb; color:#5b2a86; font-size:.7rem; font-weight:700; padding:1px 8px; border-radius:9px; white-space:nowrap; }
+    .src-tag { font-size:.68rem; font-weight:700; padding:1px 7px; border-radius:8px; background:#eef0f4; color:#555; white-space:nowrap; }
+    .addbar { position:sticky; bottom:0; background:var(--surface); border-top:1px solid var(--border); padding:.7rem; display:flex; gap:.8rem; align-items:center; }
+    .spinner { width:26px; height:26px; border:3px solid var(--border); border-top-color:#111; border-radius:50%; animation:sfspin .8s linear infinite; }
+    @keyframes sfspin { to { transform:rotate(360deg); } }
+    .setup-hint { background:#fff7e6; border:1px solid #f0d9a8; border-radius:11px; padding:.9rem 1.1rem; font-size:.88rem; line-height:1.5; margin-bottom:1rem; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'suppliers' }) %>
+
+<div class="container">
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+    <div>
+      <h1 style="margin:0">🔎 Supplier Finder</h1>
+      <div style="color:var(--muted);font-size:.88rem">Find material suppliers — lumber yards, supply houses, slab yards, showrooms — county-wide, with phones, ratings &amp; websites.</div>
+    </div>
+    <a href="/suppliers" class="btn btn-ghost btn-sm">← Back to Suppliers</a>
+  </div>
+
+  <div id="setupHint" class="setup-hint" style="display:none">
+    🔌 <strong>Online search isn't connected yet.</strong> It needs a Yelp or Google Places API key — ask Claude to set one up.
+  </div>
+
+  <div class="sf-card">
+    <div class="sf-row">
+      <div>
+        <label>What supply?</label>
+        <select id="sCat">
+          <% SUPPLIER_CATS.forEach(c => { %><option value="<%= c %>"><%= c %></option><% }) %>
+        </select>
+      </div>
+      <div>
+        <label>County <span style="font-weight:400;color:var(--muted)">(whole area)</span></label>
+        <select id="sCounty">
+          <option value="LA County">LA County</option>
+          <option value="The Valley">The Valley</option>
+          <option value="Orange County">Orange County</option>
+          <option value="Riverside County">Riverside County</option>
+          <option value="San Bernardino County">San Bernardino County</option>
+          <option value="San Diego County">San Diego County</option>
+          <option value="Ventura County">Ventura County</option>
+        </select>
+      </div>
+      <div>
+        <label>…or city / zip</label>
+        <input type="text" id="sLoc" placeholder="e.g. Whittier, CA" style="width:160px" onkeydown="if(event.key==='Enter')runSup()">
+      </div>
+      <div style="flex:1;min-width:160px">
+        <label>Custom search <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+        <input type="text" id="sTerm" placeholder="e.g. Fleetwood dealer" style="width:100%" onkeydown="if(event.key==='Enter')runSup()">
+      </div>
+      <button class="sf-go" id="sGoBtn" onclick="runSup()">Search</button>
+    </div>
+    <div class="sf-note">County searches sweep several zones and merge duplicates. Added suppliers land in the 📇 <strong>Supplier Directory</strong> on the Suppliers page — grab their email by phone/website, then copy the winner into a material slot.</div>
+  </div>
+
+  <div id="sResultsWrap" style="display:none">
+    <div class="res-bar">
+      <strong id="sResCount"></strong>
+      <input type="search" id="sResFilter" placeholder="Filter by name or address…" oninput="renderSup()">
+      <label style="font-size:.85rem;display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="sHideInList" checked onchange="renderSup()"> Hide ones I have</label>
+    </div>
+    <div class="sf-card" style="padding:0;overflow:auto;max-height:64vh">
+      <table class="sf-table">
+        <thead><tr>
+          <th></th><th>Business</th><th>Rating</th><th>Phone</th><th>Address</th><th>Links</th><th>Source</th><th></th>
+        </tr></thead>
+        <tbody id="sResBody"></tbody>
+      </table>
+      <div class="addbar">
+        <button class="sf-go" id="sAddBtn" onclick="addSup()" disabled>➕ Add selected (0) to Directory</button>
+        <span style="font-size:.8rem;color:var(--muted)">Saved with phone, website, address &amp; rating — add the email once you have it.</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="sLoading" style="display:none;text-align:center;padding:2.5rem;color:var(--muted)">
+    <div class="spinner" style="margin:0 auto .8rem"></div>
+    Searching suppliers… (county-wide sweeps several zones — give it ~10 seconds)
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+let SROWS = [];
+const ssel = new Set();
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+async function runSup() {
+  const btn = document.getElementById('sGoBtn');
+  btn.disabled = true;
+  document.getElementById('sResultsWrap').style.display = 'none';
+  document.getElementById('setupHint').style.display = 'none';
+  document.getElementById('sLoading').style.display = 'block';
+  ssel.clear(); syncSAdd();
+  try {
+    const r = await fetch('/suppliers/finder/search', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        category: document.getElementById('sCat').value,
+        term: document.getElementById('sTerm').value.trim(),
+        location: document.getElementById('sLoc').value.trim(),
+        county: document.getElementById('sCounty').value,
+      }) });
+    const d = await r.json();
+    if (!d.ok) {
+      if (d.needsSetup) document.getElementById('setupHint').style.display = '';
+      else showToast(d.error || 'Search failed', true);
+      return;
+    }
+    SROWS = d.rows || [];
+    (d.errors || []).forEach(e => showToast(e, true));
+    document.getElementById('sResultsWrap').style.display = '';
+    renderSup();
+  } catch (e) { showToast('Search failed — try again', true); }
+  finally { btn.disabled = false; document.getElementById('sLoading').style.display = 'none'; }
+}
+function renderSup() {
+  const q = (document.getElementById('sResFilter').value || '').toLowerCase().trim();
+  const hideIn = document.getElementById('sHideInList').checked;
+  const list = SROWS.filter(r => (!hideIn || !r.inList) && (!q || (r.name + ' ' + r.address).toLowerCase().includes(q)));
+  document.getElementById('sResCount').textContent = list.length + ' suppliers · ' + SROWS.filter(r => r.inList).length + ' already known';
+  document.getElementById('sResBody').innerHTML = list.map(r => `
+    <tr>
+      <td>${r.inList ? '' : `<input type="checkbox" ${ssel.has(r.name) ? 'checked' : ''} onchange="stick(${SROWS.indexOf(r)}, this.checked)">`}</td>
+      <td><strong>${esc(r.name)}</strong></td>
+      <td>${r.rating ? '★' + r.rating + ' <span style="color:var(--muted);font-size:.76rem">(' + (r.reviews || 0) + ')</span>' : ''}</td>
+      <td>${r.phone ? `<a href="tel:${esc(String(r.phone).replace(/[^0-9]/g, ''))}">${esc(r.phone)}</a>` : ''}</td>
+      <td style="font-size:.8rem">${esc(r.address)}</td>
+      <td style="white-space:nowrap">${r.website ? `<a href="${esc(r.website)}" target="_blank" rel="noopener" title="Website">🌐</a> ` : ''}${r.link ? `<a href="${esc(r.link)}" target="_blank" rel="noopener" title="Listing">↗</a>` : ''}</td>
+      <td><span class="src-tag">${esc(r.source)}</span></td>
+      <td>${r.inList ? '<span class="inlist">Known</span>' : ''}</td>
+    </tr>`).join('') || '<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:1.6rem">No matches.</td></tr>';
+}
+function stick(i, on) { const r = SROWS[i]; if (!r) return; if (on) ssel.add(r.name); else ssel.delete(r.name); syncSAdd(); }
+function syncSAdd() {
+  const b = document.getElementById('sAddBtn');
+  if (b) { b.disabled = ssel.size === 0; b.textContent = '➕ Add selected (' + ssel.size + ') to Directory'; }
+}
+async function addSup() {
+  const items = SROWS.filter(r => ssel.has(r.name));
+  if (!items.length) return;
+  const b = document.getElementById('sAddBtn');
+  b.disabled = true; b.textContent = 'Adding…';
+  try {
+    const r = await fetch('/suppliers/finder/add', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ items, category: document.getElementById('sCat').value }) });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✓ Added ' + d.added + (d.skipped ? ' (' + d.skipped + ' already known)' : ''));
+      items.forEach(it => { it.inList = true; ssel.delete(it.name); });
+      renderSup(); syncSAdd();
+    } else showToast(d.error || 'Could not add', true);
+  } catch (e) { showToast('Could not add — try again', true); }
+  finally { syncSAdd(); }
+}
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 2600);
+}
+</script>
+</body>
+</html>
