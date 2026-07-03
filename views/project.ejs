@@ -720,6 +720,31 @@ function catOpenThread(threadId) {
     head.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
+// File a thread under material categories (checkbox popup on the 🏷 button)
+function tagThread(veId, threadId) {
+  const t = THREAD_INFO[threadId] || {};
+  const cur = new Set(String(t.item_codes || t.item_code || '').split(',').map(c => c.trim()).filter(Boolean));
+  const wrap = document.createElement('div');
+  wrap.className = 'modal-overlay';
+  wrap.style.display = 'flex';
+  wrap.innerHTML = `<div class="modal" style="max-width:440px"><h2 style="margin-top:0">File under categories</h2>
+    <p class="modal-sub">This email shows in each checked category's box on the Materials tab.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.35rem">${ALL_MATERIALS.map(m => `<label style="font-size:.85rem;cursor:pointer"><input type="checkbox" value="${m.code}" ${cur.has(m.code) ? 'checked' : ''}> ${m.code} ${escapeHtmlJs(m.name)}</label>`).join('')}</div>
+    <div class="modal-actions"><button class="btn btn-primary" id="tagSaveBtn">Save</button><button class="btn btn-ghost" onclick="this.closest('.modal-overlay').remove()">Cancel</button></div></div>`;
+  document.body.appendChild(wrap);
+  wrap.querySelector('#tagSaveBtn').onclick = async () => {
+    const codes = Array.from(wrap.querySelectorAll('input:checked')).map(i => i.value);
+    try {
+      const r = await fetch(`/vendor-emails/${veId}/codes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ codes }) });
+      const d = await r.json();
+      if (!d.ok) throw new Error(d.error || 'fail');
+      wrap.remove();
+      showToast('Filed under ' + (codes.join(', ') || 'nothing'));
+      THREADS_LOADED = false;
+      await ensureThreads();   // refresh the Emails list + any open category boxes
+    } catch (e) { showToast('Could not save tags', true); }
+  };
+}
 async function setRecSource(source) {
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/rec-lighting-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
@@ -833,6 +858,7 @@ async function loadThreads() {
           </div>
           <div style="display:flex;align-items:center;gap:.6rem">
             <span style="font-size:.78rem;color:var(--muted)">${escapeHtmlJs(t.supplier_name||'')} · ${new Date(t.sent_at).toLocaleDateString()}</span>
+            <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();tagThread(${t.id}, '${t.gmail_thread_id}')" title="File this email under material categories">🏷 ${escapeHtmlJs(t.item_codes || t.item_code || 'Tag')}</button>
             <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteThread(${t.id})" title="Remove from list (does not delete from Gmail)">✕</button>
           </div>
         </div>

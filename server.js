@@ -2966,7 +2966,7 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       await pool.query(
         `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [req.params.id, itemCode, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', draft.threadId || null, draft.messageId || null]
+        [req.params.id, itemCode || null, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', draft.threadId || null, draft.messageId || null]
       );
       return res.json({ ok: true, draft: true });
     }
@@ -2975,7 +2975,7 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
     await pool.query(
       `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [req.params.id, itemCode, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', sent.threadId || null, sent.messageId || null]
+      [req.params.id, itemCode || null, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', sent.threadId || null, sent.messageId || null]
     );
 
     // Auto-advance the status of all this vendor's materials on the project
@@ -3117,6 +3117,17 @@ app.get('/threads/:threadId', requireAuth, async (req, res) => {
     console.error('Thread fetch error:', err.message);
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// Re-file a vendor email under material categories (the 🏷 button on a thread)
+app.post('/vendor-emails/:id/codes', requireAuth, async (req, res) => {
+  try {
+    const valid = new Set(ALL_ITEMS.map(i => i.code));
+    const codes = [].concat(req.body.codes || []).filter(c => valid.has(c));
+    await pool.query('UPDATE vendor_emails SET item_code=$1, item_codes=$2 WHERE id=$3',
+      [codes[0] || null, codes.join(',') || null, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Download / view a PDF (or any) attachment from a received email
