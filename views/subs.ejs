@@ -199,6 +199,14 @@
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
     <select id="typeFilter" onchange="filterSubs()" class="trade-select"><option value="">All trades</option></select>
+    <select id="statusFilter" onchange="filterSubs()" class="trade-select">
+      <option value="">All statuses</option>
+      <option value="under review">Under Review</option>
+      <option value="approved">Approved</option>
+      <option value="active">Active</option>
+      <option value="rejected">Rejected</option>
+      <option value="blacklisted">Blacklisted</option>
+    </select>
     <button type="button" class="btn btn-ghost btn-sm" id="mapBtn" onclick="mapToggle()">🗺 Map</button>
     <button type="button" class="btn btn-ghost btn-sm" id="covBtn" onclick="covToggle()">📊 Coverage</button>
     <% if (typeof recentCount !== 'undefined' && recentCount > 0) { %>
@@ -478,19 +486,21 @@
 function filterSubs() {
   const q = document.getElementById('subSearch').value.toLowerCase().trim();
   const tf = document.getElementById('typeFilter').value;
+  const sfEl = document.getElementById('statusFilter'); const sf = sfEl ? sfEl.value : '';
   const vg = document.getElementById('vetFilter_gc'), vs = document.getElementById('vetFilter_sub');
   const vet = { gc: vg ? vg.value.toLowerCase() : '', sub: vs ? vs.value.toLowerCase() : '' };
   const ro = document.getElementById('recentOnly'); const recentOnly = !!(ro && ro.checked);
   document.querySelectorAll('tr[data-search]').forEach(r => {
     const okQ = !q || r.dataset.search.includes(q);
     const okT = !tf || r.dataset.type.split(',').map(x => x.trim()).includes(tf);
+    const okS = !sf || (r.dataset.status || '') === sf;
     const v = vet[r.dataset.cat] || '';
     const okV = !v || (r.dataset.status || '') === v;
     const okR = !recentOnly || r.dataset.recent === '1';
-    r.style.display = (okQ && okT && okV && okR) ? '' : 'none';
+    r.style.display = (okQ && okT && okS && okV && okR) ? '' : 'none';
   });
   // While searching/filtering, hide the empty "drag here" drop zones so results stay clean
-  const anyFilter = !!(q || tf || vet.gc || vet.sub || recentOnly);
+  const anyFilter = !!(q || tf || sf || vet.gc || vet.sub || recentOnly);
   document.querySelectorAll('tr.emptybucket').forEach(r => { r.style.display = anyFilter ? 'none' : ''; });
   // Hide sub-section headers that have no visible rows beneath them
   document.querySelectorAll('.subs-table tbody').forEach(tb => {
@@ -934,7 +944,8 @@ function mapToggle() {
 function mapEnsure() {
   if (covMap) { setTimeout(function () { covMap.invalidateSize(); }, 60); return; }
   covMap = L.map('covMapEl', { scrollWheelZoom: false }).setView([33.9, -117.9], 8);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(covMap);
+  // Positron tiles: clean minimal basemap (Apple-Maps-ish) instead of the busy default
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; OpenStreetMap &copy; CARTO', subdomains: 'abcd', maxZoom: 19 }).addTo(covMap);
 }
 function mapMode() { const r = document.querySelector('input[name=mapMode]:checked'); return r ? r.value : 'gc'; }
 function mapRender() {
