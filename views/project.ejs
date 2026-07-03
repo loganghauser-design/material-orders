@@ -251,7 +251,7 @@
         %>
         <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
           <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
-          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="#fieldRequests" class="req-flag" title="Requested from the field — jump to the request">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %><% var _iss = (typeof issueByCode !== 'undefined') && issueByCode[item.code]; if (_iss) { %> <a href="/issues" class="iss-flag" title="Reported by <%= _iss.sup %><%= _iss.label ? ' (' + _iss.label + ')' : '' %><%= _iss.note ? ': ' + _iss.note : '' %>">⚠ <%= _iss.label || 'Issue' %><% if (_iss.note) { %>: <%= _iss.note.length > 30 ? _iss.note.slice(0,30) + '…' : _iss.note %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
+          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="#fieldRequests" class="req-flag" title="Requested from the field — jump to the request">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %><% var _iss = (typeof issueByCode !== 'undefined') && issueByCode[item.code]; if (_iss) { %> <a href="/issues" class="iss-flag" title="Reported by <%= _iss.sup %><%= _iss.label ? ' (' + _iss.label + ')' : '' %><%= _iss.note ? ': ' + _iss.note : '' %>">⚠ <%= _iss.label || 'Issue' %><% if (_iss.note) { %>: <%= _iss.note.length > 30 ? _iss.note.slice(0,30) + '…' : _iss.note %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1a') { %><br><label style="font-size:.7rem;color:var(--muted)">3-Panel Bifold: <select onchange="setBifoldSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="buildoly" <%= project.bifold_source==='vendor'?'':'selected' %>>Buildoly Stock</option><option value="vendor" <%= project.bifold_source==='vendor'?'selected':'' %>>Order from vendor</option></select></label> <label style="font-size:.7rem;color:var(--muted)">Sliding Glass Door: <select onchange="setSlidingSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Order from vendor</option><option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option></select></label><% } %><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
           <td>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
@@ -757,6 +757,26 @@ async function setRecSource(source) {
     if (data.ok) {
       showToast(source === 'oncall' ? 'Recessed lighting → On Call LED' : 'Recessed lighting → GC Procure');
       MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 1e drill-down
+    } else showToast('Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
+}
+async function setBifoldSource(source) {
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/bifold-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
+    const data = await r.json();
+    if (data.ok) {
+      showToast(source === 'vendor' ? '3-Panel Bifold → order from vendor' : '3-Panel Bifold → Buildoly Stock');
+      MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 1a drill-down
+    } else showToast('Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
+}
+async function setSlidingSource(source) {
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/sliding-door-source`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source }) });
+    const data = await r.json();
+    if (data.ok) {
+      showToast(source === 'buildoly' ? 'Sliding Glass Door → Buildoly Stock' : 'Sliding Glass Door → order from vendor');
+      MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 1a drill-down
     } else showToast('Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }

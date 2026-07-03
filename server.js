@@ -575,6 +575,16 @@ function applyRowOverrides(row, opts = {}) {
     supplier = 'Buildoly Stock';
   }
 
+  // 6) Door stock toggles (1a): the 3-panel bifold is carried in Buildoly stock by
+  //    DEFAULT (set the project to 'vendor' to order it instead); the sliding glass
+  //    door is vendor-supplied by default (set 'buildoly' if we start stocking it).
+  if (opts.bifoldSource !== 'vendor' && /bi-?fold/.test(text)) {
+    supplier = 'Buildoly Stock';
+  }
+  if (opts.slidingSource === 'buildoly' && /sliding\s*(glass\s*)?door|\bslider\b/.test(text)) {
+    supplier = 'Buildoly Stock';
+  }
+
   const cat = code ? (code + '. ' + (CODE_NAME[code] || '')) : rawCat;
   // Classify held stock: Office = Jedco items + range hoods; Warehouse = everything
   // else we hold as Buildoly Stock (vanities, closets, decking, LVP, cabinets, etc.).
@@ -767,7 +777,7 @@ function heldItemKey(prodCode, model, name) {
 //   [{ project, name, prodCode, model, supplier, qty, text }]
 async function computeHeldUsages() {
   const { rows: projects } = await pool.query(
-    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
+    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
   );
   // Fetch all schedules in parallel (cached) instead of one-at-a-time
   const fetched = await Promise.all(projects.map(async proj => {
@@ -778,7 +788,7 @@ async function computeHeldUsages() {
   for (const f of fetched) {
     if (!f) continue;
     const { proj, rows } = f;
-    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source };
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source };
     for (let i = 5; i < rows.length; i++) {
       const row = rows[i];
       const { cat, supplier, location } = applyRowOverrides(row, opts);
@@ -809,11 +819,11 @@ async function computeHeldUsages() {
 async function syncHeldStockForCode(projectId, code, delivered) {
   try {
     const { rows: [proj] } = await pool.query(
-      'SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [projectId]);
+      'SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
     if (!proj || !proj.finish_schedule_url) return 0;
     let rows;
     try { rows = await fetchScheduleValues(proj.finish_schedule_url); } catch (e) { return 0; }
-    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source };
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source };
     const keys = new Set();
     for (let i = 5; i < rows.length; i++) {
       const row = rows[i];
@@ -1406,6 +1416,10 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS finish_schedule_url TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
+    -- Doors (1a) stock toggles: 3-panel bifold is Buildoly stock by default;
+    -- the sliding glass door is vendor-supplied by default.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS bifold_source VARCHAR(20);
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS sliding_door_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS phase TEXT;
@@ -2021,7 +2035,7 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
   try {
     await initDb();
     const email = req.session.superEmail;
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
     if (!superOwnsProject(email, project)) return res.redirect('/my');
     // Already-delivered items can't be requested again
     const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
@@ -2029,7 +2043,7 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
     // Schedule items per category — so each row can "Expand" to show what's in that delivery
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source }); }
       catch (e) { byCode = {}; }
     }
     res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', delivered: deliveredCodes, byCode });
@@ -2081,12 +2095,12 @@ app.get('/my/issue/:id', requireSuper, async (req, res) => {
     await initDb();
     const email = req.session.superEmail;
     // Bobby can report on ANY project; other supers only on their assigned ones
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/my');
     if (!canSuperViewAllProjects(email) && !superOwnsProject(email, project)) return res.redirect('/my');
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source }); }
       catch (e) { byCode = {}; }
     }
     res.render('my-issue', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', byCode });
@@ -3403,9 +3417,9 @@ ${sig ? '<br>' + sig : ''}
 // Vendors (+ their items) from this project's finish schedule, for order auto-fill
 app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source });
     res.json({ ok: true, vendors });
   } catch (err) {
     console.error('schedule-vendors:', err.message);
@@ -3439,9 +3453,9 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
 // Schedule items grouped by material category (for the Materials tab drill-down)
 app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
-    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source });
+    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source });
     // Attach saved delivery progress to held items (allocated qty + how many delivered)
     const { rows: hs } = await pool.query('SELECT item_key, status, delivered_qty FROM held_item_status WHERE project_id=$1', [req.params.id]);
     const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r]));
@@ -3502,6 +3516,24 @@ app.post('/projects/:id/rec-lighting-source', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// Toggle where the 3-panel bifold comes from: 'buildoly' (our stock — default) or 'vendor'
+app.post('/projects/:id/bifold-source', requireAuth, async (req, res) => {
+  try {
+    const src = req.body.source === 'vendor' ? 'vendor' : 'buildoly';
+    await pool.query('UPDATE projects SET bifold_source=$1 WHERE id=$2', [src, req.params.id]);
+    res.json({ ok: true, source: src });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Toggle where the sliding glass door comes from: 'vendor' (default — we don't carry it) or 'buildoly'
+app.post('/projects/:id/sliding-door-source', requireAuth, async (req, res) => {
+  try {
+    const src = req.body.source === 'buildoly' ? 'buildoly' : 'vendor';
+    await pool.query('UPDATE projects SET sliding_door_source=$1 WHERE id=$2', [src, req.params.id]);
+    res.json({ ok: true, source: src });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Toggle who supplies the range hood: 'default' (schedule vendor) or 'buildoly' (Buildoly office stock)
