@@ -162,6 +162,10 @@
     .cov-thin { background:#fff4dd; border-color:#f0d9a6; color:#8a6100; }
     .cov-gap { background:#fdeaea; border-color:#f3bcbc; color:#b42323; }
     .cov-legend { margin-top:.7rem; display:flex; gap:.4rem; }
+    #covMapEl { height:460px; border-radius:10px; border:1px solid var(--border); background:#eef0f4; }
+    .map-radio { display:inline-flex; align-items:center; gap:.3rem; font-size:.84rem; font-weight:600; cursor:pointer; }
+    .leaflet-tooltip.map-count { background:transparent; border:none; box-shadow:none; font-weight:800; font-size:.86rem; color:#15161a; text-shadow:0 1px 3px rgba(255,255,255,.9); }
+    @media (max-width: 760px) { #covMapEl { height:330px; } }
     .sortbtn { font:inherit; font-size:.82rem; padding:.32rem .8rem; border:1px solid var(--border); border-radius:8px; text-decoration:none; color:var(--text); background:var(--surface); cursor:pointer; }
     .sortbtn.on { background:#111; color:#fff; border-color:#111; }
     .vetsel { font-size:.82rem; padding:.3rem .5rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
@@ -195,6 +199,7 @@
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
     <select id="typeFilter" onchange="filterSubs()" class="trade-select"><option value="">All trades</option></select>
+    <button type="button" class="btn btn-ghost btn-sm" id="mapBtn" onclick="mapToggle()">🗺 Map</button>
     <button type="button" class="btn btn-ghost btn-sm" id="covBtn" onclick="covToggle()">📊 Coverage</button>
     <% if (typeof recentCount !== 'undefined' && recentCount > 0) { %>
       <label class="recent-toggle"><input type="checkbox" id="recentOnly" onchange="filterSubs()"> 🆕 Recently added (<%= recentCount %>)</label>
@@ -213,6 +218,18 @@
     </div>
     <div class="cov-grid" id="covGrid"></div>
     <div class="cov-legend"><span class="cov-chip cov-gap" style="cursor:default">Gap · 0</span> <span class="cov-chip cov-thin" style="cursor:default">Thin · 1–2</span> <span class="cov-chip cov-ok" style="cursor:default">Covered · 3+</span></div>
+  </div>
+
+  <!-- Outreach map: a circle per service area sized by how many contractors cover it -->
+  <div class="cov-panel" id="mapPanel">
+    <div class="cov-head">
+      <strong>Outreach map</strong>
+      <label class="map-radio"><input type="radio" name="mapMode" value="gc" checked onchange="mapRender()"> Outside GCs</label>
+      <label class="map-radio"><input type="radio" name="mapMode" value="sub" onchange="mapRender()"> Subs</label>
+      <label class="map-radio"><input type="radio" name="mapMode" value="all" onchange="mapRender()"> Both</label>
+      <span class="cov-legend-inline">Circle size = how many cover that area. Click a circle for details.</span>
+    </div>
+    <div id="covMapEl"></div>
   </div>
 
   <%
@@ -889,6 +906,72 @@ function covJump(t) {
   const hasOpt = Array.prototype.some.call(tf.options, function (o) { return o.value === t; });
   if (hasOpt) { tf.value = t; document.getElementById('subSearch').value = ''; }
   else { tf.value = ''; document.getElementById('subSearch').value = t; }   // no rows have it yet — search shows none
+  filterSubs();
+  document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ── Outreach map (Leaflet, lazy-loaded on first open) ──
+const AREA_GEO = {
+  'LA County': [34.06, -118.24],
+  'The Valley': [34.26, -118.45],
+  'Ventura County': [34.35, -119.14],
+  'San Bernardino County': [34.18, -117.31],
+  'Riverside County': [33.94, -117.27],
+  'Orange County': [33.70, -117.79],
+  'San Diego County': [32.90, -117.05],
+};
+let covMap = null, mapLayers = [];
+function mapToggle() {
+  const p = document.getElementById('mapPanel');
+  const show = p.classList.toggle('show');
+  if (!show) return;
+  if (window.L) { mapEnsure(); mapRender(); return; }
+  const css = document.createElement('link'); css.rel = 'stylesheet'; css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'; document.head.appendChild(css);
+  const js = document.createElement('script'); js.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  js.onload = function () { mapEnsure(); mapRender(); };
+  document.head.appendChild(js);
+}
+function mapEnsure() {
+  if (covMap) { setTimeout(function () { covMap.invalidateSize(); }, 60); return; }
+  covMap = L.map('covMapEl', { scrollWheelZoom: false }).setView([33.9, -117.9], 8);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '&copy; OpenStreetMap' }).addTo(covMap);
+}
+function mapMode() { const r = document.querySelector('input[name=mapMode]:checked'); return r ? r.value : 'gc'; }
+function mapRender() {
+  if (!covMap) return;
+  mapLayers.forEach(function (l) { covMap.removeLayer(l); }); mapLayers = [];
+  const mode = mapMode();
+  const counts = {}; Object.keys(AREA_GEO).forEach(function (a) { counts[a] = 0; });
+  COV_DATA.forEach(function (s) {
+    if (/reject|black/i.test(s.st)) return;
+    const isGc = s.cat === 'gc' || (!s.cat && /general\s*contractor|^\s*gc\b/i.test(s.t));
+    if (mode === 'gc' && !isGc) return;
+    if (mode === 'sub' && isGc) return;
+    String(s.l).split(',').forEach(function (loc) {
+      loc = loc.trim().toLowerCase();
+      const hit = Object.keys(AREA_GEO).find(function (a) { return a.toLowerCase() === loc; });
+      if (hit) counts[hit]++;
+    });
+  });
+  const label = mode === 'gc' ? 'outside GC' : (mode === 'sub' ? 'sub' : 'contractor');
+  const group = [];
+  Object.keys(AREA_GEO).forEach(function (a) {
+    const n = counts[a];
+    const color = n === 0 ? '#8a909c' : (n < 3 ? '#d99a06' : '#1a7f37');
+    const circle = L.circle(AREA_GEO[a], {
+      radius: 5500 + Math.min(n, 25) * 1100,
+      color: color, weight: 2, dashArray: n === 0 ? '6 6' : null,
+      fillColor: color, fillOpacity: n === 0 ? .05 : .18,
+    }).addTo(covMap);
+    circle.bindTooltip(a.replace(' County', '') + ': ' + n, { permanent: true, direction: 'center', className: 'map-count' });
+    circle.bindPopup('<strong>' + a + '</strong><br>' + n + ' ' + label + (n === 1 ? '' : 's') + ' cover this area<br><a href="#" onclick="mapFilter(\'' + a.replace(/'/g, "\\'") + '\');return false">Show them in the list</a>');
+    mapLayers.push(circle); group.push(circle);
+  });
+  if (group.length) covMap.fitBounds(L.featureGroup(group).getBounds().pad(0.1));
+}
+function mapFilter(area) {
+  document.getElementById('typeFilter').value = '';
+  document.getElementById('subSearch').value = area;
   filterSubs();
   document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
