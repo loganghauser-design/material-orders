@@ -1686,6 +1686,8 @@ async function initDb() {
     );
 
     ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS last_inbound_at TIMESTAMPTZ;
+    -- Every material category an email covers (CSV) — one thread can span several
+    ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS item_codes TEXT;
     ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ;
     ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS has_unread BOOLEAN DEFAULT FALSE;
 
@@ -1699,6 +1701,7 @@ async function initDb() {
       id SERIAL PRIMARY KEY,
       project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
       item_code VARCHAR(10),
+      item_codes TEXT,
       supplier_name VARCHAR(255),
       supplier_email TEXT,
       subject VARCHAR(500),
@@ -2942,6 +2945,11 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
     const { itemCode, supplierEmail, supplierName, note, items, itemsHtml, emailType, cc, outboundDate, asDraft } = req.body;
     if (itemCode && !ALL_ITEMS.find(i => i.code === itemCode)) return res.status(400).json({ ok: false, error: 'Unknown material.' });
     if (!supplierEmail) return res.status(400).json({ ok: false, error: 'No recipient email. Add one in Settings or type it in.' });
+    // Every material category this email covers (clicked category + auto-filled vendor items) —
+    // stored on the thread so it shows under each category's email box.
+    const validCodes = new Set(ALL_ITEMS.map(i => i.code));
+    const coveredCodes = [].concat(req.body.coveredCodes || []).filter(c => validCodes.has(c));
+    const itemCodesCsv = [...new Set([itemCode, ...coveredCodes].filter(c => c && validCodes.has(c)))].join(',') || null;
 
     const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.status(404).json({ ok: false, error: 'Project not found.' });
@@ -2956,18 +2964,18 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       // Record the draft so it appears in the project's Emails tab and replies get
       // tracked once you send it from Gmail (it keeps the same thread id).
       await pool.query(
-        `INSERT INTO vendor_emails (project_id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [req.params.id, itemCode, supplierName || null, supplierEmail, subject, emailType || 'order', draft.threadId || null, draft.messageId || null]
+        `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [req.params.id, itemCode, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', draft.threadId || null, draft.messageId || null]
       );
       return res.json({ ok: true, draft: true });
     }
 
     const sent = await sendMail({ to: supplierEmail, cc: sendCc, subject, html, attachments });
     await pool.query(
-      `INSERT INTO vendor_emails (project_id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [req.params.id, itemCode, supplierName || null, supplierEmail, subject, emailType || 'order', sent.threadId || null, sent.messageId || null]
+      `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [req.params.id, itemCode, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', sent.threadId || null, sent.messageId || null]
     );
 
     // Auto-advance the status of all this vendor's materials on the project
@@ -2975,8 +2983,6 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
 
     // Vendor-dropdown sends pass the covered material codes; advance those too —
     // quotes land on "RFQ sent", orders on "Order Placed" (never backward).
-    const validCodes = new Set(ALL_ITEMS.map(i => i.code));
-    const coveredCodes = [].concat(req.body.coveredCodes || []).filter(c => validCodes.has(c));
     if (coveredCodes.length && TYPE_TARGET[emailType]) {
       const bumped = await bumpItemsForward(req.params.id, coveredCodes, TYPE_TARGET[emailType]);
       const seen = new Set(updatedItems.map(u => u.code));
@@ -3087,7 +3093,7 @@ app.post('/settings/attachment/delete', requireAuth, async (req, res) => {
 app.get('/projects/:id/threads', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, sent_at, has_unread
+      `SELECT id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, sent_at, has_unread
        FROM vendor_emails WHERE project_id=$1 AND gmail_thread_id IS NOT NULL ORDER BY has_unread DESC, sent_at DESC`,
       [req.params.id]
     );
@@ -3319,9 +3325,9 @@ ${signoff}
 
     const sent = await sendMail({ to, subject, html });
     await pool.query(
-      `INSERT INTO vendor_emails (project_id, item_code, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [req.params.id, category || null, null, to, subject, emailType || 'delivery', sent.threadId || null, sent.messageId || null]
+      `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+      [req.params.id, category || null, category || null, null, to, subject, emailType || 'delivery', sent.threadId || null, sent.messageId || null]
     );
     // Advance the category's material too — quote → "RFQ sent", order → "Order Placed"
     if (category && ALL_ITEMS.find(i => i.code === category) && TYPE_TARGET[emailType]) {

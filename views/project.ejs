@@ -701,7 +701,8 @@ async function renderCatThreads(code) {
   const box = document.getElementById('catthreads_' + code);
   if (!box) return;
   await ensureThreads();
-  const rows = Object.values(THREAD_INFO).filter(t => t.item_code === code)
+  const rows = Object.values(THREAD_INFO)
+    .filter(t => t.item_code === code || String(t.item_codes || '').split(',').map(c => c.trim()).includes(code))
     .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
   if (!rows.length) { box.innerHTML = '<span style="font-size:.78rem;color:var(--muted)">No emails for this category yet.</span>'; return; }
   box.innerHTML = rows.map(t => `
