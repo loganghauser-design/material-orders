@@ -256,6 +256,9 @@ const ITEM_STATUSES = [
 ];
 
 const PROJECT_STATUSES = ['Not Yet', 'In Progress', 'All Delivered', 'Draft - Contract', 'Fully Delivered'];
+// Lifecycle phases — the sections the projects page is grouped into (separate from
+// the delivery status above, which tracks materials).
+const PROJECT_PHASES = ['Under Construction', 'Pre-Construction', 'Pending Start', 'Under Warranty', 'Complete'];
 
 // Office-stock lifecycle for held items (no RFQ/order — you already own them).
 const HELD_STATUSES = ['In Office', 'Delivered'];
@@ -1396,6 +1399,7 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS jedco_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS phase TEXT;
     ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_date_end DATE;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS sort_order INTEGER;
@@ -2410,7 +2414,7 @@ app.get('/projects', requireAuth, async (req, res) => {
     }
 
     const pendingIssues = await getPendingIssueCount();
-    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues });
+    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, PROJECT_PHASES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -2571,6 +2575,16 @@ app.post('/projects/:id', requireAuth, async (req, res) => {
 });
 
 // ── Reorder projects (drag and drop) ──────────────────────────────────────────
+
+// Move a project between lifecycle sections (Under Construction / Pre-Con / …)
+app.post('/projects/:id/phase', requireAuth, async (req, res) => {
+  try {
+    const phase = String(req.body.phase || '');
+    if (!PROJECT_PHASES.includes(phase)) return res.status(400).json({ ok: false, error: 'Unknown phase.' });
+    await pool.query('UPDATE projects SET phase=$1, updated_at=NOW() WHERE id=$2', [phase, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 
 app.post('/reorder-projects', requireAuth, async (req, res) => {
   try {

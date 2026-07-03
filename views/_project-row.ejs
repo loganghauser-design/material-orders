@@ -10,6 +10,14 @@
         <option value="<%= s %>" <%- p.overall_status===s?'selected':'' %>><%= s %></option>
       <% }) %>
     </select>
+    <% if (typeof PROJECT_PHASES !== 'undefined' && PROJECT_PHASES.length) {
+      var _cur = PROJECT_PHASES.includes(p.phase) ? p.phase
+        : (p.overall_status === 'Fully Delivered' ? 'Complete'
+        : ((p.overall_status === 'In Progress' || p.overall_status === 'All Delivered') ? 'Under Construction' : 'Pre-Construction')); %>
+    <select class="phase-select" data-project="<%= p.id %>" onchange="savePhase(this)" title="Project phase — which section it shows under">
+      <% PROJECT_PHASES.forEach(ph => { %><option value="<%= ph %>" <%- _cur===ph?'selected':'' %>><%= ph %></option><% }) %>
+    </select>
+    <% } %>
   </td>
   <% codes.forEach((code, i) => {
     const st = (im[code] && im[code].status) || 'Not yet placed';

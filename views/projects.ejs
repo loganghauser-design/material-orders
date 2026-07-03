@@ -46,44 +46,65 @@
   </form>
 
   <%
-    const activeProjects = projects.filter(p => p.overall_status !== 'Fully Delivered');
-    const completedProjects = projects.filter(p => p.overall_status === 'Fully Delivered');
+    // Lifecycle sections (same divisions as the old board). Projects without a
+    // phase fall back to one derived from their delivery status so nothing hides.
+    const PHASE_CLASSES = { 'Under Construction': 'ph-uc', 'Pre-Construction': 'ph-pc', 'Pending Start': 'ph-ps', 'Under Warranty': 'ph-uw', 'Complete': 'ph-co' };
+    function phaseOf(p) {
+      if (PROJECT_PHASES.includes(p.phase)) return p.phase;
+      if (p.overall_status === 'Fully Delivered') return 'Complete';
+      if (p.overall_status === 'In Progress' || p.overall_status === 'All Delivered') return 'Under Construction';
+      return 'Pre-Construction';
+    }
   %>
-
-  <%- include('_project-grid', { rows: activeProjects, emptyMsg: 'No active projects. ', sortable: !sortedNow }) %>
-
-  <% if (completedProjects.length) { %>
-    <div class="completed-divider">
-      <span>✓ Completed Projects (<%= completedProjects.length %>)</span>
-    </div>
-    <%- include('_project-grid', { rows: completedProjects, emptyMsg: '' }) %>
-  <% } %>
+  <% PROJECT_PHASES.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
+    <div class="phase-divider <%= PHASE_CLASSES[ph] %>"><span><%= ph %> (<%= rows.length %>)</span></div>
+    <% if (rows.length) { %>
+      <%- include('_project-grid', { rows, emptyMsg: '', sortable: !sortedNow }) %>
+    <% } %>
+  <% }) %>
 </div>
 
 <div id="toast" class="toast"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
-// Drag-to-reorder the active project list
+// Drag-to-reorder within each phase section; the saved order is the DOM order
+// across all sections, so sort_order stays globally consistent.
 (function initSortable() {
-  const sb = document.getElementById('sortable-body');
-  if (!sb || !window.Sortable) return;
-  Sortable.create(sb, {
-    handle: '.drag-handle',
-    animation: 150,
-    ghostClass: 'row-dragging',
-    onEnd: async () => {
-      const ids = Array.from(sb.querySelectorAll('tr[data-id]')).map(tr => tr.dataset.id);
-      try {
-        await fetch('/reorder-projects', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ order: ids }),
-        });
-        showToast('Order saved');
-      } catch (e) { showToast('Could not save order', true); }
-    },
+  if (!window.Sortable) return;
+  document.querySelectorAll('tbody.sortable-body').forEach(sb => {
+    Sortable.create(sb, {
+      handle: '.drag-handle',
+      animation: 150,
+      ghostClass: 'row-dragging',
+      onEnd: async () => {
+        const ids = Array.from(document.querySelectorAll('tbody.sortable-body tr[data-id]')).map(tr => tr.dataset.id);
+        try {
+          await fetch('/reorder-projects', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order: ids }),
+          });
+          showToast('Order saved');
+        } catch (e) { showToast('Could not save order', true); }
+      },
+    });
   });
 })();
+
+// Move a project to another lifecycle section — refresh keeps the scroll position
+async function savePhase(sel) {
+  try {
+    await postJson('/projects/' + sel.dataset.project + '/phase', { phase: sel.value });
+    try { sessionStorage.setItem('projScroll', String(window.scrollY)); } catch (e) {}
+    location.reload();
+  } catch (e) { handleSaveError(e); }
+}
+window.addEventListener('DOMContentLoaded', function () {
+  try {
+    const y = sessionStorage.getItem('projScroll');
+    if (y) { sessionStorage.removeItem('projScroll'); window.scrollTo(0, parseInt(y, 10) || 0); }
+  } catch (e) {}
+});
 
 const STATUS_CLASSES = ['cell-not_yet_placed','cell-delivery_requested','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
 

@@ -27,7 +27,7 @@
         <th class="item-th">3e<br><span>Shower Doors</span></th>
       </tr>
     </thead>
-    <tbody<%- (typeof sortable !== 'undefined' && sortable) ? ' id="sortable-body"' : '' %>>
+    <tbody<%- (typeof sortable !== 'undefined' && sortable) ? ' class="sortable-body"' : '' %>>
       <% if (rows.length === 0) { %>
         <tr><td colspan="18" class="empty-row"><%= emptyMsg %></td></tr>
       <% } %>

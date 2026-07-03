@@ -194,11 +194,18 @@ textarea { resize: vertical; min-height: 80px; }
 .item-select:focus, .item-date:focus, .item-notes:focus { outline: 2px solid var(--accent); }
 
 /* Completed projects section */
-.completed-divider { display: flex; align-items: center; gap: 1rem; margin: 2.5rem 0 1rem; }
-.completed-divider span { font-size: .95rem; font-weight: 700; color: #16a34a; white-space: nowrap; }
-.completed-divider::before, .completed-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); }
-.completed-divider + .grid-wrap { opacity: .78; }
-.completed-divider + .grid-wrap:hover { opacity: 1; }
+/* Lifecycle section headers on the projects page (Under Construction / Pre-Con / …) */
+.phase-divider { display: flex; align-items: center; margin: 2rem 0 .8rem; }
+.phase-divider span { font-size: .92rem; font-weight: 800; padding: .34rem .95rem; border-radius: 99px; white-space: nowrap; }
+.phase-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); margin-left: .9rem; }
+.ph-uc span { background: #dbeafe; color: #1e40af; }
+.ph-pc span { background: #e0f2fe; color: #0369a1; }
+.ph-ps span { background: #dcfce7; color: #15803d; }
+.ph-uw span { background: #ede9fe; color: #6d28d9; }
+.ph-co span { background: #d1fae5; color: #065f46; }
+.ph-uw + .grid-wrap, .ph-co + .grid-wrap { opacity: .82; }
+.ph-uw + .grid-wrap:hover, .ph-co + .grid-wrap:hover { opacity: 1; }
+.phase-select { display: block; margin-top: .3rem; font-size: .72rem; border: 1px solid var(--border); border-radius: 8px; padding: 2px 4px; background: var(--bg); color: var(--muted); cursor: pointer; max-width: 100%; }
 
 /* Settings — suppliers */
 .supplier-stage { font-weight: 700; font-size: .85rem; color: var(--text); margin: 1.25rem 0 .6rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); }
