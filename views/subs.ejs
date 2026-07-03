@@ -150,6 +150,18 @@
     .trade-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
     .trade-chip { padding:.32rem .7rem; border:1px solid var(--border); border-radius:16px; font-size:.82rem; cursor:pointer; user-select:none; background:var(--bg); white-space:nowrap; }
     .trade-chip.on { background:#111; color:#fff; border-color:#111; }
+    .cov-panel { display:none; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; margin-bottom:1.1rem; }
+    .cov-panel.show { display:block; }
+    .cov-head { display:flex; gap:.8rem; align-items:center; flex-wrap:wrap; margin-bottom:.8rem; }
+    .cov-head select { padding:.4rem .6rem; border:1px solid var(--border); border-radius:9px; background:var(--bg); font-size:.86rem; }
+    .cov-legend-inline { font-size:.76rem; color:var(--muted); }
+    .cov-grid { display:flex; flex-wrap:wrap; gap:.45rem; }
+    .cov-chip { display:inline-flex; align-items:center; gap:.45rem; border-radius:16px; padding:.34rem .75rem; font-size:.82rem; font-weight:600; cursor:pointer; border:1px solid; }
+    .cov-chip .n { font-weight:800; }
+    .cov-ok { background:#e7f6ec; border-color:#b9e4c8; color:#176b3a; }
+    .cov-thin { background:#fff4dd; border-color:#f0d9a6; color:#8a6100; }
+    .cov-gap { background:#fdeaea; border-color:#f3bcbc; color:#b42323; }
+    .cov-legend { margin-top:.7rem; display:flex; gap:.4rem; }
     .sortbtn { font:inherit; font-size:.82rem; padding:.32rem .8rem; border:1px solid var(--border); border-radius:8px; text-decoration:none; color:var(--text); background:var(--surface); cursor:pointer; }
     .sortbtn.on { background:#111; color:#fff; border-color:#111; }
     .vetsel { font-size:.82rem; padding:.3rem .5rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
@@ -183,12 +195,24 @@
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
     <select id="typeFilter" onchange="filterSubs()" class="trade-select"><option value="">All trades</option></select>
+    <button type="button" class="btn btn-ghost btn-sm" id="covBtn" onclick="covToggle()">📊 Coverage</button>
     <% if (typeof recentCount !== 'undefined' && recentCount > 0) { %>
       <label class="recent-toggle"><input type="checkbox" id="recentOnly" onchange="filterSubs()"> 🆕 Recently added (<%= recentCount %>)</label>
       <form method="POST" action="/subs/clear-recent" style="margin:0" onsubmit="return confirm('Clear the “Recently added” tag from all <%= recentCount %>? (They stay in the list — this just removes the tag.)')">
         <button type="submit" class="btn btn-ghost btn-sm">Clear tag</button>
       </form>
     <% } %>
+  </div>
+
+  <!-- Trade coverage: how deep the sub network is per trade, with gaps flagged -->
+  <div class="cov-panel" id="covPanel">
+    <div class="cov-head">
+      <strong>Trade coverage</strong>
+      <select id="covCounty" onchange="covRender()"><option value="">All service areas</option></select>
+      <span class="cov-legend-inline">Counts exclude rejected/blacklisted subs and outside GCs. Click a trade to filter the list.</span>
+    </div>
+    <div class="cov-grid" id="covGrid"></div>
+    <div class="cov-legend"><span class="cov-chip cov-gap" style="cursor:default">Gap · 0</span> <span class="cov-chip cov-thin" style="cursor:default">Thin · 1–2</span> <span class="cov-chip cov-ok" style="cursor:default">Covered · 3+</span></div>
   </div>
 
   <%
@@ -821,6 +845,53 @@ async function changeStatus(sel) {
 function closeModal() { document.getElementById('subModal').classList.remove('show'); }
 const EMAIL_SUBJECT = 'ADU BID REQUEST BUILDOLY';
 const AREA_LIST = <%- JSON.stringify(typeof LOCATION_OPTS !== 'undefined' ? LOCATION_OPTS : []) %>;
+
+// ── Trade coverage panel ──
+// Minimal per-sub data for counting: trades, service areas, status, category.
+const COV_DATA = <%- JSON.stringify(subs.map(function (s) { return { t: s.type || '', l: s.location || '', st: s.status || '', cat: s.category || '' }; })) %>;
+let covInit = false;
+function covToggle() {
+  const p = document.getElementById('covPanel');
+  const show = p.classList.toggle('show');
+  if (show && !covInit) {
+    covInit = true;
+    const sel = document.getElementById('covCounty');
+    AREA_LIST.forEach(function (a) { const o = document.createElement('option'); o.value = a; o.textContent = a; sel.appendChild(o); });
+  }
+  if (show) covRender();
+}
+function covRender() {
+  const county = document.getElementById('covCounty').value.toLowerCase();
+  const tradeList = TRADES.filter(function (t) { return t !== 'General Contractor'; });
+  const counts = {};
+  tradeList.forEach(function (t) { counts[t] = 0; });
+  COV_DATA.forEach(function (s) {
+    if (/reject|black/i.test(s.st)) return;                                       // unusable
+    const isGc = s.cat === 'gc' || (!s.cat && /general\s*contractor|^\s*gc\b/i.test(s.t));
+    if (isGc) return;                                                              // outside GCs aren't trade coverage
+    if (county) {
+      const locs = String(s.l).split(',').map(function (x) { return x.trim().toLowerCase(); });
+      if (!locs.includes(county)) return;
+    }
+    const ts = String(s.t).split(',').map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
+    tradeList.forEach(function (t) { if (ts.includes(t.toLowerCase())) counts[t]++; });
+  });
+  // Gaps first so what's missing is impossible to overlook
+  const order = tradeList.slice().sort(function (a, b) { return counts[a] - counts[b] || a.localeCompare(b); });
+  document.getElementById('covGrid').innerHTML = order.map(function (t) {
+    const n = counts[t];
+    const cls = n === 0 ? 'cov-gap' : (n < 3 ? 'cov-thin' : 'cov-ok');
+    return '<span class="cov-chip ' + cls + '" onclick="covJump(this.dataset.t)" data-t="' + t.replace(/"/g, '&quot;') + '">' + t + ' <span class="n">' + n + '</span></span>';
+  }).join('');
+}
+function covJump(t) {
+  const tf = document.getElementById('typeFilter');
+  const hasOpt = Array.prototype.some.call(tf.options, function (o) { return o.value === t; });
+  if (hasOpt) { tf.value = t; document.getElementById('subSearch').value = ''; }
+  else { tf.value = ''; document.getElementById('subSearch').value = t; }   // no rows have it yet — search shows none
+  filterSubs();
+  document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 let composeName = '', composeTrade = '';
 const EMAIL_TEMPLATES = {
   generic: `Hi {NAME},
