@@ -256,9 +256,16 @@ const ITEM_STATUSES = [
 ];
 
 const PROJECT_STATUSES = ['Not Yet', 'In Progress', 'All Delivered', 'Draft - Contract', 'Fully Delivered'];
-// Lifecycle phases — the sections the projects page is grouped into (separate from
-// the delivery status above, which tracks materials).
-const PROJECT_PHASES = ['Under Construction', 'Pre-Construction', 'Pending Start', 'Under Warranty', 'Complete'];
+// Lifecycle phases — THE project status (single dropdown, in pipeline order).
+// The legacy overall_status above is kept in sync behind the scenes so the
+// dashboard/digest/portal queries built on it keep working.
+const PROJECT_PHASES = ['In Permitting', 'Pre-Construction', 'Under Construction', 'Complete', 'Under Warranty'];
+function statusForPhase(phase, current) {
+  if (phase === 'Complete' || phase === 'Under Warranty') return 'Fully Delivered';
+  if (phase === 'In Permitting' || phase === 'Pre-Construction') return 'Not Yet';
+  // Under Construction: keep a meaningful delivery status if it already has one
+  return (current === 'In Progress' || current === 'All Delivered') ? current : 'In Progress';
+}
 
 // Office-stock lifecycle for held items (no RFQ/order — you already own them).
 const HELD_STATUSES = ['In Office', 'Delivered'];
@@ -1849,7 +1856,7 @@ app.get('/my', requireSuper, async (req, res) => {
     const canAll = canSuperViewAllProjects(email);
     // Visible projects: all (Bobby) or just assigned (others)
     const { rows: allRows } = await pool.query(
-      "SELECT id, address, full_address, overall_status, super_email FROM projects ORDER BY address"
+      "SELECT id, address, full_address, overall_status, phase, super_email FROM projects ORDER BY address"
     );
     const isAssigned = p => parseSuperEmails(p.super_email).some(s => s.email.toLowerCase() === String(email).toLowerCase());
     const visible = canAll ? allRows : allRows.filter(isAssigned);
@@ -2372,7 +2379,7 @@ app.get('/projects', requireAuth, async (req, res) => {
     const { status, search } = req.query;
     let where = 'WHERE 1=1';
     const params = [];
-    if (status) { params.push(status); where += ` AND overall_status = $${params.length}`; }
+    if (status) { params.push(status); where += ` AND phase = $${params.length}`; }   // toolbar filters by the single phase status
     if (search) { params.push(`%${search}%`); where += ` AND address ILIKE $${params.length}`; }
 
     const { rows: projects } = await pool.query(
@@ -2424,16 +2431,17 @@ app.get('/projects', requireAuth, async (req, res) => {
 // ── New project ───────────────────────────────────────────────────────────────
 
 app.get('/projects/new', requireAuth, (req, res) => {
-  res.render('project-form', { project: null, error: null, PROJECT_STATUSES });
+  res.render('project-form', { project: null, error: null, PROJECT_STATUSES, PROJECT_PHASES });
 });
 
 app.post('/projects', requireAuth, async (req, res) => {
-  const { address, version, overall_status, notes, client_name, client_email, full_address, finish_schedule_url } = req.body;
-  if (!address) return res.render('project-form', { project: req.body, error: 'Address is required.', PROJECT_STATUSES });
+  const { address, version, notes, client_name, client_email, full_address, finish_schedule_url } = req.body;
+  const phase = PROJECT_PHASES.includes(req.body.phase) ? req.body.phase : 'Pre-Construction';
+  if (!address) return res.render('project-form', { project: req.body, error: 'Address is required.', PROJECT_STATUSES, PROJECT_PHASES });
   const { rows: [p] } = await pool.query(
-    `INSERT INTO projects (address, version, overall_status, notes, client_name, client_email, full_address, finish_schedule_url)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
-    [address, version||null, overall_status||'Not Yet', notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null]
+    `INSERT INTO projects (address, version, phase, overall_status, notes, client_name, client_email, full_address, finish_schedule_url)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+    [address, version||null, phase, statusForPhase(phase, null), notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null]
   );
   await ensureProjectItems(p.id);
   res.redirect(`/projects/${p.id}`);
@@ -2562,26 +2570,31 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
 app.get('/projects/:id/edit', requireAuth, async (req, res) => {
   const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
   if (!project) return res.redirect('/');
-  res.render('project-form', { project, error: null, PROJECT_STATUSES });
+  res.render('project-form', { project, error: null, PROJECT_STATUSES, PROJECT_PHASES });
 });
 
 app.post('/projects/:id', requireAuth, async (req, res) => {
-  const { address, version, overall_status, notes, client_name, client_email, full_address, finish_schedule_url } = req.body;
+  const { address, version, notes, client_name, client_email, full_address, finish_schedule_url } = req.body;
+  const { rows: [cur] } = await pool.query('SELECT phase, overall_status FROM projects WHERE id=$1', [req.params.id]);
+  const phase = PROJECT_PHASES.includes(req.body.phase) ? req.body.phase : (cur && cur.phase) || 'Pre-Construction';
   await pool.query(
-    `UPDATE projects SET address=$1, version=$2, overall_status=$3, notes=$4, client_name=$5, client_email=$6, full_address=$7, finish_schedule_url=$8, updated_at=NOW() WHERE id=$9`,
-    [address, version||null, overall_status, notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null, req.params.id]
+    `UPDATE projects SET address=$1, version=$2, phase=$3, overall_status=$4, notes=$5, client_name=$6, client_email=$7, full_address=$8, finish_schedule_url=$9, updated_at=NOW() WHERE id=$10`,
+    [address, version||null, phase, statusForPhase(phase, cur ? cur.overall_status : null), notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null, req.params.id]
   );
   res.redirect(`/projects/${req.params.id}`);
 });
 
 // ── Reorder projects (drag and drop) ──────────────────────────────────────────
 
-// Move a project between lifecycle sections (Under Construction / Pre-Con / …)
+// Move a project between lifecycle sections — also syncs the legacy delivery status
 app.post('/projects/:id/phase', requireAuth, async (req, res) => {
   try {
     const phase = String(req.body.phase || '');
     if (!PROJECT_PHASES.includes(phase)) return res.status(400).json({ ok: false, error: 'Unknown phase.' });
-    await pool.query('UPDATE projects SET phase=$1, updated_at=NOW() WHERE id=$2', [phase, req.params.id]);
+    const { rows: [cur] } = await pool.query('SELECT overall_status FROM projects WHERE id=$1', [req.params.id]);
+    if (!cur) return res.status(404).json({ ok: false, error: 'Project not found.' });
+    await pool.query('UPDATE projects SET phase=$1, overall_status=$2, updated_at=NOW() WHERE id=$3',
+      [phase, statusForPhase(phase, cur.overall_status), req.params.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });

@@ -72,7 +72,7 @@
   %>
     <div class="pcard" id="pc_<%= p.id %>" style="display:none">
       <h2><%= p.address %></h2>
-      <div class="addr2"><%= p.full_address && p.full_address !== p.address ? p.full_address : '' %><span style="margin-left:.4rem">· <%= p.overall_status %></span></div>
+      <div class="addr2"><%= p.full_address && p.full_address !== p.address ? p.full_address : '' %><span style="margin-left:.4rem">· <%= p.phase || p.overall_status %></span></div>
       <div style="display:flex;gap:.5rem;margin:.2rem 0 .8rem">
         <% if (p.assigned) { %><a href="/my/request/<%= p.id %>" style="flex:1;text-align:center;background:#4f8ef7;color:#fff;font-weight:700;text-decoration:none;padding:.7rem;border-radius:10px">📦 Request Material</a><% } %>
         <a href="/my/issue/<%= p.id %>" style="flex:1;text-align:center;background:#e0531f;color:#fff;font-weight:700;text-decoration:none;padding:.7rem;border-radius:10px">⚠️ Report Issue</a>

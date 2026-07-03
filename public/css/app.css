@@ -198,14 +198,26 @@ textarea { resize: vertical; min-height: 80px; }
 .phase-divider { display: flex; align-items: center; margin: 2rem 0 .8rem; }
 .phase-divider span { font-size: .92rem; font-weight: 800; padding: .34rem .95rem; border-radius: 99px; white-space: nowrap; }
 .phase-divider::after { content: ''; flex: 1; height: 1px; background: var(--border); margin-left: .9rem; }
-.ph-uc span { background: #dbeafe; color: #1e40af; }
+.ph-ip span { background: #fef3c7; color: #92400e; }
 .ph-pc span { background: #e0f2fe; color: #0369a1; }
-.ph-ps span { background: #dcfce7; color: #15803d; }
-.ph-uw span { background: #ede9fe; color: #6d28d9; }
+.ph-uc span { background: #dbeafe; color: #1e40af; }
 .ph-co span { background: #d1fae5; color: #065f46; }
+.ph-uw span { background: #ede9fe; color: #6d28d9; }
 .ph-uw + .grid-wrap, .ph-co + .grid-wrap { opacity: .82; }
 .ph-uw + .grid-wrap:hover, .ph-co + .grid-wrap:hover { opacity: 1; }
-.phase-select { display: block; margin-top: .3rem; font-size: .72rem; border: 1px solid var(--border); border-radius: 8px; padding: 2px 4px; background: var(--bg); color: var(--muted); cursor: pointer; max-width: 100%; }
+/* The single status dropdown on each project row — colored pill per phase */
+.phase-select { display: block; font-size: .8rem; font-weight: 700; border: 1px solid rgba(0,0,0,.12); border-radius: 99px; padding: .32rem .5rem; cursor: pointer; max-width: 100%; }
+.phsel-in_permitting { background: #fef3c7; color: #92400e; }
+.phsel-pre_construction { background: #e0f2fe; color: #0369a1; }
+.phsel-under_construction { background: #dbeafe; color: #1e40af; }
+.phsel-complete { background: #d1fae5; color: #065f46; }
+.phsel-under_warranty { background: #ede9fe; color: #6d28d9; }
+/* Project-page header badge, same palette */
+.phb-in_permitting { background: #fef3c7; color: #92400e; }
+.phb-pre_construction { background: #e0f2fe; color: #0369a1; }
+.phb-under_construction { background: #dbeafe; color: #1e40af; }
+.phb-complete { background: #d1fae5; color: #065f46; }
+.phb-under_warranty { background: #ede9fe; color: #6d28d9; }
 
 /* Settings — suppliers */
 .supplier-stage { font-weight: 700; font-size: .85rem; color: var(--text); margin: 1.25rem 0 .6rem; padding-bottom: .35rem; border-bottom: 1px solid var(--border); }

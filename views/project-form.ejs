@@ -29,10 +29,10 @@
           <input type="text" name="version" value="<%= project ? project.version||'' : '' %>" placeholder="e.g. V3">
         </div>
         <div class="form-group">
-          <label>Overall Status</label>
-          <select name="overall_status">
-            <% PROJECT_STATUSES.forEach(s => { %>
-              <option value="<%= s %>" <%- (project && project.overall_status===s)||(!project&&s==='Not Yet')?'selected':'' %>><%= s %></option>
+          <label>Status</label>
+          <select name="phase">
+            <% PROJECT_PHASES.forEach(s => { %>
+              <option value="<%= s %>" <%- (project && project.phase===s)||(!project&&s==='Pre-Construction')?'selected':'' %>><%= s %></option>
             <% }) %>
           </select>
         </div>

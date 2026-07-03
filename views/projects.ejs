@@ -25,7 +25,7 @@
     <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
     <select name="status" onchange="this.form.submit()">
       <option value="">All statuses</option>
-      <% PROJECT_STATUSES.forEach(s => { %>
+      <% PROJECT_PHASES.forEach(s => { %>
         <option value="<%= s %>" <%- query.status===s?'selected':'' %>><%= s %></option>
       <% }) %>
     </select>
@@ -48,7 +48,7 @@
   <%
     // Lifecycle sections (same divisions as the old board). Projects without a
     // phase fall back to one derived from their delivery status so nothing hides.
-    const PHASE_CLASSES = { 'Under Construction': 'ph-uc', 'Pre-Construction': 'ph-pc', 'Pending Start': 'ph-ps', 'Under Warranty': 'ph-uw', 'Complete': 'ph-co' };
+    const PHASE_CLASSES = { 'In Permitting': 'ph-ip', 'Pre-Construction': 'ph-pc', 'Under Construction': 'ph-uc', 'Complete': 'ph-co', 'Under Warranty': 'ph-uw' };
     function phaseOf(p) {
       if (PROJECT_PHASES.includes(p.phase)) return p.phase;
       if (p.overall_status === 'Fully Delivered') return 'Complete';
@@ -144,29 +144,6 @@ async function saveGridItem(sel) {
     if (data.inv && data.inv.drewDown) showToast('✓ Drew down ' + data.inv.drewDown + ' from inventory');
     else if (data.inv && data.inv.restored) showToast('↩ Restored ' + data.inv.restored + ' to inventory');
     else showToast('Saved');
-  } catch(e) {
-    handleSaveError(e);
-  }
-}
-
-const BADGE_CLASSES = ['badge-not_yet','badge-in_progress','badge-all_delivered','badge-draft___contract','badge-fully_delivered'];
-
-async function saveStatus(sel) {
-  const projectId = sel.dataset.project;
-  const overall_status = sel.value;
-  const wasCompleted = sel.dataset.completed === 'true';
-  const nowCompleted = overall_status === 'Fully Delivered';
-  BADGE_CLASSES.forEach(c => sel.classList.remove(c));
-  sel.classList.add('badge-' + overall_status.toLowerCase().replace(/[\s-]+/g,'_'));
-  try {
-    await postJson(`/projects/${projectId}/status`, { overall_status });
-    // If it crossed into/out of the Completed section, reload to re-sort
-    if (wasCompleted !== nowCompleted) {
-      showToast(nowCompleted ? 'Moved to Completed' : 'Moved to Active');
-      setTimeout(() => location.reload(), 600);
-    } else {
-      showToast('Status updated');
-    }
   } catch(e) {
     handleSaveError(e);
   }
