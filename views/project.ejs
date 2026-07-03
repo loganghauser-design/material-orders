@@ -71,6 +71,8 @@
     .cat-thread{padding:.32rem .15rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.85rem}
     .cat-thread:hover{background:var(--surface)}
     .cat-thread.unread strong{color:#cc2222}
+    .cat-conv{display:none}
+    .cat-conv.open{display:block;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.6rem .75rem;margin:.35rem 0 .7rem}
     .modal{max-height:90vh;overflow-y:auto}
     .modal-overlay{padding:2vh 0}
   </style>
@@ -706,21 +708,24 @@ async function renderCatThreads(code) {
     .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
   if (!rows.length) { box.innerHTML = '<span style="font-size:.78rem;color:var(--muted)">No emails for this category yet.</span>'; return; }
   box.innerHTML = rows.map(t => `
-    <div class="cat-thread${t.has_unread ? ' unread' : ''}" onclick="catOpenThread('${t.gmail_thread_id}')">
-      ${t.has_unread ? '<span class="reply-dot">●</span> ' : ''}<strong>${escapeHtmlJs(t.subject || '')}</strong>
+    <div class="cat-thread${t.has_unread ? ' unread' : ''}" onclick="catToggleConv('${code}', '${t.gmail_thread_id}')">
+      <span class="cat-caret" id="cc_${code}_${t.gmail_thread_id}">\u25B8</span>
+      ${t.has_unread ? '<span class="reply-dot">\u25CF</span> ' : ''}<strong>${escapeHtmlJs(t.subject || '')}</strong>
       <span style="color:var(--muted);font-size:.76rem">· ${escapeHtmlJs(t.email_type || '')} · ${escapeHtmlJs(t.supplier_name || t.supplier_email || '')} · ${new Date(t.sent_at).toLocaleDateString()}</span>
-    </div>`).join('');
+    </div>
+    <div class="cat-conv" id="ctb_${code}_${t.gmail_thread_id}"></div>`).join('');
 }
-function catOpenThread(threadId) {
-  showTab('emails');
-  const head = document.querySelector('#ti_' + threadId + ' .thread-head');
-  if (head) {
-    const body = document.getElementById('tb_' + threadId);
-    if (body && !body.classList.contains('open')) toggleThread(threadId, head);
-    head.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+// Open/close a conversation right inside the category box — read and reply here.
+function catToggleConv(code, threadId) {
+  const box = document.getElementById('ctb_' + code + '_' + threadId);
+  const car = document.getElementById('cc_' + code + '_' + threadId);
+  if (!box) return;
+  if (box.classList.contains('open')) { box.classList.remove('open'); box.innerHTML = ''; if (car) car.textContent = '\u25B8'; return; }
+  box.classList.add('open');
+  if (car) car.textContent = '\u25BE';
+  renderThreadBody(threadId, box);
 }
-// File a thread under material categories (checkbox popup on the 🏷 button)
+// File a thread under material categories (checkbox popup on the tag button)
 function tagThread(veId, threadId) {
   const t = THREAD_INFO[threadId] || {};
   const cur = new Set(String(t.item_codes || t.item_code || '').split(',').map(c => c.trim()).filter(Boolean));
@@ -888,6 +893,12 @@ async function toggleThread(threadId, headEl) {
   const box = document.getElementById('tb_' + threadId);
   if (box.classList.contains('open')) { box.classList.remove('open'); box.innerHTML=''; return; }
   box.classList.add('open');
+  renderThreadBody(threadId, box);
+}
+
+// Render a full conversation (+ reply box) into ANY container — used by the
+// Emails tab and by the per-category boxes on the Materials tab.
+async function renderThreadBody(threadId, box) {
   box.innerHTML = '<div style="color:var(--muted);font-size:.82rem;padding:.5rem">Loading conversation…</div>';
   try {
     const r = await fetch(`/threads/${threadId}`);
@@ -898,7 +909,7 @@ async function toggleThread(threadId, headEl) {
       const atts = (m.attachments || []).map(a => {
         const isPdf = /pdf/i.test(a.mimeType || '') || /\.pdf$/i.test(a.filename || '');
         const url = `/threads/messages/${m.id}/attachment/${a.attachmentId}?name=${encodeURIComponent(a.filename || 'attachment')}&mime=${encodeURIComponent(a.mimeType || '')}`;
-        return `<a href="${url}" target="_blank" rel="noopener" title="Open / download" style="display:inline-block;margin:.15rem .35rem .15rem 0;padding:3px 10px;border:1px solid var(--border);border-radius:14px;font-size:.8rem;text-decoration:none;color:var(--text);background:var(--surface)">${isPdf ? '📄' : '📎'} ${escapeHtmlJs(a.filename || 'attachment')}</a>`;
+        return `<a href="${url}" target="_blank" rel="noopener" title="Open / download" style="display:inline-block;margin:.15rem .35rem .15rem 0;padding:3px 10px;border:1px solid var(--border);border-radius:14px;font-size:.8rem;text-decoration:none;color:var(--text);background:var(--surface)">${isPdf ? '\uD83D\uDCC4' : '\uD83D\uDCCE'} ${escapeHtmlJs(a.filename || 'attachment')}</a>`;
       }).join('');
       const attRow = atts ? `<div style="margin-top:.45rem">${atts}</div>` : '';
       return `
@@ -906,25 +917,26 @@ async function toggleThread(threadId, headEl) {
         <div class="msg-meta"><strong>${escapeHtmlJs(m.from)}</strong> · ${escapeHtmlJs(m.date)}</div>
         <div class="msg-body" style="line-height:1.5;word-break:break-word;overflow-wrap:anywhere">${m.bodyHtml || (m.isHtml ? m.body : escapeHtmlJs(m.body).replace(/\n/g,'<br>'))}</div>
         ${attRow}
-        ${m.fromMe ? '' : `<div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" onclick="openOrderDialog('${threadId}', ${idx})">📦 Log Order Confirmation</button></div>`}
+        ${m.fromMe ? '' : `<div style="margin-top:.4rem"><button class="btn btn-ghost btn-sm" onclick="openOrderDialog('${threadId}', ${idx})">\uD83D\uDCE6 Log Order Confirmation</button></div>`}
       </div>
     `; }).join('');
     box.innerHTML = msgs + `
       <div class="reply-box">
-        <textarea id="reply_${threadId}" rows="3" placeholder="Write a reply…"></textarea>
-        <button class="btn btn-primary btn-sm" onclick="sendReply('${threadId}')">Send Reply</button>
-        <button class="btn btn-ghost btn-sm" onclick="openDeliveryRequest('${threadId}')" title="Reply to this order asking for a stage's items to be delivered">📦 Request Delivery</button>
+        <textarea rows="3" placeholder="Write a reply…"></textarea>
+        <button class="btn btn-primary btn-sm" onclick="sendReply('${threadId}', this)">Send Reply</button>
+        <button class="btn btn-ghost btn-sm" onclick="openDeliveryRequest('${threadId}')" title="Reply to this order asking for a stage's items to be delivered">\uD83D\uDCE6 Request Delivery</button>
       </div>`;
   } catch(e) {
     box.innerHTML = '<div style="color:var(--danger);padding:.5rem">Error loading conversation.</div>';
   }
 }
 
-async function sendReply(threadId) {
-  const ta = document.getElementById('reply_' + threadId);
+async function sendReply(threadId, btn) {
+  const wrap = btn.closest('.reply-box');
+  const ta = wrap.querySelector('textarea');
   const body = ta.value.trim();
   if (!body) { showToast('Write a reply first', true); return; }
-  ta.disabled = true;
+  ta.disabled = true; btn.disabled = true;
   try {
     const r = await fetch(`/threads/${threadId}/reply`, {
       method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ body })
@@ -932,15 +944,14 @@ async function sendReply(threadId) {
     const data = await r.json();
     if (data.ok) {
       showToast('Reply sent');
-      ta.value='';
-      toggleThread(threadId); toggleThread(threadId);
+      renderThreadBody(threadId, wrap.parentElement);   // refresh this conversation in place
       if (data.detected && data.detected.length && data.projectId) {
         openConfirmUpdates(data.detected, data.projectId);
       }
     }
     else showToast(data.error || 'Send failed', true);
   } catch(e) { showToast('Send failed', true); }
-  finally { ta.disabled = false; }
+  finally { ta.disabled = false; btn.disabled = false; }
 }
 
 let confirmCtx = { items: [], projectId: null };
