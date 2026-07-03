@@ -68,6 +68,9 @@
     .notify-btn:hover{background:#4f8ef7;border-color:#4f8ef7}
     .notify-btn:disabled{opacity:.6;cursor:default}
     .tab-panel{display:none}
+    .cat-thread{padding:.32rem .15rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.85rem}
+    .cat-thread:hover{background:var(--surface)}
+    .cat-thread.unread strong{color:#cc2222}
     .modal{max-height:90vh;overflow-y:auto}
     .modal-overlay{padding:2vh 0}
   </style>
@@ -75,9 +78,7 @@
     <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">🧱 Materials</button>
     <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">📦 Orders</button>
     <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">✉️ Emails</button>
-    <button type="button" class="tab-btn" data-tab="docs" onclick="showTab('docs')">📄 Docs &amp; $</button>
     <button type="button" class="tab-btn" data-tab="schedule" onclick="showTab('schedule')">📋 Finish Schedule</button>
-    <button type="button" class="btn btn-primary" style="margin-left:auto" onclick="openRfqDialog('','','','')">📧 Email Vendor</button>
   </div>
 
   <div class="tab-panel" data-tab="schedule">
@@ -90,73 +91,6 @@
     </div>
   </div>
 
-  <div class="tab-panel" data-tab="emails">
-  <!-- Milestone payment emails -->
-  <div class="email-card">
-    <div class="email-header">
-      <div>
-        <strong>Send Client Milestone Email</strong>
-        <div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">
-          <% if (project.client_email) { %>
-            To: <%= project.client_name ? project.client_name + ' — ' : '' %><%= project.client_email %>
-          <% } else { %>
-            <span style="color:var(--danger)">No client email set — add one via Edit Project.</span>
-          <% } %>
-        </div>
-      </div>
-      <% if (!emailConfigured) { %>
-        <span class="badge badge-not_yet" style="font-size:.75rem">Email not configured</span>
-      <% } %>
-    </div>
-    <div class="email-buttons">
-      <% EMAIL_PHASES.forEach(ph => { %>
-        <button class="btn btn-ghost btn-phase" onclick="openEmailDialog('<%= ph.key %>', '<%= ph.label %>')"
-          <%= (!emailConfigured || !project.client_email) ? 'disabled' : '' %>>
-          <%= ph.label %>
-        </button>
-      <% }) %>
-    </div>
-  </div>
-
-  </div><!-- /emails (part 1) -->
-  <div class="tab-panel" data-tab="docs">
-  <!-- Documents + milestone payments -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.25rem;margin-bottom:1.25rem" class="two-col">
-    <div class="email-card" style="margin-bottom:0">
-      <div class="email-header"><div><strong>Documents</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">BOLs, contracts, permits, invoices.</div></div></div>
-      <% if (documents && documents.length) { %>
-        <div style="margin:.5rem 0">
-          <% documents.forEach(d => { %>
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem 0;border-bottom:1px solid var(--border)">
-              <a href="/documents/<%= d.id %>" target="_blank">📄 <%= d.filename %></a>
-              <form method="POST" action="/documents/<%= d.id %>/delete" onsubmit="return confirm('Delete this document?')"><button class="btn btn-danger btn-sm">✕</button></form>
-            </div>
-          <% }) %>
-        </div>
-      <% } else { %><div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No documents yet.</div><% } %>
-      <form method="POST" action="/projects/<%= project.id %>/documents" enctype="multipart/form-data" style="display:flex;gap:.5rem;align-items:center;margin-top:.5rem">
-        <input type="file" name="document" required style="font-size:.8rem">
-        <button class="btn btn-primary btn-sm">Upload</button>
-      </form>
-    </div>
-
-    <div class="email-card" style="margin-bottom:0">
-      <div class="email-header"><div><strong>Milestone Payments</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Recorded when you send a milestone email.</div></div></div>
-      <% if (payments && payments.length) { %>
-        <table style="width:100%;font-size:.85rem;margin-top:.5rem">
-          <% payments.forEach(p => { %>
-            <tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:.35rem 0"><%= p.phase_name %></td>
-              <td style="padding:.35rem 0"><strong>$<%= Number(p.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %></strong></td>
-              <td style="padding:.35rem 0;text-align:right"><span class="badge <%= p.paid ? 'badge-all_delivered' : 'badge-not_yet' %>"><%= p.paid ? '✓ Paid' : 'Unpaid' %></span></td>
-            </tr>
-          <% }) %>
-        </table>
-      <% } else { %><div style="color:var(--muted);font-size:.85rem;margin:.5rem 0">No milestone payments recorded yet.</div><% } %>
-    </div>
-  </div>
-
-  </div><!-- /docs -->
   <div class="tab-panel" data-tab="emails">
   <!-- Vendor email threads -->
   <div class="email-card">
@@ -337,7 +271,16 @@
           </td>
         </tr>
         <tr class="sched-sub" id="sub_<%= item.code %>" style="display:none">
-          <td colspan="6" style="padding:0"><div class="sched-items" style="padding:.4rem .9rem;background:var(--bg)"></div></td>
+          <td colspan="6" style="padding:0">
+            <div class="cat-emails" style="padding:.55rem .9rem;background:var(--bg);border-bottom:1px dashed var(--border)">
+              <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
+                <button type="button" class="btn btn-primary btn-sm" data-code="<%= item.code %>" data-name="<%= item.name %>" data-supname="<%= sup.supplier_name || '' %>" data-supemail="<%= sup.supplier_email || '' %>" onclick="catEmail(this)">✉ Email vendor</button>
+                <span style="font-size:.78rem;color:var(--muted)"><%= (sup.supplier_name || sup.supplier_email) ? 'Default vendor: ' + (sup.supplier_name || sup.supplier_email) : 'No default vendor set for this category (add one in Settings)' %></span>
+              </div>
+              <div class="cat-threads" id="catthreads_<%= item.code %>" style="margin-top:.45rem"><span style="font-size:.78rem;color:var(--muted)">Loading emails…</span></div>
+            </div>
+            <div class="sched-items" style="padding:.4rem .9rem;background:var(--bg)"></div>
+          </td>
         </tr>
         <% }) %>
       </tbody>
@@ -345,37 +288,6 @@
   </div>
   <% }) %>
   </div><!-- /materials -->
-</div>
-
-<!-- Email send dialog -->
-<div id="emailModal" class="modal-overlay">
-  <div class="modal">
-    <h2 id="emailModalTitle">Send Milestone Email</h2>
-    <p class="modal-sub">Fill in the amount and Melio link, then send to the client.</p>
-    <input type="hidden" id="emailPhaseKey">
-    <div class="form-group">
-      <label>Payment Amount ($)</label>
-      <input type="text" id="emailAmount" placeholder="e.g. 25,000">
-    </div>
-    <div class="form-group" style="margin-top:.85rem">
-      <label>Melio Payment Link</label>
-      <input type="text" id="emailMelio" placeholder="https://melio.me/...">
-    </div>
-    <div class="form-group" style="margin-top:.85rem">
-      <label>Below the Melio link (optional — paste from Google Sheets)</label>
-      <div id="emailExtra" class="paste-box" contenteditable="true" data-placeholder="Paste cells or type anything to appear below the Melio link…"></div>
-    </div>
-    <div class="form-group" style="margin-top:.85rem">
-      <label>Additional attachments (optional)</label>
-      <input type="file" id="emailFile" multiple>
-      <small style="color:var(--muted);font-size:.75rem;margin-top:.25rem">You can select multiple files. Your default attachment (set in Settings) is included automatically.</small>
-    </div>
-    <div class="modal-actions">
-      <button class="btn btn-primary" id="emailSendBtn" onclick="sendEmail(false)">Send Email</button>
-      <button class="btn btn-ghost" id="emailDraftBtn" onclick="sendEmail(true)">Save as Draft</button>
-      <button class="btn btn-ghost" onclick="closeEmailDialog()">Cancel</button>
-    </div>
-  </div>
 </div>
 
 <!-- RFQ dialog -->
@@ -773,6 +685,39 @@ function toggleCategory(code) {
   const show = sub.style.display === 'none';
   sub.style.display = show ? '' : 'none';
   if (car) car.textContent = show ? '▾' : '▸';
+  if (show) renderCatThreads(code);
+}
+// Per-category email hub (inside each expanded material row)
+function catEmail(btn) {
+  openRfqDialog(btn.dataset.code, btn.dataset.name, btn.dataset.supname, btn.dataset.supemail);
+}
+let THREADS_LOADED = false;
+async function ensureThreads() {
+  if (THREADS_LOADED) return;
+  THREADS_LOADED = true;   // set first — loadThreads re-renders open category boxes
+  await loadThreads();
+}
+async function renderCatThreads(code) {
+  const box = document.getElementById('catthreads_' + code);
+  if (!box) return;
+  await ensureThreads();
+  const rows = Object.values(THREAD_INFO).filter(t => t.item_code === code)
+    .sort((a, b) => new Date(b.sent_at) - new Date(a.sent_at));
+  if (!rows.length) { box.innerHTML = '<span style="font-size:.78rem;color:var(--muted)">No emails for this category yet.</span>'; return; }
+  box.innerHTML = rows.map(t => `
+    <div class="cat-thread${t.has_unread ? ' unread' : ''}" onclick="catOpenThread('${t.gmail_thread_id}')">
+      ${t.has_unread ? '<span class="reply-dot">●</span> ' : ''}<strong>${escapeHtmlJs(t.subject || '')}</strong>
+      <span style="color:var(--muted);font-size:.76rem">· ${escapeHtmlJs(t.email_type || '')} · ${escapeHtmlJs(t.supplier_name || t.supplier_email || '')} · ${new Date(t.sent_at).toLocaleDateString()}</span>
+    </div>`).join('');
+}
+function catOpenThread(threadId) {
+  showTab('emails');
+  const head = document.querySelector('#ti_' + threadId + ' .thread-head');
+  if (head) {
+    const body = document.getElementById('tb_' + threadId);
+    if (body && !body.classList.contains('open')) toggleThread(threadId, head);
+    head.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
 }
 async function setRecSource(source) {
   try {
@@ -836,7 +781,7 @@ async function markCategoryStock(code, mode) {
 }
 document.addEventListener('DOMContentLoaded', () => {
   const tab = new URLSearchParams(location.search).get('tab');
-  const valid = ['materials','orders','emails','docs','schedule'];
+  const valid = ['materials','orders','emails','schedule'];
   showTab(valid.includes(tab) ? tab : 'materials');
 });
 
@@ -866,51 +811,6 @@ async function loadFinishSchedule(force) {
   }
 }
 
-function openEmailDialog(phaseKey, label) {
-  document.getElementById('emailPhaseKey').value = phaseKey;
-  document.getElementById('emailModalTitle').textContent = 'Send "' + label + '" Email';
-  document.getElementById('emailModal').classList.add('show');
-}
-function closeEmailDialog() {
-  document.getElementById('emailModal').classList.remove('show');
-}
-async function sendEmail(asDraft) {
-  const btn = asDraft ? document.getElementById('emailDraftBtn') : document.getElementById('emailSendBtn');
-  const amount = document.getElementById('emailAmount').value.trim();
-  if (!amount) { showToast('Enter an amount', true); return; }
-  const fd = new FormData();
-  fd.append('phaseKey', document.getElementById('emailPhaseKey').value);
-  fd.append('amount', amount);
-  fd.append('melioLink', document.getElementById('emailMelio').value.trim());
-  if (asDraft) fd.append('asDraft', 'true');
-  const extraEl = document.getElementById('emailExtra');
-  fd.append('extraHtml', extraEl.innerHTML);
-  fd.append('extraText', extraEl.innerText);
-  const fileInput = document.getElementById('emailFile');
-  for (const f of fileInput.files) fd.append('attachments', f);
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = asDraft ? 'Saving…' : 'Sending…';
-  try {
-    const r = await fetch(`/projects/${PROJECT_ID}/send-email`, { method: 'POST', body: fd });
-    const data = await r.json();
-    if (data.ok) {
-      showToast(data.draft ? 'Draft saved to your Gmail — review & send there' : 'Email sent to ' + data.sentTo);
-      closeEmailDialog();
-      document.getElementById('emailAmount').value = '';
-      document.getElementById('emailMelio').value = '';
-      document.getElementById('emailExtra').innerHTML = '';
-      fileInput.value = '';
-    } else {
-      showToast(data.error || 'Failed', true);
-    }
-  } catch(e) {
-    showToast('Failed', true);
-  } finally {
-    btn.disabled = false; btn.textContent = orig;
-  }
-}
-
-// ── Vendor email threads ──────────────────────────────────────────────
 async function loadThreads() {
   const el = document.getElementById('threadList');
   el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading…</div>';
@@ -938,6 +838,11 @@ async function loadThreads() {
         <div class="thread-body" id="tb_${t.gmail_thread_id}"></div>
       </div>
     `).join('');
+    THREADS_LOADED = true;
+    // Refresh any open category email boxes on the Materials tab
+    document.querySelectorAll('tr.sched-sub').forEach(tr => {
+      if (tr.style.display !== 'none') renderCatThreads(tr.id.replace('sub_', ''));
+    });
     // If we arrived here from a project notification, auto-open the newest unread thread
     const params = new URLSearchParams(location.search);
     if (params.get('openUnread')) {
