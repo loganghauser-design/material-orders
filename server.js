@@ -4365,7 +4365,7 @@ app.post('/subs/licenses/verify-all', requireAuth, async (req, res) => {   // 3-
 app.get('/subs/finder', requireAuth, async (req, res) => {
   try {
     await initDb();
-    res.render('subfinder', { CSLB_CLASS_BY_TRADE });
+    res.render('subfinder', { CSLB_CLASS_BY_TRADE, ONLINE_TRADES: Object.keys(ONLINE_TRADE_QUERIES) });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
@@ -4421,6 +4421,44 @@ app.post('/subs/finder/add', requireAuth, async (req, res) => {
 
 // ── Online sub search (Yelp / Google Places) — handymen & small operators that
 //    aren't in the state license database. Uses whichever API key is configured.
+// Construction-focused query templates so results stay on-trade (contractors,
+// not tile stores / lumber yards / art studios).
+const ONLINE_TRADE_QUERIES = {
+  'General Contractor': 'general contractor',
+  'Handyman': 'handyman',
+  'Electrician': 'electrician',
+  'Plumber': 'plumbing contractor',
+  'Drywall': 'drywall contractor',
+  'Framing': 'framing contractor',
+  'Metal Framing': 'metal stud framing contractor',
+  'Painter': 'painting contractor',
+  'HVAC': 'HVAC contractor',
+  'Flooring': 'flooring installation contractor',
+  'Windows & Doors': 'window and door installer',
+  'Roofing': 'roofing contractor',
+  'Concrete': 'concrete contractor',
+  'Foundation': 'foundation contractor',
+  'Masonry': 'masonry contractor',
+  'Demolition': 'demolition contractor',
+  'Junk Removal': 'junk removal service',
+  'Landscaping': 'landscaping company',
+  'Tile': 'tile installation contractor',
+  'Stone': 'stone masonry contractor',
+  'Countertops': 'countertop installer',
+  'Cabinets': 'custom cabinet maker',
+  'Solar': 'solar panel installer',
+  'Stucco': 'stucco contractor',
+  'Insulation': 'insulation contractor',
+  'Fire Sprinklers': 'fire sprinkler contractor',
+  'Decking': 'deck builder',
+  'Finishes': 'finish carpentry contractor',
+  'Tree Removal': 'tree removal service',
+  'Methane': 'methane mitigation contractor',
+};
+// Google place types that mean "this is a shop, not a contractor" — dropped from
+// results unless the place is ALSO typed as a contractor.
+const ONLINE_RETAIL_TYPES = ['hardware_store', 'home_improvement_store', 'building_materials_store', 'furniture_store', 'home_goods_store', 'department_store', 'shopping_mall', 'supermarket', 'grocery_store', 'clothing_store', 'electronics_store', 'cell_phone_store', 'gift_shop', 'garden_center', 'florist'];
+const ONLINE_CONTRACTOR_TYPES = ['general_contractor', 'electrician', 'plumber', 'roofing_contractor', 'painter'];
 async function yelpSearch(term, location) {
   const key = process.env.YELP_API_KEY;
   const u = 'https://api.yelp.com/v3/businesses/search?' + new URLSearchParams({ term, location, limit: '50', sort_by: 'best_match' });
@@ -4444,7 +4482,13 @@ async function googlePlacesSearch(term, location) {
   });
   const d = await r.json();
   if (!r.ok) throw new Error('Google Places: ' + ((d.error && d.error.message) || 'HTTP ' + r.status).slice(0, 150));
-  return (d.places || []).map(p => ({
+  return (d.places || []).filter(p => {
+    // Drop retail shops (tile stores, lumber yards) unless Google also types them as a contractor
+    const types = p.types || [];
+    const retail = types.some(t => ONLINE_RETAIL_TYPES.includes(t));
+    const contractor = types.some(t => ONLINE_CONTRACTOR_TYPES.includes(t));
+    return !retail || contractor;
+  }).map(p => ({
     source: 'Google', name: (p.displayName && p.displayName.text) || '', phone: p.nationalPhoneNumber || '',
     address: p.formattedAddress || '', rating: p.rating || null, reviews: p.userRatingCount || 0,
     link: p.googleMapsUri || '', tags: (p.types || []).slice(0, 3).join(', ').replace(/_/g, ' '),
@@ -4452,9 +4496,12 @@ async function googlePlacesSearch(term, location) {
 }
 app.post('/subs/finder/online-search', requireAuth, async (req, res) => {
   try {
-    const term = String(req.body.term || '').trim().slice(0, 80);
+    // A custom term wins; otherwise the picked trade maps to its contractor-focused query
+    const trade = String(req.body.trade || '').trim();
+    let term = String(req.body.term || '').trim().slice(0, 80);
+    if (!term && ONLINE_TRADE_QUERIES[trade]) term = ONLINE_TRADE_QUERIES[trade];
     const location = String(req.body.location || '').trim().slice(0, 80) || 'Los Angeles, CA';
-    if (!term) return res.json({ ok: false, error: 'Type what you need (e.g. handyman).' });
+    if (!term) return res.json({ ok: false, error: 'Pick a trade (or type a custom search).' });
     const providers = [];
     if (process.env.YELP_API_KEY) providers.push(yelpSearch(term, location).catch(e => ({ err: e.message })));
     if (process.env.GOOGLE_PLACES_API_KEY) providers.push(googlePlacesSearch(term, location).catch(e => ({ err: e.message })));

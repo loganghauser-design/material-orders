@@ -111,17 +111,23 @@
     </div>
     <div class="sf-card">
       <div class="sf-row">
-        <div style="flex:1;min-width:200px">
-          <label>What do you need?</label>
-          <input type="text" id="oTerm" placeholder="e.g. handyman, junk removal, tree service, demolition" style="width:100%" onkeydown="if(event.key==='Enter')runOnline()">
+        <div>
+          <label>Trade needed</label>
+          <select id="oTrade">
+            <% ONLINE_TRADES.forEach(t => { %><option value="<%= t %>"><%= t %></option><% }) %>
+          </select>
         </div>
         <div>
           <label>Area (city or zip)</label>
-          <input type="text" id="oLoc" value="Los Angeles, CA" style="width:200px" onkeydown="if(event.key==='Enter')runOnline()">
+          <input type="text" id="oLoc" value="Los Angeles, CA" style="width:190px" onkeydown="if(event.key==='Enter')runOnline()">
+        </div>
+        <div style="flex:1;min-width:170px">
+          <label>Custom search <span style="font-weight:400;color:var(--muted)">(optional — overrides trade)</span></label>
+          <input type="text" id="oTerm" placeholder="e.g. bobcat grading service" style="width:100%" onkeydown="if(event.key==='Enter')runOnline()">
         </div>
         <button class="sf-go" id="oGoBtn" onclick="runOnline()">Search online</button>
       </div>
-      <div class="sf-note">Searches Yelp and/or Google (whichever is connected), merges duplicates, and tags who's already in your list. Good for handyman-scale work — bigger jobs should come from the Licensed tab. 💡 After adding someone, hit 🛡 on the Subs page to check if they hold a license anyway.</div>
+      <div class="sf-note">Construction-tuned: each trade searches for actual <em>contractors</em> (not supply stores — retail results are filtered out automatically). Good for handyman-scale work; bigger jobs should come from the Licensed tab. 💡 After adding someone, hit 🛡 on the Subs page to check if they hold a license anyway.</div>
     </div>
 
     <div id="oResultsWrap" style="display:none">
@@ -260,10 +266,11 @@ function showTab(t) {
     document.getElementById('tab_' + k).style.display = (k === t) ? '' : 'none';
     document.getElementById('tabbtn_' + k).classList.toggle('on', k === t);
   });
-  if (t === 'online' && !document.getElementById('oTerm').value) {
-    // prefill from the CSLB trade picker for a smooth handoff
+  if (t === 'online') {
+    // prefill the trade from the CSLB tab for a smooth handoff
     const tr = document.getElementById('tradeSel').value;
-    if (tr && !/general contractor/i.test(tr)) document.getElementById('oTerm').value = tr.toLowerCase();
+    const oSel = document.getElementById('oTrade');
+    if (tr && [...oSel.options].some(o => o.value === tr)) oSel.value = tr;
   }
 }
 
@@ -272,7 +279,8 @@ let OROWS = [];
 const osel = new Set();
 async function runOnline() {
   const term = document.getElementById('oTerm').value.trim();
-  if (!term) { showToast('Type what you need (e.g. handyman)', true); return; }
+  const trade = document.getElementById('oTrade').value;
+  if (!term && !trade) { showToast('Pick a trade or type a custom search', true); return; }
   const btn = document.getElementById('oGoBtn');
   btn.disabled = true;
   document.getElementById('oResultsWrap').style.display = 'none';
@@ -281,7 +289,7 @@ async function runOnline() {
   osel.clear(); syncOAdd();
   try {
     const r = await fetch('/subs/finder/online-search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ term, location: document.getElementById('oLoc').value.trim() }) });
+      body: JSON.stringify({ term, trade, location: document.getElementById('oLoc').value.trim() }) });
     const d = await r.json();
     if (!d.ok) {
       if (d.needsSetup) document.getElementById('onlineSetup').style.display = '';
@@ -324,7 +332,7 @@ async function addOnline() {
   b.disabled = true; b.textContent = 'Adding…';
   try {
     const r = await fetch('/subs/finder/add-online', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items, trade: document.getElementById('oTerm').value.trim() }) });
+      body: JSON.stringify({ items, trade: document.getElementById('oTrade').value || document.getElementById('oTerm').value.trim() }) });
     const d = await r.json();
     if (d.ok) {
       showToast('✓ Added ' + d.added + (d.skipped ? ' (' + d.skipped + ' already in list)' : ''));
