@@ -4591,7 +4591,9 @@ async function checkSubReplies() {
           // Real files the sub attached. Keep PDFs/docs even when flagged "inline" (a
           // contractor license or COI frequently arrives inline); only drop inline IMAGES,
           // which are signature logos / mail-icons, not documents.
-          const atts = (m.attachments || []).filter(a => a.filename && !(a.inline && /^image\//i.test(a.mimeType || '')));
+          // Keep every real file; drop only TINY inline images (signature logos).
+          // Large inline images are usually photos the sub pasted into the email.
+          const atts = (m.attachments || []).filter(a => a.filename && !(a.inline && /^image\//i.test(a.mimeType || '') && (a.size || 0) < 15000));
           const { rows: ex } = await pool.query('SELECT id FROM sub_emails WHERE gmail_message_id=$1 LIMIT 1', [m.id]);
           if (ex.length) {
             // Already logged — backfill its attachments if we missed them (e.g. reply

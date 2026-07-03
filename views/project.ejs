@@ -928,7 +928,9 @@ async function renderThreadBody(threadId, box) {
     const msgs = data.messages.map((m, idx) => {
       const atts = (m.attachments || []).map(a => {
         const isPdf = /pdf/i.test(a.mimeType || '') || /\.pdf$/i.test(a.filename || '');
+        const isImg = /^image\//i.test(a.mimeType || '') || /\.(png|jpe?g|gif|webp|heic)$/i.test(a.filename || '');
         const url = `/threads/messages/${m.id}/attachment/${a.attachmentId}?name=${encodeURIComponent(a.filename || 'attachment')}&mime=${encodeURIComponent(a.mimeType || '')}`;
+        if (isImg) return `<a href="${url}" target="_blank" rel="noopener" title="${escapeHtmlJs(a.filename || 'image')} \u2014 click to open full size" style="display:inline-block;margin:.15rem .35rem .15rem 0"><img src="${url}" alt="" loading="lazy" style="max-height:120px;max-width:170px;border:1px solid var(--border);border-radius:9px;display:block"></a>`;
         return `<a href="${url}" target="_blank" rel="noopener" title="Open / download" style="display:inline-block;margin:.15rem .35rem .15rem 0;padding:3px 10px;border:1px solid var(--border);border-radius:14px;font-size:.8rem;text-decoration:none;color:var(--text);background:var(--surface)">${isPdf ? '\uD83D\uDCC4' : '\uD83D\uDCCE'} ${escapeHtmlJs(a.filename || 'attachment')}</a>`;
       }).join('');
       const attRow = atts ? `<div style="margin-top:.45rem">${atts}</div>` : '';
