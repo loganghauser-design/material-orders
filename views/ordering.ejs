@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Order Planner — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="manifest" href="/manifest.json">
+  <style>
+    .op-sec { margin-bottom: 1.6rem; }
+    .op-head { display: flex; align-items: center; gap: .6rem; margin-bottom: .55rem; }
+    .op-head h2 { margin: 0; font-size: 1.05rem; }
+    .op-count { font-size: .78rem; font-weight: 800; border-radius: 99px; padding: .15rem .6rem; }
+    .op-red { background: #fdeaea; color: #b42323; }
+    .op-amber { background: #fff4dd; color: #8a6100; }
+    .op-blue { background: #e0f2fe; color: #0369a1; }
+    .op-gray { background: #eef0f4; color: #555; }
+    .op-table { width: 100%; border-collapse: collapse; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+    .op-table th { text-align: left; font-size: .7rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); padding: .5rem .8rem; border-bottom: 2px solid var(--border); background: var(--bg); }
+    .op-table td { padding: .55rem .8rem; border-bottom: 1px solid var(--border); font-size: .9rem; vertical-align: middle; }
+    .op-table tr:last-child td { border-bottom: none; }
+    .op-days { font-weight: 800; white-space: nowrap; }
+    .op-days.late { color: #b42323; }
+    .op-days.soon { color: #8a6100; }
+    .op-chip { display: inline-block; font-size: .72rem; font-weight: 700; border-radius: 99px; padding: .12rem .55rem; white-space: nowrap; }
+    .op-chip.notyet { background: #eef0f4; color: #555; }
+    .op-chip.rfq { background: #fff0c2; color: #7a5b00; }
+    .op-empty { color: var(--muted); font-size: .88rem; padding: .8rem 1rem; background: var(--surface); border: 1px dashed var(--border); border-radius: 12px; }
+    .op-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 1.1rem; margin-top: 2rem; }
+    @media (max-width: 900px) { .op-cards { grid-template-columns: 1fr; } }
+    .op-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1rem 1.1rem; }
+    .op-card h3 { margin: 0 0 .2rem; font-size: .98rem; }
+    .op-card .hint { font-size: .78rem; color: var(--muted); margin-bottom: .7rem; }
+    .op-card table { width: 100%; border-collapse: collapse; }
+    .op-card td, .op-card th { padding: .35rem .4rem; font-size: .84rem; border-bottom: 1px solid var(--border); text-align: left; }
+    .op-card tr:last-child td { border-bottom: none; }
+    .op-card input[type=date], .op-card input[type=number], .op-card input[type=text], .op-card select { padding: .28rem .4rem; border: 1px solid var(--border); border-radius: 7px; background: var(--bg); font-size: .82rem; font-family: inherit; }
+    .op-card input[type=number] { width: 58px; }
+    .op-card input[type=text] { width: 100%; box-sizing: border-box; }
+    .saved-flash { outline: 2px solid #4caf7d; transition: outline .2s; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'ordering' }) %>
+
+<div class="container">
+  <div class="page-header" style="margin:.2rem 0 .3rem"><h1 style="margin:0">Order Planner</h1></div>
+  <p style="color:var(--muted);font-size:.88rem;margin:0 0 1.4rem">What to order and when, per project — driven by each project's phase start dates and the rules below. Items already ordered or delivered drop off automatically.</p>
+
+  <%
+    function rowHtml(e) { %>
+      <tr>
+        <td><a href="/projects/<%= e.pid %>"><strong><%= e.address %></strong></a></td>
+        <td><%= e.name %></td>
+        <td><%= e.due.toLocaleDateString() %></td>
+        <td class="op-days <%= e.days < 0 ? 'late' : (e.days <= 7 ? 'soon' : '') %>">
+          <%= e.days < 0 ? (-e.days) + 'd overdue' : (e.days === 0 ? 'today' : 'in ' + e.days + 'd') %>
+        </td>
+        <td><span class="op-chip <%= e.rfqOut ? 'rfq' : 'notyet' %>"><%= e.rfqOut ? 'RFQ out' : e.status %></span></td>
+        <td><a href="/projects/<%= e.pid %>" class="btn btn-ghost btn-sm">Open</a></td>
+      </tr>
+  <% }
+  %>
+
+  <div class="op-sec">
+    <div class="op-head"><h2>Overdue</h2><span class="op-count op-red"><%= overdue.length %></span></div>
+    <% if (overdue.length) { %>
+      <table class="op-table"><thead><tr><th>Project</th><th>Material</th><th>Order by</th><th></th><th>Status</th><th></th></tr></thead>
+      <tbody><% overdue.forEach(e => { rowHtml(e); }) %></tbody></table>
+    <% } else { %><div class="op-empty">Nothing overdue. 🎉</div><% } %>
+  </div>
+
+  <div class="op-sec">
+    <div class="op-head"><h2>Due this week</h2><span class="op-count op-amber"><%= dueNow.length %></span></div>
+    <% if (dueNow.length) { %>
+      <table class="op-table"><thead><tr><th>Project</th><th>Material</th><th>Order by</th><th></th><th>Status</th><th></th></tr></thead>
+      <tbody><% dueNow.forEach(e => { rowHtml(e); }) %></tbody></table>
+    <% } else { %><div class="op-empty">Nothing due this week.</div><% } %>
+  </div>
+
+  <div class="op-sec">
+    <div class="op-head"><h2>Next 2 weeks</h2><span class="op-count op-blue"><%= upcoming.length %></span></div>
+    <% if (upcoming.length) { %>
+      <table class="op-table"><thead><tr><th>Project</th><th>Material</th><th>Order by</th><th></th><th>Status</th><th></th></tr></thead>
+      <tbody><% upcoming.forEach(e => { rowHtml(e); }) %></tbody></table>
+    <% } else { %><div class="op-empty">Nothing in the next two weeks.</div><% } %>
+  </div>
+
+  <div class="op-sec">
+    <div class="op-head"><h2>Scheduled later</h2><span class="op-count op-gray"><%= later.length + pending.length %></span></div>
+    <details>
+      <summary style="cursor:pointer;font-size:.86rem;color:var(--muted)">Show the full schedule (<%= later.length %> dated, <%= pending.length %> waiting on a start date)</summary>
+      <% if (later.length) { %>
+        <table class="op-table" style="margin-top:.6rem"><thead><tr><th>Project</th><th>Material</th><th>Order by</th><th></th><th>Status</th><th></th></tr></thead>
+        <tbody><% later.forEach(e => { rowHtml(e); }) %></tbody></table>
+      <% } %>
+      <% if (pending.length) { %>
+        <table class="op-table" style="margin-top:.6rem"><thead><tr><th>Project</th><th>Material</th><th>Waiting on</th></tr></thead>
+        <tbody><% pending.forEach(e => { %>
+          <tr><td><a href="/projects/<%= e.pid %>"><strong><%= e.address %></strong></a></td><td><%= e.name %></td>
+          <td style="color:var(--muted)">construction start date (+<%= e.rule.offset_weeks %> wk)</td></tr>
+        <% }) %></tbody></table>
+      <% } %>
+    </details>
+  </div>
+
+  <div class="op-cards">
+    <div class="op-card">
+      <h3>Phase start dates</h3>
+      <div class="hint">Due dates count from these. Fix any that are wrong (e.g. a job that actually broke ground weeks ago).</div>
+      <table>
+        <thead><tr><th>Project</th><th>Pre-Con started</th><th>Construction started</th></tr></thead>
+        <tbody>
+          <% projects.forEach(p => { const pd = p.phase_dates || {}; %>
+            <tr>
+              <td><a href="/projects/<%= p.id %>"><%= p.address %></a><br><small style="color:var(--muted)"><%= p.phase %></small></td>
+              <td><input type="date" value="<%= pd['Pre-Construction'] || '' %>" onchange="saveDate(<%= p.id %>, 'Pre-Construction', this)"></td>
+              <td><input type="date" value="<%= pd['Under Construction'] || '' %>" onchange="saveDate(<%= p.id %>, 'Under Construction', this)"></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="op-card">
+      <h3>Ordering rules</h3>
+      <div class="hint">When to order each material: at pre-construction start, or N weeks after construction starts. Edits save automatically and apply to every project.</div>
+      <table>
+        <thead><tr><th>Material</th><th>Anchor</th><th>+ weeks</th><th>Note (lead time)</th></tr></thead>
+        <tbody>
+          <% rules.forEach(r => { const rr = r.rule || { anchor: 'construction', offset_weeks: 0, lead_note: '' }; %>
+            <tr data-code="<%= r.code %>">
+              <td><strong><%= r.code %></strong> <%= r.name %></td>
+              <td>
+                <select onchange="saveRule(this)">
+                  <option value="precon" <%= rr.anchor === 'precon' ? 'selected' : '' %>>Pre-Con start</option>
+                  <option value="construction" <%= rr.anchor !== 'precon' ? 'selected' : '' %>>Construction +</option>
+                </select>
+              </td>
+              <td><input type="number" min="0" max="52" value="<%= rr.offset_weeks %>" onchange="saveRule(this)"></td>
+              <td><input type="text" value="<%= rr.lead_note || '' %>" placeholder="e.g. 2-4 wk lead" onchange="saveRule(this)"></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(() => t.className = 'toast', 1500);
+}
+async function saveRule(el) {
+  const tr = el.closest('tr');
+  const body = {
+    code: tr.dataset.code,
+    anchor: tr.querySelector('select').value,
+    weeks: tr.querySelector('input[type=number]').value,
+    note: tr.querySelector('input[type=text]').value,
+  };
+  try {
+    const r = await fetch('/ordering/rules', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.ok) { showToast('Rule saved — refresh to recompute'); el.classList.add('saved-flash'); setTimeout(() => el.classList.remove('saved-flash'), 800); }
+    else showToast(d.error || 'Save failed', true);
+  } catch (e) { showToast('Save failed', true); }
+}
+async function saveDate(id, key, el) {
+  if (!el.value) return;
+  try {
+    const r = await fetch('/projects/' + id + '/phase-date', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key, date: el.value }) });
+    const d = await r.json();
+    if (d.ok) { showToast('Date saved — refresh to recompute'); el.classList.add('saved-flash'); setTimeout(() => el.classList.remove('saved-flash'), 800); }
+    else showToast(d.error || 'Save failed', true);
+  } catch (e) { showToast('Save failed', true); }
+}
+</script>
+</body>
+</html>

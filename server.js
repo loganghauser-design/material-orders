@@ -1186,6 +1186,7 @@ function findAdminByLogin(login) {
 const PAGE_META = [
   { key: 'projects', label: 'Projects', path: '/projects' },
   { key: 'deliveries', label: 'Deliveries', path: '/deliveries' },
+  { key: 'ordering', label: 'Order Planner', path: '/ordering' },
   { key: 'requests', label: 'Requests', path: '/requests' },
   { key: 'issues', label: 'Issues', path: '/issues' },
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
@@ -1227,6 +1228,7 @@ function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
   if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
+  if (p.startsWith('/ordering')) return 'ordering';
   if (p.startsWith('/driving')) return 'driving';
   if (p.startsWith('/inventory') || p === '/stock-status') return 'inventory';
   if (p.startsWith('/requests')) return 'requests';
@@ -1408,6 +1410,22 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS super_email TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS phase TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS warranty_started_at TIMESTAMPTZ;
+    -- When each phase started ({"Pre-Construction":"2026-07-02", ...}) — drives the Order Planner
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS phase_dates JSONB DEFAULT '{}'::jsonb;
+    -- Order Planner rules: when to place each material order, relative to a milestone
+    CREATE TABLE IF NOT EXISTS order_rules (
+      item_code VARCHAR(8) PRIMARY KEY,
+      anchor TEXT NOT NULL DEFAULT 'construction',   -- 'precon' | 'construction'
+      offset_weeks INTEGER NOT NULL DEFAULT 0,
+      lead_note TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    INSERT INTO order_rules (item_code, anchor, offset_weeks, lead_note) VALUES
+      ('1a','precon',0,'2-4 week lead time - order as soon as pre-construction starts'),
+      ('1b','construction',3,''),('1c','construction',4,''),('1d','construction',4,''),('1e','construction',4,''),
+      ('2a','construction',6,''),('2b','construction',8,''),('2c','construction',8,''),('2d','construction',8,''),('2e','construction',8,''),
+      ('3a','construction',10,''),('3b','construction',10,''),('3c','construction',10,''),('3d','construction',10,''),('3e','construction',10,'')
+    ON CONFLICT (item_code) DO NOTHING;
     ALTER TABLE held_item_status ADD COLUMN IF NOT EXISTS delivered_qty INTEGER;
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_date_end DATE;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS sort_order INTEGER;
@@ -2580,35 +2598,107 @@ app.post('/projects/:id', requireAuth, async (req, res) => {
   const phase = PROJECT_PHASES.includes(req.body.phase) ? req.body.phase : (cur && cur.phase) || 'Pre-Construction';
   await pool.query(
     `UPDATE projects SET address=$1, version=$2, phase=$3, overall_status=$4, notes=$5, client_name=$6, client_email=$7, full_address=$8, finish_schedule_url=$9, updated_at=NOW(),
+       phase_dates = COALESCE(phase_dates,'{}'::jsonb) || CASE WHEN $3::text IS DISTINCT FROM $11::text THEN jsonb_build_object($3::text, to_char(NOW(),'YYYY-MM-DD')) ELSE '{}'::jsonb END,
        warranty_started_at = CASE
          WHEN $3 = 'Under Warranty' THEN COALESCE(warranty_started_at, NOW())
          WHEN $3 = 'Complete' THEN warranty_started_at
          ELSE NULL END
      WHERE id=$10`,
-    [address, version||null, phase, statusForPhase(phase, cur ? cur.overall_status : null), notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null, req.params.id]
+    [address, version||null, phase, statusForPhase(phase, cur ? cur.overall_status : null), notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null, req.params.id, cur ? cur.phase : null]
   );
   res.redirect(`/projects/${req.params.id}`);
 });
 
 // ── Reorder projects (drag and drop) ──────────────────────────────────────────
 
+// ── Order Planner: when to place each material order, per project ─────────────
+app.get('/ordering', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: ruleRows } = await pool.query('SELECT * FROM order_rules');
+    const ruleMap = {}; ruleRows.forEach(r => ruleMap[r.item_code] = r);
+    const { rows: projects } = await pool.query(
+      `SELECT id, address, phase, phase_dates FROM projects WHERE phase IN ('Pre-Construction','Under Construction') ORDER BY sort_order NULLS LAST, id`);
+    const ids = projects.map(p => p.id);
+    let items = [];
+    if (ids.length) ({ rows: items } = await pool.query('SELECT project_id, item_code, status FROM project_items WHERE project_id = ANY($1)', [ids]));
+    const itemMap = {}; items.forEach(i => { (itemMap[i.project_id] = itemMap[i.project_id] || {})[i.item_code] = i.status; });
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const entries = []; const pending = [];
+    for (const p of projects) {
+      const pd = p.phase_dates || {};
+      for (const it of ALL_ITEMS) {
+        const rule = ruleMap[it.code]; if (!rule) continue;
+        const st = (itemMap[p.id] && itemMap[p.id][it.code]) || 'Not yet placed';
+        if (st === 'N/A') continue;
+        if ((STATUS_RANK[st] ?? 0) >= STATUS_RANK['Order Placed']) continue;   // already ordered or further
+        const anchorKey = rule.anchor === 'precon' ? 'Pre-Construction' : 'Under Construction';
+        const aDate = pd[anchorKey];
+        if (!aDate) { pending.push({ pid: p.id, address: p.address, code: it.code, name: it.name, rule, status: st }); continue; }
+        const due = new Date(aDate + 'T00:00:00'); due.setDate(due.getDate() + rule.offset_weeks * 7);
+        const days = Math.round((due - today) / 86400000);
+        entries.push({ pid: p.id, address: p.address, code: it.code, name: it.name, rule, status: st, due, days, rfqOut: st === 'RFQ sent' });
+      }
+    }
+    entries.sort((a, b) => a.due - b.due);
+    res.render('ordering', {
+      overdue: entries.filter(e => e.days < 0),
+      dueNow: entries.filter(e => e.days >= 0 && e.days <= 7),
+      upcoming: entries.filter(e => e.days > 7 && e.days <= 21),
+      later: entries.filter(e => e.days > 21),
+      pending, projects,
+      rules: ALL_ITEMS.map(i => ({ code: i.code, name: i.name, rule: ruleMap[i.code] || null })),
+    });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Save an ordering rule (anchor + weeks + note) for one material
+app.post('/ordering/rules', requireAuth, async (req, res) => {
+  try {
+    const { code, anchor, weeks, note } = req.body;
+    if (!ALL_ITEMS.find(i => i.code === code)) return res.status(400).json({ ok: false, error: 'Unknown material.' });
+    const a = anchor === 'precon' ? 'precon' : 'construction';
+    const w = Math.max(0, Math.min(52, parseInt(weeks, 10) || 0));
+    await pool.query(
+      `INSERT INTO order_rules (item_code, anchor, offset_weeks, lead_note, updated_at) VALUES ($1,$2,$3,$4,NOW())
+       ON CONFLICT (item_code) DO UPDATE SET anchor=$2, offset_weeks=$3, lead_note=$4, updated_at=NOW()`,
+      [code, a, w, String(note || '').slice(0, 200)]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Correct a project's phase start date (drives the planner's due dates)
+app.post('/projects/:id/phase-date', requireAuth, async (req, res) => {
+  try {
+    const key = req.body.key === 'Pre-Construction' ? 'Pre-Construction' : 'Under Construction';
+    const date = String(req.body.date || '');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ ok: false, error: 'Bad date.' });
+    await pool.query(
+      `UPDATE projects SET phase_dates = COALESCE(phase_dates,'{}'::jsonb) || jsonb_build_object($1::text, $2::text) WHERE id=$3`,
+      [key, date, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Move a project between lifecycle sections — also syncs the legacy delivery status
 app.post('/projects/:id/phase', requireAuth, async (req, res) => {
   try {
     const phase = String(req.body.phase || '');
     if (!PROJECT_PHASES.includes(phase)) return res.status(400).json({ ok: false, error: 'Unknown phase.' });
-    const { rows: [cur] } = await pool.query('SELECT overall_status FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [cur] } = await pool.query('SELECT overall_status, phase FROM projects WHERE id=$1', [req.params.id]);
     if (!cur) return res.status(404).json({ ok: false, error: 'Project not found.' });
     // Entering Under Warranty starts the 1-year clock (kept if re-picked); moving
-    // back to an earlier phase resets it; Complete preserves the history.
+    // back to an earlier phase resets it; Complete preserves the history. The
+    // phase start date is stamped only on a real change (re-picks keep the original).
     await pool.query(
       `UPDATE projects SET phase=$1, overall_status=$2, updated_at=NOW(),
+         phase_dates = COALESCE(phase_dates,'{}'::jsonb) || CASE WHEN $1::text IS DISTINCT FROM $4::text THEN jsonb_build_object($1::text, to_char(NOW(),'YYYY-MM-DD')) ELSE '{}'::jsonb END,
          warranty_started_at = CASE
            WHEN $1 = 'Under Warranty' THEN COALESCE(warranty_started_at, NOW())
            WHEN $1 = 'Complete' THEN warranty_started_at
            ELSE NULL END
        WHERE id=$3`,
-      [phase, statusForPhase(phase, cur.overall_status), req.params.id]);
+      [phase, statusForPhase(phase, cur.overall_status), req.params.id, cur.phase]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
