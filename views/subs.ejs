@@ -235,6 +235,12 @@
       <label class="map-radio"><input type="radio" name="mapMode" value="gc" checked onchange="mapRender()"> Outside GCs</label>
       <label class="map-radio"><input type="radio" name="mapMode" value="sub" onchange="mapRender()"> Subs</label>
       <label class="map-radio"><input type="radio" name="mapMode" value="all" onchange="mapRender()"> Both</label>
+      <select id="mapTrade" onchange="mapRender()"><option value="">All trades</option></select>
+      <select id="mapStatus" onchange="mapRender()">
+        <option value="">All usable</option>
+        <option value="ready">Approved + Active</option>
+        <option value="review">Under Review</option>
+      </select>
       <span class="cov-legend-inline">Circle size = how many cover that area. Click a circle for details.</span>
     </div>
     <div id="covMapEl"></div>
@@ -950,6 +956,11 @@ function mapEnsure() {
 function mapMode() { const r = document.querySelector('input[name=mapMode]:checked'); return r ? r.value : 'gc'; }
 function mapRender() {
   if (!covMap) return;
+  // Populate the trade dropdown once (TRADES is the canonical list)
+  const tsel = document.getElementById('mapTrade');
+  if (tsel && tsel.options.length <= 1) TRADES.forEach(function (t) { const o = document.createElement('option'); o.value = t; o.textContent = t; tsel.appendChild(o); });
+  const mtrade = tsel ? tsel.value : '';
+  const mstat = (document.getElementById('mapStatus') || {}).value || '';
   mapLayers.forEach(function (l) { covMap.removeLayer(l); }); mapLayers = [];
   const mode = mapMode();
   const counts = {}; Object.keys(AREA_GEO).forEach(function (a) { counts[a] = 0; });
@@ -958,13 +969,19 @@ function mapRender() {
     const isGc = s.cat === 'gc' || (!s.cat && /general\s*contractor|^\s*gc\b/i.test(s.t));
     if (mode === 'gc' && !isGc) return;
     if (mode === 'sub' && isGc) return;
+    if (mstat === 'ready' && !/approved|active/i.test(s.st)) return;
+    if (mstat === 'review' && !/review|vetting|pending/i.test(s.st)) return;
+    if (mtrade) {
+      const ts = String(s.t).split(',').map(function (x) { return x.trim().toLowerCase(); });
+      if (!ts.includes(mtrade.toLowerCase())) return;
+    }
     String(s.l).split(',').forEach(function (loc) {
       loc = loc.trim().toLowerCase();
       const hit = Object.keys(AREA_GEO).find(function (a) { return a.toLowerCase() === loc; });
       if (hit) counts[hit]++;
     });
   });
-  const label = mode === 'gc' ? 'outside GC' : (mode === 'sub' ? 'sub' : 'contractor');
+  const label = (mtrade ? mtrade + ' ' : '') + (mode === 'gc' ? 'outside GC' : (mode === 'sub' ? 'sub' : 'contractor'));
   const group = [];
   Object.keys(AREA_GEO).forEach(function (a) {
     const n = counts[a];
