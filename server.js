@@ -4455,6 +4455,17 @@ const ONLINE_TRADE_QUERIES = {
   'Tree Removal': 'tree removal service',
   'Methane': 'methane mitigation contractor',
 };
+// County-wide search: one city query only covers ~20 results around that spot, so a
+// county search fans out across zones and merges (dupes collapse automatically).
+const ONLINE_COUNTY_ZONES = {
+  'LA County': ['Los Angeles, CA', 'Long Beach, CA', 'Pasadena, CA', 'Santa Clarita, CA', 'Torrance, CA', 'Whittier, CA', 'Van Nuys, CA', 'Pomona, CA'],
+  'The Valley': ['Van Nuys, CA', 'Northridge, CA', 'Burbank, CA', 'Woodland Hills, CA', 'San Fernando, CA'],
+  'Orange County': ['Anaheim, CA', 'Santa Ana, CA', 'Irvine, CA', 'Huntington Beach, CA', 'Mission Viejo, CA'],
+  'Riverside County': ['Riverside, CA', 'Temecula, CA', 'Moreno Valley, CA', 'Palm Springs, CA'],
+  'San Bernardino County': ['San Bernardino, CA', 'Ontario, CA', 'Rancho Cucamonga, CA', 'Victorville, CA'],
+  'San Diego County': ['San Diego, CA', 'Oceanside, CA', 'Chula Vista, CA', 'Escondido, CA'],
+  'Ventura County': ['Ventura, CA', 'Oxnard, CA', 'Thousand Oaks, CA', 'Simi Valley, CA'],
+};
 // Google place types that mean "this is a shop, not a contractor" — dropped from
 // results unless the place is ALSO typed as a contractor.
 const ONLINE_RETAIL_TYPES = ['hardware_store', 'home_improvement_store', 'building_materials_store', 'furniture_store', 'home_goods_store', 'department_store', 'shopping_mall', 'supermarket', 'grocery_store', 'clothing_store', 'electronics_store', 'cell_phone_store', 'gift_shop', 'garden_center', 'florist'];
@@ -4500,14 +4511,19 @@ app.post('/subs/finder/online-search', requireAuth, async (req, res) => {
     const trade = String(req.body.trade || '').trim();
     let term = String(req.body.term || '').trim().slice(0, 80);
     if (!term && ONLINE_TRADE_QUERIES[trade]) term = ONLINE_TRADE_QUERIES[trade];
-    const location = String(req.body.location || '').trim().slice(0, 80) || 'Los Angeles, CA';
     if (!term) return res.json({ ok: false, error: 'Pick a trade (or type a custom search).' });
+    // City/zip = one focused query; county = fan out across its zones and merge
+    const city = String(req.body.location || '').trim().slice(0, 80);
+    const county = String(req.body.county || '').trim();
+    const zones = city ? [city] : (ONLINE_COUNTY_ZONES[county] || ['Los Angeles, CA']);
     const providers = [];
-    if (process.env.YELP_API_KEY) providers.push(yelpSearch(term, location).catch(e => ({ err: e.message })));
-    if (process.env.GOOGLE_PLACES_API_KEY) providers.push(googlePlacesSearch(term, location).catch(e => ({ err: e.message })));
+    for (const z of zones) {
+      if (process.env.YELP_API_KEY) providers.push(yelpSearch(term, z).catch(e => ({ err: e.message })));
+      if (process.env.GOOGLE_PLACES_API_KEY) providers.push(googlePlacesSearch(term, z).catch(e => ({ err: e.message })));
+    }
     if (!providers.length) return res.json({ ok: false, needsSetup: true, error: 'Online search isn\'t connected yet — a Yelp or Google Places API key needs to be added.' });
     const settled = await Promise.all(providers);
-    const errors = settled.filter(s => s && s.err).map(s => s.err);
+    const errors = [...new Set(settled.filter(s => s && s.err).map(s => s.err))];
     const all = settled.filter(Array.isArray).flat();
     // Merge Yelp + Google results, dedupe by normalized business name
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');

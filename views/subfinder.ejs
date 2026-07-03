@@ -118,10 +118,22 @@
           </select>
         </div>
         <div>
-          <label>Area (city or zip)</label>
-          <input type="text" id="oLoc" value="Los Angeles, CA" style="width:190px" onkeydown="if(event.key==='Enter')runOnline()">
+          <label>County <span style="font-weight:400;color:var(--muted)">(searches the whole area)</span></label>
+          <select id="oCounty">
+            <option value="LA County">LA County</option>
+            <option value="The Valley">The Valley</option>
+            <option value="Orange County">Orange County</option>
+            <option value="Riverside County">Riverside County</option>
+            <option value="San Bernardino County">San Bernardino County</option>
+            <option value="San Diego County">San Diego County</option>
+            <option value="Ventura County">Ventura County</option>
+          </select>
         </div>
-        <div style="flex:1;min-width:170px">
+        <div>
+          <label>…or city / zip <span style="font-weight:400;color:var(--muted)">(narrows it)</span></label>
+          <input type="text" id="oLoc" value="" placeholder="e.g. Whittier, CA" style="width:170px" onkeydown="if(event.key==='Enter')runOnline()">
+        </div>
+        <div style="flex:1;min-width:160px">
           <label>Custom search <span style="font-weight:400;color:var(--muted)">(optional — overrides trade)</span></label>
           <input type="text" id="oTerm" placeholder="e.g. bobcat grading service" style="width:100%" onkeydown="if(event.key==='Enter')runOnline()">
         </div>
@@ -152,7 +164,7 @@
 
     <div id="oLoading" style="display:none;text-align:center;padding:2.5rem;color:var(--muted)">
       <div class="spinner" style="margin:0 auto .8rem"></div>
-      Searching online listings…
+      Searching online listings… (a county-wide search covers several zones — give it ~10 seconds)
     </div>
   </div><!-- /tab_online -->
 </div>
@@ -289,7 +301,7 @@ async function runOnline() {
   osel.clear(); syncOAdd();
   try {
     const r = await fetch('/subs/finder/online-search', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ term, trade, location: document.getElementById('oLoc').value.trim() }) });
+      body: JSON.stringify({ term, trade, location: document.getElementById('oLoc').value.trim(), county: document.getElementById('oCounty').value }) });
     const d = await r.json();
     if (!d.ok) {
       if (d.needsSetup) document.getElementById('onlineSetup').style.display = '';
