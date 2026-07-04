@@ -1527,6 +1527,11 @@ async function initDb() {
     -- Per-sub "unread reply" badge state
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reply_unread BOOLEAN DEFAULT false;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS replies_viewed_at TIMESTAMPTZ;
+    -- QuickBooks ingester: every Intuit notification email we've already processed
+    CREATE TABLE IF NOT EXISTS qb_seen (
+      gmail_message_id TEXT PRIMARY KEY,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
     -- Supplier directory (candidates found via the Supplier Finder — separate from
     -- the per-material RFQ contacts, which stay in the suppliers table)
     CREATE TABLE IF NOT EXISTS supplier_directory (
@@ -5355,10 +5360,124 @@ async function licenseWatchdog() {
   } catch (e) { console.error('licenseWatchdog:', e.message); }
 }
 
+// ── QuickBooks bid ingester ────────────────────────────────────────────────────
+// Subs send QuickBooks estimates from Intuit's notification address (not their own
+// email), so the reply-checker never sees them. This watches the inbox for those,
+// matches them to the right contractor (or creates one), logs the email + PDF under
+// the sub, puts estimates into the bid pipeline, and CSLB-verifies any license
+// number found in the sender name (QB From-names often carry it).
+function qbTradeFromName(n) {
+  n = String(n || '').toLowerCase();
+  if (/cabinet/.test(n)) return 'Cabinets';
+  if (/electric/.test(n)) return 'Electrician';
+  if (/plumb/.test(n)) return 'Plumber';
+  if (/roof/.test(n)) return 'Roofing';
+  if (/paint/.test(n)) return 'Painter';
+  if (/hvac|\bair\b/.test(n)) return 'HVAC';
+  if (/floor/.test(n)) return 'Flooring';
+  if (/concrete/.test(n)) return 'Concrete';
+  if (/fram/.test(n)) return 'Framing';
+  if (/drywall/.test(n)) return 'Drywall';
+  if (/landscap/.test(n)) return 'Landscaping';
+  if (/solar/.test(n)) return 'Solar';
+  if (/stucco|plaster/.test(n)) return 'Stucco';
+  if (/insulat/.test(n)) return 'Insulation';
+  if (/tile/.test(n)) return 'Tile';
+  if (/demo/.test(n)) return 'Demolition';
+  if (/glass|shower/.test(n)) return 'Windows & Doors';
+  if (/build|construction|design/.test(n)) return 'General Contractor';
+  return '';
+}
+async function ingestOneQb(messageId) {
+  const { data } = await gmailClient.users.messages.get({ userId: 'me', id: messageId, format: 'full' });
+  const H = data.payload.headers || [];
+  const hv = n => { const h = H.find(x => x.name.toLowerCase() === n.toLowerCase()); return h ? h.value : ''; };
+  const from = hv('From'), subject = hv('Subject'), replyTo = (hv('Reply-To').match(/[\w.+-]+@[\w-]+\.[\w.]+/) || [''])[0].toLowerCase();
+  if (!/intuit\.com|quickbooks/i.test(from)) return null;
+  const fromName = (from.match(/^"?([^"<]+?)"?\s*</) || [, ''])[1].trim();
+  const kind = /estimate/i.test(subject) ? 'estimate' : 'doc';
+  // Business name: prefer the subject ("Estimate 1664 from BUSINESS"), strip a trailing job address
+  let biz = ((subject.match(/(?:estimate|invoice|proposal|receipt|payment request)[^a-z0-9]*(?:#?\s*[\w-]+)?\s+from\s+(.{2,80})/i) || [])[1] || fromName).trim();
+  biz = biz.replace(/[\s,.-]*\b\d{2,6}\s+[A-Z][\w .]*$/i, '').replace(/\s*-\s*(invoice|estimate).*$/i, '').trim() || fromName;
+  const bizClean = biz.replace(/\s*(?:LIC\.?#?\s*\d{5,8}|C-?\d{1,2}\s+\d{5,8})\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+  // License number hiding in the sender name ("P & K ELECTRIC CORP C-10 939525")
+  const licM = fromName.match(/(?:lic(?:ense)?\.?\s*#?\s*|c-?\d{1,2}\s+)(\d{5,8})/i);
+  // Amount from the email body
+  const chunks = [];
+  (function walk(p) { if (!p) return; if (p.body && p.body.data) chunks.push(Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); (p.parts || []).forEach(walk); })(data.payload);
+  const text = chunks.join('\n').replace(/<[^>]+>/g, ' ').replace(/&[a-z#\d]+;/gi, ' ');
+  const amt = (text.match(/(?:total|amount|balance)[^\d$]{0,25}\$\s?([\d,]+\.\d{2})/i) || text.match(/\$\s?([\d,]+\.\d{2})/) || [])[1] || '';
+  // Match to a contractor: reply-to email → exact name → word-stripped name → long contains
+  const normFull = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normWords = s => String(s || '').toLowerCase().replace(/\b(inc|llc|corp|co|company|corporation|svc|svcs|service|services|electric|electrical|plumbing|construction|builders?|contractors?|design|build)\b/g, '').replace(/[^a-z0-9]/g, '');
+  const { rows: subsAll } = await pool.query('SELECT id, company, email, license_number, bid_status FROM subcontractors');
+  const bk = normFull(bizClean), bw = normWords(bizClean);
+  let sub = (replyTo && subsAll.find(s => (s.email || '').toLowerCase() === replyTo))
+    || subsAll.find(s => normFull(s.company) && normFull(s.company) === bk)
+    || subsAll.find(s => bw && normWords(s.company) === bw)
+    || subsAll.find(s => bk.length >= 8 && normFull(s.company).length >= 8 && (normFull(s.company).includes(bk) || bk.includes(normFull(s.company))));
+  let createdNew = false;
+  if (!sub) {
+    // Unknown business — add it so the bid doesn't fall on the floor
+    const trade = qbTradeFromName(bizClean);
+    const cat = /general contractor/i.test(trade) ? 'gc' : 'sub';
+    const title = bizClean.replace(/\w\S*/g, w => /^(LLC|INC|DBA|USA|HVAC|II|III)\.?,?$/i.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()).slice(0, 200);
+    const { rows: [ins] } = await pool.query(
+      `INSERT INTO subcontractors (company, type, status, email, notes, group_label, category, sort_order, recent_add)
+       VALUES ($1,$2,'Under Review',$3,$4,'Under Vetting',$5,9999,TRUE) RETURNING id, company, email, license_number, bid_status`,
+      [title, trade || null, replyTo || null, ('Added automatically from a QuickBooks ' + kind + ' ' + new Date().toLocaleDateString()).slice(0, 300), cat]);
+    sub = ins; createdNew = true;
+  }
+  // Log the email under the sub (+ attachments), flag unread
+  const when = isNaN(new Date(hv('Date')).getTime()) ? new Date() : new Date(hv('Date'));
+  const bodyText = text.replace(/\s+/g, ' ').trim().slice(0, 1500);
+  const { rows: [em] } = await pool.query(
+    `INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at)
+     VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8) RETURNING id`,
+    [sub.id, gmailUser, replyTo || 'quickbooks@notification.intuit.com', subject.slice(0, 250), bodyText, data.threadId, messageId, when]);
+  const atts = [];
+  (function wa(p) { if (!p) return; if (p.filename && p.body && p.body.attachmentId) atts.push({ filename: p.filename, mime: p.mimeType, size: p.body.size, aid: p.body.attachmentId }); (p.parts || []).forEach(wa); })(data.payload);
+  for (const a of atts) {
+    await pool.query('INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)',
+      [em.id, a.filename, a.mime || null, a.size || null, messageId, a.aid]);
+  }
+  await pool.query('UPDATE subcontractors SET reply_unread=true WHERE id=$1', [sub.id]);
+  // Estimates feed the bid pipeline (never downgrade an Awarded bid)
+  if (kind === 'estimate' && amt) {
+    const newStatus = /awarded/i.test(sub.bid_status || '') ? sub.bid_status : 'Bid Received';
+    await pool.query('UPDATE subcontractors SET bid_status=$1, bid_price=$2 WHERE id=$3', [newStatus, ('$' + amt).slice(0, 40), sub.id]);
+  }
+  // License number from the sender name → save + verify against CSLB
+  if (licM && !(sub.license_number || '').trim()) {
+    try { await verifySubLicense({ id: sub.id, company: sub.company, notes: '', license_number: licM[1] }); } catch (e) { /* keep ingesting */ }
+  }
+  if (kind === 'estimate') {
+    const LOGAN = '106404376271648731086';
+    postToChat('📥 *Bid received* <users/' + LOGAN + '> — *' + (sub.company || bizClean) + '*' + (amt ? ': $' + amt : '') + (createdNew ? ' (new contractor added 🆕)' : '') + '\n' + subject.slice(0, 120));
+  }
+  return { sub: sub.company, kind, amt, createdNew };
+}
+async function ingestQuickBooksEmails() {
+  if (!useGmail) return;
+  try {
+    const list = await gmailClient.users.messages.list({ userId: 'me', q: 'from:(notification.intuit.com OR quickbooks.com) newer_than:280d', maxResults: 40 });
+    for (const m of (list.data.messages || [])) {
+      const { rows: [seen] } = await pool.query('SELECT 1 FROM qb_seen WHERE gmail_message_id=$1', [m.id]);
+      if (seen) continue;
+      await pool.query('INSERT INTO qb_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [m.id]);
+      try {
+        const r = await ingestOneQb(m.id);
+        if (r) console.log('qb ingested: ' + r.kind + ' ' + r.sub + (r.amt ? ' $' + r.amt : '') + (r.createdNew ? ' (new)' : ''));
+      } catch (e) { console.error('qb ingest ' + m.id + ':', e.message); }
+    }
+  } catch (e) { console.error('ingestQuickBooksEmails:', e.message); }
+}
+
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
   cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
+  cron.schedule('*/20 * * * *', ingestQuickBooksEmails); // every 20 min — QuickBooks bids from the inbox
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
@@ -5376,4 +5495,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
