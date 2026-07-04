@@ -92,10 +92,21 @@
     .lic-num { width:108px; margin-top:.25rem; padding:3px 6px; border:1px solid var(--border); border-radius:7px; font-size:.8rem; }
     .vbtn { background:none; border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:.72rem; padding:1px 6px; vertical-align:middle; }
     .vbtn:hover { background:var(--bg); }
-    .licb { display:block; margin-top:.25rem; font-size:.68rem; font-weight:700; padding:2px 7px; border-radius:9px; max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; }
+    .licb { display:block; margin-top:.25rem; font-size:.68rem; font-weight:700; padding:2px 7px; border-radius:9px; max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:pointer; }
+    .licb:hover { filter:brightness(.93); text-decoration:underline; }
     .licb-ok { background:#dcfce7; color:#166534; }
     .licb-amber { background:#fde68a; color:#7a5b00; }
     .licb-red { background:#dc2626; color:#fff; }
+    .licb-more { display:block; margin-top:2px; font-size:.66rem; font-weight:700; color:#dc2626; cursor:pointer; }
+    .licb-more:hover { text-decoration:underline; }
+    .lm-row { display:flex; gap:.7rem; padding:.4rem 0; border-bottom:1px solid var(--border); font-size:.9rem; }
+    .lm-row .k { flex:none; width:110px; color:var(--muted); font-size:.78rem; font-weight:700; text-transform:uppercase; padding-top:.1rem; }
+    .lm-flag { display:flex; gap:.5rem; align-items:flex-start; padding:.45rem .6rem; border-radius:8px; margin-bottom:.4rem; font-size:.88rem; line-height:1.4; }
+    .lm-flag.red { background:#fde8e7; color:#991b1b; }
+    .lm-flag.amber { background:#fdf3d0; color:#7a5b00; }
+    .lm-flag.info { background:#eef2f7; color:#475569; }
+    .lm-ok { background:#dcfce7; color:#166534; padding:.5rem .7rem; border-radius:8px; font-weight:700; font-size:.9rem; }
+    .lm-copy { background:none; border:1px solid var(--border); border-radius:6px; cursor:pointer; font-size:.72rem; padding:1px 7px; margin-left:.35rem; }
     .subs-table a { color:#1d4ed8; text-decoration:none; white-space:nowrap; }
     .subs-table .co { font-weight:600; }
     .subs-table .notes { color:var(--muted); max-width:260px; }
@@ -371,9 +382,10 @@
                     var _tip = _lf.map(function(f){return f.text;}).join('  |  ');
                   %>
                   <% if (_worst === 'ok') { %>
-                    <span class="licb licb-ok" title="CSLB verified <%= new Date(s.license_checked_at).toLocaleDateString() %><%= s.license_business ? ' · ' + s.license_business : '' %>">✓ Active<%= s.license_expire ? ' · exp ' + new Date(s.license_expire).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) : '' %></span>
+                    <span class="licb licb-ok" onclick="openLicModal(<%= s.id %>)" title="Click for the full CSLB report">✓ Active<%= s.license_expire ? ' · exp ' + new Date(s.license_expire).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) : '' %></span>
                   <% } else if (_worst) { %>
-                    <span class="licb licb-<%= _worst %>" title="<%= _tip %>"><%= _worst==='red' ? '⛔' : '⚠' %> <%= (_lf.find(function(f){return f.level===_worst;})||{}).text %></span>
+                    <span class="licb licb-<%= _worst %>" onclick="openLicModal(<%= s.id %>)" title="Click to see what the issue is"><%= _worst==='red' ? '⛔' : '⚠' %> <%= (_lf.find(function(f){return f.level===_worst;})||{}).text %></span>
+                    <% var _more = _lf.filter(function(f){return f.level!=='info';}).length - 1; if (_more > 0) { %><span class="licb-more" onclick="openLicModal(<%= s.id %>)">+<%= _more %> more issue<%= _more>1?'s':'' %> — click</span><% } %>
                   <% } %>
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
@@ -501,6 +513,92 @@
   <option>Tile</option><option>Stone</option><option>Countertops</option><option>Cabinets</option><option>Solar</option><option>Stucco</option>
   <option>Insulation</option><option>Fire Sprinklers</option><option>Decking</option><option>Finishes</option><option>Tree Removal</option><option>Methane</option>
 </datalist>
+
+<!-- License report modal (click any license badge) -->
+<div class="modal-bk" id="licModal">
+  <div class="modal-card" style="max-width:540px">
+    <h2 id="lm_title" style="margin-bottom:.15rem">License report</h2>
+    <div id="lm_sub" style="color:var(--muted);font-size:.85rem;margin-bottom:1rem"></div>
+    <div id="lm_body"></div>
+    <div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1.2rem;flex-wrap:wrap">
+      <button type="button" class="btn btn-ghost" onclick="closeLicModal()">Close</button>
+      <button type="button" class="btn btn-ghost" id="lm_reverify">🔄 Re-verify now</button>
+      <a class="btn btn-primary" id="lm_cslb" href="https://www2.cslb.ca.gov/onlineservices/checklicenseII/checklicense.aspx" target="_blank" rel="noopener" title="Opens the state license board — the license # is copied for you, just paste it">Open CSLB ↗</a>
+    </div>
+  </div>
+</div>
+
+<script>
+// Per-contractor license data (powers the report modal)
+const LIC_DATA = {};
+<% subs.forEach(function(s) { if (s.license_checked_at) {
+     var _rep = null; try { _rep = JSON.parse(s.license_report || 'null'); } catch (e) {}
+     var _fl2 = []; try { _fl2 = JSON.parse(s.license_flags || '[]'); } catch (e) {}
+     var _obj = { company: s.company || '', num: s.license_number || '', business: s.license_business || '',
+                  status: s.license_status || '', expire: s.license_expire || '', classes: s.license_classes || '',
+                  checked: s.license_checked_at, flags: _fl2, report: _rep }; %>
+LIC_DATA[<%= s.id %>] = <%- JSON.stringify(_obj).replace(/</g, '\\u003c') %>;
+<% } }) %>
+function escLic(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function openLicModal(id) {
+  const d = LIC_DATA[id];
+  if (!d) { verifyLicPrompt(id); return; }
+  const r = d.report || {};
+  document.getElementById('lm_title').textContent = d.company || r.business || 'License report';
+  document.getElementById('lm_sub').innerHTML = 'CSLB License #<strong>' + escLic(d.num) + '</strong>'
+    + '<button type="button" class="lm-copy" onclick="copyLic(\'' + escLic(d.num) + '\')">copy</button>'
+    + (r.business || d.business ? ' · registered as <strong>' + escLic(r.business || d.business) + '</strong>' : '')
+    + ' · checked ' + new Date(d.checked).toLocaleDateString();
+  const flags = (d.flags || []);
+  const bad = flags.filter(f => f.level !== 'info');
+  let h = '';
+  // Issues front and center
+  if (bad.length) {
+    h += '<div style="font-weight:800;font-size:.85rem;margin-bottom:.4rem">⚠ ' + bad.length + ' issue' + (bad.length > 1 ? 's' : '') + ' found</div>';
+    flags.forEach(f => { h += '<div class="lm-flag ' + escLic(f.level) + '">' + (f.level === 'red' ? '⛔' : f.level === 'amber' ? '⚠' : 'ℹ️') + ' <span>' + escLic(f.text) + '</span></div>'; });
+  } else {
+    h += '<div class="lm-ok">✓ No issues on file — license is clean</div>';
+    flags.forEach(f => { if (f.level === 'info') h += '<div class="lm-flag info">ℹ️ <span>' + escLic(f.text) + '</span></div>'; });
+  }
+  // CSLB's own wording for the issues (from the license page)
+  const notes = (r.riskLines || []).filter(l => l && l.length > 3);
+  if (notes.length) {
+    h += '<div style="font-weight:800;font-size:.8rem;margin:.7rem 0 .3rem;color:var(--muted)">WHAT CSLB SAYS</div>';
+    notes.forEach(n => { h += '<div style="font-size:.84rem;color:#444;padding:.25rem 0;border-left:3px solid #e2e4ec;padding-left:.6rem;margin-bottom:.3rem">' + escLic(n) + '</div>'; });
+  }
+  // The facts
+  const exp = d.expire ? new Date(d.expire) : null;
+  const days = exp ? Math.floor((exp - new Date()) / 86400000) : null;
+  h += '<div style="margin-top:.8rem">';
+  h += '<div class="lm-row"><span class="k">Status</span><span>' + escLic(d.status || '—') + '</span></div>';
+  h += '<div class="lm-row"><span class="k">Expires</span><span>' + (exp ? exp.toLocaleDateString() + (days != null ? ' <span style="color:' + (days < 0 ? '#dc2626' : days < 90 ? '#b45309' : '#16a34a') + ';font-weight:700">(' + (days < 0 ? Math.abs(days) + ' days ago' : 'in ' + days + ' days') + ')</span>' : '') : '—') + '</span></div>';
+  h += '<div class="lm-row"><span class="k">Classes</span><span>' + escLic(d.classes || '—') + '</span></div>';
+  if (r.bond !== undefined) h += '<div class="lm-row"><span class="k">Bond</span><span>' + (r.bond ? '✓ On file' : '<span style="color:#b45309;font-weight:700">— none on file</span>') + '</span></div>';
+  if (r.wc) h += '<div class="lm-row"><span class="k">Workers comp</span><span>' + (r.wc === 'Exempt' ? '<span style="color:#b45309;font-weight:700">Exempt (no employees)</span>' : '✓ ' + escLic(r.wc)) + '</span></div>';
+  if (r.address) h += '<div class="lm-row"><span class="k">Address</span><span>' + escLic(r.address) + '</span></div>';
+  h += '</div>';
+  document.getElementById('lm_body').innerHTML = h;
+  const rv = document.getElementById('lm_reverify');
+  rv.onclick = function () { closeLicModal(); verifyLicById(id); };
+  document.getElementById('lm_cslb').onclick = function () { copyLic(d.num); };
+  document.getElementById('licModal').classList.add('show');
+}
+function closeLicModal() { document.getElementById('licModal').classList.remove('show'); }
+function copyLic(num) {
+  try { navigator.clipboard.writeText(num); alert('License #' + num + ' copied — paste it into the CSLB search box.'); } catch (e) {}
+}
+async function verifyLicById(id) {
+  try {
+    const r = await fetch('/subs/' + id + '/verify-license', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) location.reload(); else alert(d.error || 'Could not verify');
+  } catch (e) { alert('Verify failed — try again'); }
+}
+function verifyLicPrompt(id) {
+  if (confirm('No CSLB report yet for this contractor — run a live check now?')) verifyLicById(id);
+}
+document.getElementById('licModal').addEventListener('click', function (e) { if (e.target.id === 'licModal') closeLicModal(); });
+</script>
 
 <script>
 (function () {

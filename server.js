@@ -1548,6 +1548,7 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_flags TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_business TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_checked_at TIMESTAMPTZ;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_report TEXT;
     -- Files a sub attaches to a reply (license PDF, COI, insurance, photos). We store
     -- metadata + the Gmail ids and stream the bytes on demand via the attachment route.
     CREATE TABLE IF NOT EXISTS sub_email_attachments (
@@ -4254,6 +4255,7 @@ async function cslbLicenseDetail(licNum) {
     wcText: /has workers'? compensation insurance/i.test(raw) ? 'Insured' : (/exempt/i.test(raw) && /workers'? comp/i.test(raw) ? 'Exempt' : ''),
     disciplinary: riskLines.length > 0,
     discNote: (riskLines[0] || '').slice(0, 140),
+    riskLines: riskLines.slice(0, 12).map(l => l.slice(0, 220)),   // full issue text for the license report
   };
   if (!det.businessName) throw new Error('License #' + licNum + ' not found on CSLB.');
   return det;
@@ -4286,11 +4288,18 @@ async function verifySubLicense(sub) {
   const det = await cslbLicenseDetail(lic);
   const flags = cslbFlags(det);
   const exp = cslbDate(det.expireDate);
+  // Full report powers the click-to-see-details popup on the Subs page
+  const report = {
+    licNum: lic, business: det.businessName, address: det.address, phone: det.phone,
+    entity: det.entity, issued: det.issueDate, expires: det.expireDate,
+    status: det.statusText, classes: det.classifications,
+    bond: det.hasBond, wc: det.wcText, riskLines: det.riskLines || [],
+  };
   await pool.query(
     `UPDATE subcontractors SET license_number=$1, licensed=true, license_status=$2, license_expire=$3,
-       license_classes=$4, license_flags=$5, license_business=$6, license_checked_at=NOW() WHERE id=$7`,
+       license_classes=$4, license_flags=$5, license_business=$6, license_report=$7, license_checked_at=NOW() WHERE id=$8`,
     [lic, det.statusText || null, exp ? exp.toISOString().slice(0, 10) : null,
-     det.classifications || null, JSON.stringify(flags), det.businessName || null, sub.id]
+     det.classifications || null, JSON.stringify(flags), det.businessName || null, JSON.stringify(report), sub.id]
   );
   return { ok: true, detail: det, flags };
 }
