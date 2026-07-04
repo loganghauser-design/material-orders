@@ -220,68 +220,81 @@
   <% if (typeof outreach !== 'undefined' && outreach && outreach.gc && !isSuper) {
        var _pct = function(a, b) { return b ? Math.round(a / b * 100) : 0; };
        var _groups = [
-         { key: 'gc',  title: '🏗 Outside GCs',    o: outreach.gc },
          { key: 'sub', title: '🔧 Subcontractors', o: outreach.sub },
+         { key: 'gc',  title: '🏗 Outside GCs',    o: outreach.gc },
        ];
   %>
   <details class="card" style="margin-bottom:1rem;padding:1rem 1.3rem" open>
     <summary style="cursor:pointer;font-weight:800;font-size:.95rem">📊 Outreach stats
-      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— GCs respond <strong style="color:#16a34a"><%= _pct(outreach.gc.responded, outreach.gc.contacted) %>%</strong> · Subs respond <strong style="color:#16a34a"><%= _pct(outreach.sub.responded, outreach.sub.contacted) %>%</strong> (tracked separately)</span>
+      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— Subs respond <strong style="color:#16a34a"><%= _pct(outreach.sub.responded, outreach.sub.contacted) %>%</strong> · GCs respond <strong style="color:#16a34a"><%= _pct(outreach.gc.responded, outreach.gc.contacted) %>%</strong></span>
     </summary>
-    <div style="display:flex;gap:2rem;flex-wrap:wrap;margin-top:.9rem">
-      <% _groups.forEach(function(g) { var _o = g.o;
-           var _funnel = [
-             { label: 'Contacted',     n: _o.contacted, color: '#3b82f6', pct: _o.contacted ? 100 : 0 },
-             { label: 'Responded',     n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.contacted) },
-             { label: 'Bid received',  n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
-             { label: 'Hired (Active)',n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.contacted) },
-           ]; %>
-      <div style="flex:1;min-width:300px">
-        <div style="font-weight:800;font-size:.92rem;margin-bottom:.55rem"><%= g.title %>
-          <span style="color:var(--muted);font-weight:400;font-size:.78rem">· <%= _o.pool %> prospects · <%= _o.untouched %> untouched <span title="<%= _o.excluded %> Active / Rejected / Blacklisted aren't counted as prospects">(<%= _o.excluded %> excluded)</span></span>
-        </div>
-        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem">Prospect coverage</div>
-        <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--bg);margin-bottom:.8rem" title="<%= _o.poolContacted %> contacted · <%= _o.untouched %> untouched (have an email) · <%= _o.noEmail %> missing email">
-          <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6;color:#fff;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">contacted <%= _o.poolContacted %></div><% } %>
-          <% if (_o.untouched) { %><div style="width:<%= _pct(_o.untouched, _o.pool) %>%;background:#cbd5e1;color:#334155;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">untouched <%= _o.untouched %></div><% } %>
-          <% if (_o.noEmail) { %><div style="width:<%= _pct(_o.noEmail, _o.pool) %>%;background:#f0d9a8;color:#7a5b00;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">📭 <%= _o.noEmail %></div><% } %>
-        </div>
-        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem">Conversion — of the <%= _o.contacted %> ever contacted…</div>
-        <% _funnel.forEach(function(f) { %>
-          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.32rem">
-            <span style="flex:none;width:96px;font-size:.78rem;font-weight:600;color:#334155"><%= f.label %></span>
-            <div style="flex:1;background:var(--bg);border-radius:6px;height:20px;position:relative;overflow:hidden">
-              <div style="width:<%= Math.max(f.pct, 2) %>%;background:<%= f.color %>;height:100%;border-radius:6px"></div>
-              <span style="position:absolute;left:8px;top:0;line-height:20px;font-size:.72rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= f.n %> · <%= f.pct %>%</span>
-            </div>
-          </div>
-        <% }) %>
+
+    <% _groups.forEach(function(g) { var _o = g.o;
+         var _rr = _pct(_o.responded, _o.contacted);
+         var _funnel = [
+           { label: 'Contacted',      n: _o.contacted, color: '#3b82f6', pct: _o.contacted ? 100 : 0 },
+           { label: 'Responded',      n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.contacted) },
+           { label: 'Bid received',   n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
+           { label: 'Hired (Active)', n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.contacted) },
+         ]; %>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:.95rem 1.1rem;margin-top:.9rem">
+      <div style="display:flex;align-items:center;gap:.9rem;flex-wrap:wrap;margin-bottom:.85rem">
+        <span style="font-weight:800;font-size:.95rem;flex:none"><%= g.title %></span>
+        <span style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:.28rem .7rem;font-size:.78rem"><span style="color:var(--muted)">Prospects</span> <strong><%= _o.pool %></strong></span>
+        <span style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:.28rem .7rem;font-size:.78rem"><span style="color:var(--muted)">Contacted</span> <strong><%= _o.poolContacted %></strong> <span style="color:var(--muted)">(<%= _pct(_o.poolContacted, _o.pool) %>%)</span></span>
+        <span style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:.28rem .7rem;font-size:.78rem"><span style="color:var(--muted)">Untouched</span> <strong><%= _o.untouched %></strong></span>
         <% if (_o.noEmail > 0) { %>
-          <div onclick="toggleMissingEmail(this, '<%= g.key %>')" title="These prospects can't receive outreach emails — click to show them in the list, then use ✏️ to add their email"
-               style="margin-top:.55rem;padding:.45rem .7rem;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:.79rem;cursor:pointer;user-select:none">
-            📭 <strong><%= _o.noEmail %></strong> missing an email — can't be contacted. <span style="text-decoration:underline">Click to show &amp; fix</span>
-          </div>
+        <span onclick="toggleMissingEmail(this, '<%= g.key %>')" title="Prospects with no email — click to show &amp; fix them in the list" style="background:#fff7e6;border:1px solid #f0d9a8;border-radius:9px;padding:.28rem .7rem;font-size:.78rem;cursor:pointer;user-select:none">📭 <span style="color:#7a5b00">Missing email</span> <strong><%= _o.noEmail %></strong></span>
         <% } %>
+        <span style="background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:.28rem .7rem;font-size:.78rem"><span style="color:var(--muted)">Response rate</span> <strong style="color:<%= _rr >= 50 ? '#16a34a' : _rr >= 25 ? '#d97706' : '#dc2626' %>"><%= _rr %>%</strong></span>
       </div>
-      <% }) %>
+      <div style="display:flex;gap:2rem;flex-wrap:wrap">
+        <div style="flex:1;min-width:280px">
+          <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem">Prospect coverage</div>
+          <div style="display:flex;height:24px;border-radius:7px;overflow:hidden;background:var(--surface);border:1px solid var(--border)">
+            <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6"></div><% } %>
+            <% if (_o.untouched) { %><div style="width:<%= _pct(_o.untouched, _o.pool) %>%;background:#cbd5e1"></div><% } %>
+            <% if (_o.noEmail) { %><div style="width:<%= _pct(_o.noEmail, _o.pool) %>%;background:#f0d9a8"></div><% } %>
+          </div>
+          <div style="display:flex;gap:1rem;font-size:.74rem;color:var(--muted);margin-top:.4rem;flex-wrap:wrap">
+            <span><span style="display:inline-block;width:10px;height:10px;background:#3b82f6;border-radius:3px;vertical-align:-1px"></span> Contacted <%= _o.poolContacted %></span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#cbd5e1;border-radius:3px;vertical-align:-1px"></span> Untouched (ready to email) <%= _o.untouched %></span>
+            <span><span style="display:inline-block;width:10px;height:10px;background:#f0d9a8;border-radius:3px;vertical-align:-1px"></span> Missing email <%= _o.noEmail %></span>
+          </div>
+        </div>
+        <div style="flex:1;min-width:280px">
+          <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem">Conversion — of the <%= _o.contacted %> ever contacted</div>
+          <% _funnel.forEach(function(f) { %>
+            <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.3rem">
+              <span style="flex:none;width:94px;font-size:.76rem;font-weight:600;color:#334155"><%= f.label %></span>
+              <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;height:19px;position:relative;overflow:hidden">
+                <div style="width:<%= Math.max(f.pct, 2) %>%;background:<%= f.color %>;height:100%"></div>
+                <span style="position:absolute;left:8px;top:0;line-height:19px;font-size:.7rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.5)"><%= f.n %> · <%= f.pct %>%</span>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      </div>
     </div>
+    <% }) %>
+
     <% if (outreach.tradeStats && outreach.tradeStats.length) { %>
-    <div style="margin-top:1.1rem">
-      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem">Sub response rate by trade <span style="font-weight:400;text-transform:none">(responded / contacted)</span></div>
-      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:.3rem 2rem">
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:.95rem 1.1rem;margin-top:.9rem">
+      <div style="font-weight:800;font-size:.95rem;margin-bottom:.6rem">📈 Sub response rate by trade <span style="color:var(--muted);font-weight:400;font-size:.78rem">(responded / contacted)</span></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:.35rem 2rem">
       <% outreach.tradeStats.forEach(function(t) { var rp = _pct(t.responded, t.contacted); %>
         <div style="display:flex;align-items:center;gap:.6rem">
           <span style="flex:none;width:120px;font-size:.78rem;font-weight:600;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= t.trade %></span>
-          <div style="flex:1;background:var(--bg);border-radius:6px;height:16px;position:relative;overflow:hidden">
-            <div style="width:<%= Math.max(rp, 2) %>%;background:<%= rp >= 50 ? '#16a34a' : rp >= 25 ? '#d97706' : '#dc2626' %>;height:100%;border-radius:6px"></div>
-            <span style="position:absolute;left:8px;top:0;line-height:16px;font-size:.68rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= rp %>% (<%= t.responded %>/<%= t.contacted %>)</span>
+          <div style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;height:16px;position:relative;overflow:hidden">
+            <div style="width:<%= Math.max(rp, 2) %>%;background:<%= rp >= 50 ? '#16a34a' : rp >= 25 ? '#d97706' : '#dc2626' %>;height:100%"></div>
+            <span style="position:absolute;left:8px;top:0;line-height:16px;font-size:.68rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.5)"><%= rp %>% (<%= t.responded %>/<%= t.contacted %>)</span>
           </div>
         </div>
       <% }) %>
       </div>
     </div>
     <% } %>
-    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem">GCs and Subs are tracked separately so neither skews the other. <strong>Untouched</strong> = has an email but never contacted (ready to reach out) — prospects <strong>missing an email</strong> sit in their own 📭 bucket until you add one, then they move to untouched. Actives count as funnel wins, not prospects. Phone-only contact isn't counted (yet).</div>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem"><strong>Untouched</strong> = has an email but never contacted (ready to reach out); prospects <strong>missing an email</strong> move to untouched once you add one. Actives count as funnel wins, not prospects. Phone-only contact isn't counted (yet).</div>
   </details>
   <% } %>
 
