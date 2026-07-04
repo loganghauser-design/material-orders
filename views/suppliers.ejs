@@ -48,6 +48,40 @@
     </form>
   </div>
 
+  <!-- Vendor delivery reliability (bar chart from rated orders) -->
+  <% if (typeof reliability !== 'undefined' && reliability && reliability.length) { %>
+  <div class="card" style="max-width:1100px;margin-top:1.5rem">
+    <h2 style="font-size:1.1rem;font-weight:700;margin-bottom:.25rem">🚚 Vendor delivery reliability</h2>
+    <p style="color:var(--muted);font-size:.85rem;margin-bottom:1rem">
+      Built from delivery ratings on each project's <strong>Orders</strong> tab (✓ on-time · ⏰ late · ✗ wrong · 🚫 missed). Rate every delivery and this becomes your who-deserves-the-PO chart.
+    </p>
+    <div style="display:flex;gap:1rem;font-size:.75rem;color:var(--muted);margin-bottom:.7rem;flex-wrap:wrap">
+      <span><span style="display:inline-block;width:11px;height:11px;background:#16a34a;border-radius:3px;vertical-align:-1px"></span> On time</span>
+      <span><span style="display:inline-block;width:11px;height:11px;background:#d97706;border-radius:3px;vertical-align:-1px"></span> Late</span>
+      <span><span style="display:inline-block;width:11px;height:11px;background:#ea580c;border-radius:3px;vertical-align:-1px"></span> Wrong/damaged</span>
+      <span><span style="display:inline-block;width:11px;height:11px;background:#dc2626;border-radius:3px;vertical-align:-1px"></span> Missed</span>
+    </div>
+    <% reliability.forEach(function(v) {
+         var pc = function(n) { return v.rated ? Math.round(n / v.rated * 100) : 0; };
+         var onPct = pc(v.ontime); %>
+      <div style="display:flex;align-items:center;gap:.7rem;margin-bottom:.45rem">
+        <span style="flex:none;width:170px;font-size:.83rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="<%= v.vendor %> — <%= v.total %> orders, <%= v.rated %> rated"><%= v.vendor %></span>
+        <% if (v.rated) { %>
+          <div style="flex:1;display:flex;height:20px;border-radius:6px;overflow:hidden;background:var(--bg)">
+            <% if (v.ontime) { %><div style="width:<%= pc(v.ontime) %>%;background:#16a34a" title="On time: <%= v.ontime %>"></div><% } %>
+            <% if (v.late)   { %><div style="width:<%= pc(v.late) %>%;background:#d97706" title="Late: <%= v.late %>"></div><% } %>
+            <% if (v.wrong)  { %><div style="width:<%= pc(v.wrong) %>%;background:#ea580c" title="Wrong/damaged: <%= v.wrong %>"></div><% } %>
+            <% if (v.missed) { %><div style="width:<%= pc(v.missed) %>%;background:#dc2626" title="Missed: <%= v.missed %>"></div><% } %>
+          </div>
+          <span style="flex:none;width:120px;font-size:.8rem;font-weight:800;color:<%= onPct >= 85 ? '#16a34a' : onPct >= 60 ? '#d97706' : '#dc2626' %>"><%= onPct %>% on-time <span style="color:var(--muted);font-weight:400">(<%= v.rated %>)</span></span>
+        <% } else { %>
+          <span style="flex:1;color:var(--muted);font-size:.8rem"><%= v.total %> order<%= v.total === 1 ? '' : 's' %> — none rated yet</span>
+        <% } %>
+      </div>
+    <% }) %>
+  </div>
+  <% } %>
+
   <!-- Supplier Directory (candidates from the Supplier Finder) -->
   <div class="card" style="max-width:1100px;margin-top:1.5rem;padding:0;overflow:hidden">
     <div style="padding:1.2rem 1.4rem .6rem">

@@ -127,6 +127,14 @@
                 <td style="padding:.4rem 0;vertical-align:top"><%= o.item_codes.map(c => itemNames[c] || c).join(', ') %></td>
                 <td style="padding:.4rem .5rem;white-space:nowrap;text-align:right;vertical-align:top"><% if (o.amount != null) { %><strong>$<%= Number(o.amount).toLocaleString(undefined,{minimumFractionDigits:2}) %></strong><% } %></td>
                 <td style="padding:.4rem .5rem;white-space:nowrap;text-align:right;color:var(--muted);font-size:.78rem;vertical-align:top"><%= new Date(o.confirmed_at).toLocaleDateString() %></td>
+                <td style="padding:.4rem .5rem;text-align:right;white-space:nowrap;vertical-align:top">
+                  <span title="How did this delivery go? (feeds the vendor reliability chart on the Suppliers page)">
+                    <button type="button" class="ocp oc-ontime <%= o.delivery_outcome==='ontime'?'on':'' %>" onclick="setOutcome(<%= o.id %>,'ontime',this)" title="Delivered on time">✓</button>
+                    <button type="button" class="ocp oc-late <%= o.delivery_outcome==='late'?'on':'' %>" onclick="setOutcome(<%= o.id %>,'late',this)" title="Delivered late">⏰</button>
+                    <button type="button" class="ocp oc-wrong <%= o.delivery_outcome==='wrong'?'on':'' %>" onclick="setOutcome(<%= o.id %>,'wrong',this)" title="Wrong / damaged items">✗</button>
+                    <button type="button" class="ocp oc-missed <%= o.delivery_outcome==='missed'?'on':'' %>" onclick="setOutcome(<%= o.id %>,'missed',this)" title="Missed / no-show">🚫</button>
+                  </span>
+                </td>
                 <td style="padding:.4rem 0;text-align:right;white-space:nowrap;vertical-align:top">
                   <% if (o.has_receipt) { %><a href="/orders/<%= o.id %>/receipt" target="_blank" class="btn btn-ghost btn-sm">📄 Receipt</a><% } %>
                   <form method="POST" action="/orders/<%= o.id %>/delete" style="display:inline" onsubmit="return confirm('Delete this order record?')"><button class="btn btn-danger btn-sm">✕</button></form>
@@ -778,6 +786,20 @@ async function setSlidingSource(source) {
       showToast(source === 'buildoly' ? 'Sliding Glass Door → Buildoly Stock' : 'Sliding Glass Door → order from vendor');
       MAT_SCHED_LOADED = false; loadMaterialsSchedule();   // refresh the 1a drill-down
     } else showToast('Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
+}
+// Rate a delivery (vendor reliability). Clicking the active pill again clears it.
+async function setOutcome(orderId, outcome, btn) {
+  const wrap = btn.parentElement;
+  const wasOn = btn.classList.contains('on');
+  const send = wasOn ? '' : outcome;
+  try {
+    const r = await fetch('/orders/' + orderId + '/outcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ outcome: send }) });
+    const d = await r.json();
+    if (!d.ok) { showToast('Could not save', true); return; }
+    wrap.querySelectorAll('.ocp').forEach(b => b.classList.remove('on'));
+    if (!wasOn) btn.classList.add('on');
+    showToast(wasOn ? 'Rating cleared' : 'Delivery rated ✓');
   } catch (e) { showToast('Could not save', true); }
 }
 async function setRangeHoodSource(source) {

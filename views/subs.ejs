@@ -217,6 +217,53 @@
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Subcontractor added.</div>
   <% } %>
 
+  <% if (typeof outreach !== 'undefined' && outreach && !isSuper) {
+       var _o = outreach;
+       var _pct = function(a, b) { return b ? Math.round(a / b * 100) : 0; };
+       var _funnel = [
+         { label: 'In list',       n: _o.total,     color: '#94a3b8', pct: 100 },
+         { label: 'Contacted',     n: _o.contacted, color: '#3b82f6', pct: _pct(_o.contacted, _o.total) },
+         { label: 'Responded',     n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.total) },
+         { label: 'Bid received',  n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.total) },
+         { label: 'Hired (Active)',n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.total) },
+       ];
+  %>
+  <details class="card" style="margin-bottom:1rem;padding:1rem 1.3rem" open>
+    <summary style="cursor:pointer;font-weight:800;font-size:.95rem">📊 Outreach stats
+      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— response rate <strong style="color:#16a34a"><%= _pct(_o.responded, _o.contacted) %>%</strong> (<%= _o.responded %> of <%= _o.contacted %> contacted)</span>
+    </summary>
+    <div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:.9rem">
+      <div style="flex:1;min-width:300px">
+        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Pipeline funnel</div>
+        <% _funnel.forEach(function(f) { %>
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem">
+            <span style="flex:none;width:96px;font-size:.78rem;font-weight:600;color:#334155"><%= f.label %></span>
+            <div style="flex:1;background:var(--bg);border-radius:6px;height:22px;position:relative;overflow:hidden">
+              <div style="width:<%= Math.max(f.pct, 2) %>%;background:<%= f.color %>;height:100%;border-radius:6px"></div>
+              <span style="position:absolute;left:8px;top:0;line-height:22px;font-size:.74rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= f.n %> · <%= f.pct %>%</span>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+      <% if (_o.tradeStats && _o.tradeStats.length) { %>
+      <div style="flex:1;min-width:300px">
+        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Response rate by trade <span style="font-weight:400;text-transform:none">(responded / contacted)</span></div>
+        <% _o.tradeStats.forEach(function(t) { var rp = _pct(t.responded, t.contacted); %>
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem">
+            <span style="flex:none;width:130px;font-size:.78rem;font-weight:600;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= t.trade %></span>
+            <div style="flex:1;background:var(--bg);border-radius:6px;height:18px;position:relative;overflow:hidden">
+              <div style="width:<%= Math.max(rp, 2) %>%;background:<%= rp >= 50 ? '#16a34a' : rp >= 25 ? '#d97706' : '#dc2626' %>;height:100%;border-radius:6px"></div>
+              <span style="position:absolute;left:8px;top:0;line-height:18px;font-size:.7rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= rp %>% (<%= t.responded %>/<%= t.contacted %>)</span>
+            </div>
+          </div>
+        <% }) %>
+      </div>
+      <% } %>
+    </div>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.5rem">Counted from the email log — a sub is "contacted" once you've emailed them, "responded" once they've replied. Phone-only contact isn't counted (yet).</div>
+  </details>
+  <% } %>
+
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
     <select id="typeFilter" onchange="filterSubs()" class="trade-select"><option value="">All trades</option></select>

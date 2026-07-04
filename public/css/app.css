@@ -304,3 +304,12 @@ textarea { resize: vertical; min-height: 80px; }
 .rsuper { font-size: .68rem; padding: 1px 7px; border: 1px solid var(--border); border-radius: 9px; cursor: pointer; color: var(--muted); background: var(--surface); user-select: none; }
 .rsuper:hover { border-color: #4f8ef7; color: var(--text); }
 .rsuper.on { background: #4f8ef7; color: #fff; border-color: #4f8ef7; font-weight: 600; }
+
+/* Delivery outcome pills (vendor reliability rating on the Orders tab) */
+.ocp { border: 1px solid var(--border); background: var(--surface); border-radius: 6px; cursor: pointer; font-size: .72rem; padding: 1px 5px; opacity: .4; }
+.ocp:hover { opacity: 1; }
+.ocp.on { opacity: 1; border-width: 2px; font-weight: 700; }
+.ocp.oc-ontime.on { background: #dcfce7; border-color: #16a34a; }
+.ocp.oc-late.on { background: #fde68a; border-color: #d97706; }
+.ocp.oc-wrong.on { background: #fed7aa; border-color: #ea580c; }
+.ocp.oc-missed.on { background: #fecaca; border-color: #dc2626; }

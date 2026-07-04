@@ -1769,8 +1769,10 @@ async function initDb() {
       receipt_mime VARCHAR(255),
       receipt_data BYTEA,
       confirmed_at TIMESTAMPTZ DEFAULT NOW(),
-      created_at TIMESTAMPTZ DEFAULT NOW()
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      delivery_outcome VARCHAR(20)   -- ontime / late / wrong / missed (vendor reliability)
     );
+    ALTER TABLE vendor_orders ADD COLUMN IF NOT EXISTS delivery_outcome VARCHAR(20);
 
     CREATE TABLE IF NOT EXISTS vendor_order_items (
       id SERIAL PRIMARY KEY,
@@ -2548,7 +2550,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     // Confirmed vendor orders, grouped by vendor
     const { rows: orderRows } = await pool.query(`
       SELECT vo.id, vo.supplier_name, vo.supplier_email, vo.amount, vo.gmail_thread_id, vo.confirmed_at,
-             (vo.receipt_data IS NOT NULL) AS has_receipt,
+             (vo.receipt_data IS NOT NULL) AS has_receipt, vo.delivery_outcome,
              COALESCE(array_agg(voi.item_code ORDER BY voi.item_code) FILTER (WHERE voi.item_code IS NOT NULL), '{}') AS item_codes
       FROM vendor_orders vo
       LEFT JOIN vendor_order_items voi ON voi.order_id = vo.id
@@ -3280,6 +3282,15 @@ app.get('/orders/:id/receipt', requireAuth, async (req, res) => {
 });
 
 // Delete an order record
+// Rate a delivery (vendor reliability): ontime / late / wrong / missed — or clear
+app.post('/orders/:id/outcome', requireAuth, async (req, res) => {
+  try {
+    const oc = ['ontime', 'late', 'wrong', 'missed'].includes(req.body.outcome) ? req.body.outcome : null;
+    await pool.query('UPDATE vendor_orders SET delivery_outcome=$1 WHERE id=$2', [oc, req.params.id]);
+    res.json({ ok: true, outcome: oc });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.post('/orders/:id/delete', requireAuth, async (req, res) => {
   const { rows: [o] } = await pool.query('SELECT project_id FROM vendor_orders WHERE id=$1', [req.params.id]);
   await pool.query('DELETE FROM vendor_orders WHERE id=$1', [req.params.id]);
@@ -3799,7 +3810,17 @@ app.get('/suppliers', requireAuth, async (req, res) => {
     await initDb();
     const suppliers = await getSuppliers();
     const { rows: directory } = await pool.query('SELECT * FROM supplier_directory ORDER BY category NULLS LAST, name');
-    res.render('suppliers', { STAGES, suppliers, directory, saved: req.query.saved === '1' });
+    // Vendor delivery reliability — aggregated from rated orders (Orders tab pills)
+    const { rows: relRows } = await pool.query(
+      "SELECT COALESCE(NULLIF(TRIM(supplier_name), ''), '(unknown vendor)') AS vendor, delivery_outcome AS oc, COUNT(*)::int AS n FROM vendor_orders GROUP BY 1, 2");
+    const relMap = {};
+    for (const r of relRows) {
+      const v = relMap[r.vendor] = relMap[r.vendor] || { vendor: r.vendor, ontime: 0, late: 0, wrong: 0, missed: 0, unrated: 0, rated: 0, total: 0 };
+      if (r.oc && v[r.oc] !== undefined) { v[r.oc] += r.n; v.rated += r.n; } else v.unrated += r.n;
+      v.total += r.n;
+    }
+    const reliability = Object.values(relMap).sort((a, b) => b.total - a.total);
+    res.render('suppliers', { STAGES, suppliers, directory, reliability, saved: req.query.saved === '1' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -3856,7 +3877,26 @@ app.get('/subs', requireAuth, async (req, res) => {
     const isSuper = req.session.role === 'super';
     const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
     const recentCount = subs.filter(s => s.recent_add).length;
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
+    // Outreach funnel + per-trade response rates (📊 stats card)
+    const contactedIds = new Set(emailRows.filter(e => e.direction !== 'in').map(e => e.sub_id));
+    const respondedIds = new Set(emailRows.filter(e => e.direction === 'in').map(e => e.sub_id));
+    const byTrade = {};
+    subs.forEach(s => {
+      const t = String(s.type || '').split(',')[0].trim() || 'Other';
+      const b = byTrade[t] = byTrade[t] || { trade: t, total: 0, contacted: 0, responded: 0 };
+      b.total++;
+      if (contactedIds.has(s.id)) b.contacted++;
+      if (respondedIds.has(s.id)) b.responded++;
+    });
+    const outreach = {
+      total: subs.length,
+      contacted: subs.filter(s => contactedIds.has(s.id)).length,
+      responded: subs.filter(s => respondedIds.has(s.id)).length,
+      bids: subs.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
+      hired: subs.filter(s => /^active$/i.test(s.status || '')).length,
+      tradeStats: Object.values(byTrade).filter(t => t.contacted >= 1).sort((a, b) => b.contacted - a.contacted).slice(0, 10),
+    };
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
