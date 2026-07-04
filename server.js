@@ -4229,6 +4229,20 @@ const CSLB_CLASS_BY_TRADE = {
   'Solar': 'C-46', 'Stucco': 'C-35', 'Insulation': 'C-2', 'Fire Sprinklers': 'C-16',
   'Decking': 'C-5', 'Finishes': 'C-6', 'Tree Removal': 'D-49',
 };
+// Rough SoCal zip → county (for auto-filling a contractor's service area)
+function countyFromZip(zipish) {
+  const m = String(zipish || '').match(/\b(9\d{4})\b/);
+  if (!m) return '';
+  const z = parseInt(m[1], 10);
+  if (z >= 90001 && z <= 91899) return 'LA County';
+  if (z >= 91901 && z <= 92199) return 'San Diego County';
+  if (z >= 92201 && z <= 92299) return 'Riverside County';
+  if (z >= 92301 && z <= 92499) return 'San Bernardino County';
+  if (z >= 92501 && z <= 92599) return 'Riverside County';
+  if (z >= 92601 && z <= 92899) return 'Orange County';
+  if (z >= 93001 && z <= 93099) return 'Ventura County';
+  return '';
+}
 // CSLB county display names → our location labels
 function cslbCountyToLocation(county) {
   const c = String(county || '').trim();
@@ -4632,9 +4646,10 @@ app.post('/subs/finder/add-online', requireAuth, async (req, res) => {
       if (it.address) bits.push(String(it.address).slice(0, 120));
       if (it.link) bits.push(String(it.link).split('?')[0].slice(0, 140));
       await pool.query(
-        `INSERT INTO subcontractors (company, type, status, phone, notes, group_label, category, sort_order, recent_add)
-         VALUES ($1,$2,'Under Review',$3,$4,'Under Vetting','sub',9999,TRUE)`,
-        [name, trade || null, String(it.phone || '').slice(0, 40) || null, bits.join(' · ').slice(0, 480)]
+        `INSERT INTO subcontractors (company, type, status, phone, location, notes, group_label, category, sort_order, recent_add)
+         VALUES ($1,$2,'Under Review',$3,$4,$5,'Under Vetting','sub',9999,TRUE)`,
+        [name, trade || null, String(it.phone || '').slice(0, 40) || null,
+         countyFromZip(it.address) || null, bits.join(' · ').slice(0, 480)]
       );
       added++;
     }

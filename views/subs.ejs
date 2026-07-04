@@ -312,6 +312,7 @@
       <span class="cov-legend-inline">Circle size = how many cover that area. Click a circle for details.</span>
     </div>
     <div id="covMapEl"></div>
+    <div id="mapUnmapped" style="display:none;margin-top:.5rem;font-size:.83rem;background:#fff7e6;border:1px solid #f0d9a8;border-radius:9px;padding:.55rem .8rem;cursor:pointer" title="Click to see who's missing"></div>
   </div>
 
   <%
@@ -1067,7 +1068,7 @@ const AREA_LIST = <%- JSON.stringify(typeof LOCATION_OPTS !== 'undefined' ? LOCA
 
 // ── Trade coverage panel ──
 // Minimal per-sub data for counting: trades, service areas, status, category.
-const COV_DATA = <%- JSON.stringify(subs.map(function (s) { return { t: s.type || '', l: s.location || '', st: s.status || '', cat: s.category || '' }; })) %>;
+const COV_DATA = <%- JSON.stringify(subs.map(function (s) { return { t: s.type || '', l: s.location || '', st: s.status || '', cat: s.category || '', n: s.company || '' }; })).replace(/</g, '\\u003c') %>;
 let covInit = false;
 function covToggle() {
   const p = document.getElementById('covPanel');
@@ -1150,6 +1151,7 @@ function mapRender() {
   mapLayers.forEach(function (l) { covMap.removeLayer(l); }); mapLayers = [];
   const mode = mapMode();
   const counts = {}; Object.keys(AREA_GEO).forEach(function (a) { counts[a] = 0; });
+  const unmapped = [];   // pass the filters but have no recognizable service area → invisible on the map
   COV_DATA.forEach(function (s) {
     if (/reject|black/i.test(s.st)) return;
     const isGc = s.cat === 'gc' || (!s.cat && /general\s*contractor|^\s*gc\b/i.test(s.t));
@@ -1161,12 +1163,22 @@ function mapRender() {
       const ts = String(s.t).split(',').map(function (x) { return x.trim().toLowerCase(); });
       if (!ts.includes(mtrade.toLowerCase())) return;
     }
+    let placed = false;
     String(s.l).split(',').forEach(function (loc) {
       loc = loc.trim().toLowerCase();
       const hit = Object.keys(AREA_GEO).find(function (a) { return a.toLowerCase() === loc; });
-      if (hit) counts[hit]++;
+      if (hit) { counts[hit]++; placed = true; }
     });
+    if (!placed) unmapped.push(s.n || '(unnamed)');
   });
+  const um = document.getElementById('mapUnmapped');
+  if (um) {
+    if (unmapped.length) {
+      um.style.display = '';
+      um.innerHTML = '⚠ <strong>' + unmapped.length + '</strong> matching contractor' + (unmapped.length > 1 ? 's aren\'t' : ' isn\'t') + ' on the map — no service area set. Click to see who, then set their Location (✎ edit) to place them.';
+      um.onclick = function () { alert('Not on the map (no Location set):\n\n• ' + unmapped.join('\n• ')); };
+    } else um.style.display = 'none';
+  }
   const label = (mtrade ? mtrade + ' ' : '') + (mode === 'gc' ? 'outside GC' : (mode === 'sub' ? 'sub' : 'contractor'));
   const group = [];
   Object.keys(AREA_GEO).forEach(function (a) {
