@@ -5398,7 +5398,7 @@ async function ingestOneQb(messageId) {
   const kind = /estimate/i.test(subject) ? 'estimate' : 'doc';
   // Business name: prefer the subject ("Estimate 1664 from BUSINESS"), strip a trailing job address
   let biz = ((subject.match(/(?:estimate|invoice|proposal|receipt|payment request)[^a-z0-9]*(?:#?\s*[\w-]+)?\s+from\s+(.{2,80})/i) || [])[1] || fromName).trim();
-  biz = biz.replace(/[\s,.-]*\b\d{2,6}\s+[A-Z][\w .]*$/i, '').replace(/\s*-\s*(invoice|estimate).*$/i, '').trim() || fromName;
+  biz = biz.replace(/[\s,.-]*\b\d{2,6}\s+.*$/, '').replace(/\s*-\s*(invoice|estimate).*$/i, '').trim() || fromName;   // cut a trailing job address ("… 840 N Edgemont St, LA")
   const bizClean = biz.replace(/\s*(?:LIC\.?#?\s*\d{5,8}|C-?\d{1,2}\s+\d{5,8})\s*/gi, ' ').replace(/\s+/g, ' ').trim();
   // License number hiding in the sender name ("P & K ELECTRIC CORP C-10 939525")
   const licM = fromName.match(/(?:lic(?:ense)?\.?\s*#?\s*|c-?\d{1,2}\s+)(\d{5,8})/i);
@@ -5417,8 +5417,9 @@ async function ingestOneQb(messageId) {
     || subsAll.find(s => bw && normWords(s.company) === bw)
     || subsAll.find(s => bk.length >= 8 && normFull(s.company).length >= 8 && (normFull(s.company).includes(bk) || bk.includes(normFull(s.company))));
   let createdNew = false;
+  if (!sub && kind !== 'estimate') return null;   // only BIDS may create contractors — supplier invoices etc. are skipped
   if (!sub) {
-    // Unknown business — add it so the bid doesn't fall on the floor
+    // Unknown business with a bid — add it so the bid doesn't fall on the floor
     const trade = qbTradeFromName(bizClean);
     const cat = /general contractor/i.test(trade) ? 'gc' : 'sub';
     const title = bizClean.replace(/\w\S*/g, w => /^(LLC|INC|DBA|USA|HVAC|II|III)\.?,?$/i.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()).slice(0, 200);
@@ -5461,7 +5462,8 @@ async function ingestQuickBooksEmails() {
   if (!useGmail) return;
   try {
     const list = await gmailClient.users.messages.list({ userId: 'me', q: 'from:(notification.intuit.com OR quickbooks.com) newer_than:280d', maxResults: 40 });
-    for (const m of (list.data.messages || [])) {
+    // Gmail returns newest first — process oldest→newest so the LATEST estimate wins the bid price
+    for (const m of (list.data.messages || []).slice().reverse()) {
       const { rows: [seen] } = await pool.query('SELECT 1 FROM qb_seen WHERE gmail_message_id=$1', [m.id]);
       if (seen) continue;
       await pool.query('INSERT INTO qb_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [m.id]);
