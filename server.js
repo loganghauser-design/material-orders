@@ -295,11 +295,13 @@ const useGmail = !!(gmailUser && gClientId && gClientSecret && gRefreshToken);
 
 let gmailClient = null;
 let sheetsClient = null;
+let gOauth2 = null; // also used to mint Chat API access tokens (needs chat.messages.create in the refresh token's scopes)
 if (useGmail) {
   const oauth2 = new google.auth.OAuth2(gClientId, gClientSecret);
   oauth2.setCredentials({ refresh_token: gRefreshToken });
   gmailClient = google.gmail({ version: 'v1', auth: oauth2 });
   sheetsClient = google.sheets({ version: 'v4', auth: oauth2 }); // read finish schedules as the user (private sheets OK)
+  gOauth2 = oauth2;
 }
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -5452,20 +5454,46 @@ async function ingestOneQb(messageId) {
   if (licM && !(sub.license_number || '').trim()) {
     try { await verifySubLicense({ id: sub.id, company: sub.company, notes: '', license_number: licM[1] }); } catch (e) { /* keep ingesting */ }
   }
-  // Estimates post to the dedicated "Bids" chat space (BIDS_WEBHOOK_URL) — never the
-  // delivery chat. Includes the total and a click-to-open link for each PDF.
-  if (kind === 'estimate' && process.env.BIDS_WEBHOOK_URL) {
-    try {
-      const base = process.env.APP_URL || 'https://buildoly.up.railway.app';
-      const docLinks = atts.filter(a => /pdf/i.test(a.mime || a.filename)).map(a =>
-        '📄 ' + a.filename + '\n' + base + '/threads/messages/' + messageId + '/attachment/' + a.aid + '?name=' + encodeURIComponent(a.filename) + '&mime=' + encodeURIComponent(a.mime || 'application/pdf'));
-      const lines = [
-        '📥 *' + (sub.company || bizClean) + '*' + (amt ? ' — *$' + amt + '*' : '') + (createdNew ? '  (new contractor 🆕)' : ''),
-        subject.slice(0, 140),
-        ...docLinks.slice(0, 3),
-      ];
-      await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text: lines.join('\n') }) });
-    } catch (e) { console.error('bids webhook:', e.message); }
+  // Estimates post to the dedicated "Bids" chat space — never the delivery chat.
+  // Preferred: Chat API as the Gmail user with the real PDF(s) attached (needs BIDS_SPACE
+  // + a refresh token carrying chat.messages.create). Fallback: webhook with PDF links.
+  if (kind === 'estimate' && (process.env.BIDS_SPACE || process.env.BIDS_WEBHOOK_URL)) {
+    const header = '📥 *' + (sub.company || bizClean) + '*' + (amt ? ' — *$' + amt + '*' : '') + (createdNew ? '  (new contractor 🆕)' : '');
+    const pdfs = atts.filter(a => /pdf/i.test(a.mime || a.filename)).slice(0, 3);
+    let posted = false;
+    if (process.env.BIDS_SPACE && gOauth2) {
+      try {
+        const space = process.env.BIDS_SPACE; // e.g. spaces/AAQAjYQmAoc
+        const at = (await gOauth2.getAccessToken()).token;
+        const refs = [];
+        for (const a of pdfs) {
+          const r = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId, id: a.aid });
+          const buf = Buffer.from(String(r.data.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+          const boundary = 'qbbid' + Math.floor(Math.random() * 1e9);
+          const body = Buffer.concat([
+            Buffer.from('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify({ filename: a.filename }) + '\r\n--' + boundary + '\r\nContent-Type: ' + (a.mime || 'application/pdf') + '\r\n\r\n'),
+            buf, Buffer.from('\r\n--' + boundary + '--')]);
+          const up = await fetch('https://chat.googleapis.com/upload/v1/' + space + '/attachments:upload?uploadType=multipart', {
+            method: 'POST', headers: { 'Authorization': 'Bearer ' + at, 'Content-Type': 'multipart/related; boundary=' + boundary }, body });
+          const upd = await up.json();
+          if (!up.ok) throw new Error('upload HTTP ' + up.status + ': ' + JSON.stringify(upd).slice(0, 150));
+          refs.push({ attachmentDataRef: upd.attachmentDataRef });
+        }
+        const mr = await fetch('https://chat.googleapis.com/v1/' + space + '/messages', {
+          method: 'POST', headers: { 'Authorization': 'Bearer ' + at, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: header + '\n' + subject.slice(0, 140), attachment: refs }) });
+        if (!mr.ok) throw new Error('message HTTP ' + mr.status + ': ' + JSON.stringify(await mr.json()).slice(0, 150));
+        posted = true;
+      } catch (e) { console.error('bids chat api (falling back to webhook):', e.message); }
+    }
+    if (!posted && process.env.BIDS_WEBHOOK_URL) {
+      try {
+        const base = process.env.APP_URL || 'https://buildoly.up.railway.app';
+        const docLinks = pdfs.map(a =>
+          '📄 ' + a.filename + '\n' + base + '/threads/messages/' + messageId + '/attachment/' + a.aid + '?name=' + encodeURIComponent(a.filename) + '&mime=' + encodeURIComponent(a.mime || 'application/pdf'));
+        await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text: [header, subject.slice(0, 140), ...docLinks].join('\n') }) });
+      } catch (e) { console.error('bids webhook:', e.message); }
+    }
   }
   return { sub: sub.company, kind, amt, createdNew };
 }
