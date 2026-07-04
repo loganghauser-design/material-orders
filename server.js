@@ -3971,12 +3971,13 @@ app.get('/subs', requireAuth, async (req, res) => {
     //    (Actives count here as wins — they're the funnel's output, not its input).
     const isOut = s => /reject|black/i.test(s.status || '');
     const isActive = s => /^active$/i.test(s.status || '');
+    const isInactive = s => /inactive/i.test(s.status || '');   // worked with before, dormant now — known, not a prospect
     const catOfS = s => (s.category === 'gc' || (!s.category && /general\s*contractor|^\s*gc\b/i.test(s.type || ''))) ? 'gc' : 'sub';
     const isApproved = s => /^approved$/i.test(s.status || '');
     const buildStats = list => {
       // Approved = recruiting win ("we want to work with them"); Active = on a job now.
       // Neither is a prospect anymore — the pool is only who's still being recruited.
-      const prospectPool = list.filter(s => !isOut(s) && !isActive(s) && !isApproved(s));   // NOTE: never name this `pool` — shadows the pg pool
+      const prospectPool = list.filter(s => !isOut(s) && !isActive(s) && !isApproved(s) && !isInactive(s));   // NOTE: never name this `pool` — shadows the pg pool
       const hasEmail = s => !!(s.email || '').trim();
       // Pool splits into 3 disjoint buckets that sum to the pool:
       //   contacted · untouched (HAS an email, just never emailed) · missing email (unreachable until one is added)
@@ -3994,7 +3995,7 @@ app.get('/subs', requireAuth, async (req, res) => {
         contacted: everContacted.length,
         responded: everContacted.filter(s => respondedIds.has(s.id)).length,
         bids: everContacted.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
-        approved: everContacted.filter(s => isApproved(s) || isActive(s)).length,   // approved-or-beyond
+        approved: everContacted.filter(s => isApproved(s) || isActive(s) || isInactive(s)).length,   // approved-or-beyond (Inactive = worked with before)
         hired: everContacted.filter(s => isActive(s)).length,
       };
     };
@@ -4207,6 +4208,7 @@ app.post('/team/save', requireAuth, async (req, res) => {
 function bucketForStatus(category, status) {
   const s = (status || '').toLowerCase();
   const gc = category === 'gc';
+  if (/inactive/.test(s)) return gc ? 'Inactive GCs' : 'Inactive Subcontractors';   // must beat /active/ — "inactive" contains it
   if (/active/.test(s)) return gc ? 'Active Buildoly Outside General Contractors' : 'Active Buildoly Subcontractors';
   if (/black/.test(s)) return gc ? 'Blacklisted Buildoly General Contractors' : 'Blacklisted Buildoly Sub Contractors';
   if (/reject|declin/.test(s)) return gc ? 'Rejected GCs' : 'Rejected Subcontractors';
@@ -4218,6 +4220,7 @@ function statusForBucket(grp) {
   const g = (grp || '').toLowerCase();
   if (/black/.test(g)) return 'Blacklisted';
   if (/reject/.test(g)) return 'Rejected';
+  if (/inactive/.test(g)) return 'Inactive';   // must beat /active/ — "inactive" contains it
   if (/active/.test(g)) return 'Active';
   if (/vetted|unused/.test(g)) return 'Approved';
   if (/vetting/.test(g)) return 'Under Review';

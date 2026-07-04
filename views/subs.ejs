@@ -88,6 +88,7 @@
     .pill-review { background:#ffe599; color:#7f6000; }
     .pill-approved { background:#b6d7a8; color:#274e13; }
     .pill-active { background:#38761d; color:#fff; }
+    .pill-inactive { background:#6b7280; color:#fff; }
     .pill-rejected { background:#e06666; color:#fff; }
     .pill-black { background:#111; color:#fff; }
     .pill-default { background:#e6e6e6; color:#555; }
@@ -329,6 +330,7 @@
       <option value="under review">Under Review</option>
       <option value="approved">Approved</option>
       <option value="active">Active</option>
+      <option value="inactive">Inactive</option>
       <option value="rejected">Rejected</option>
       <option value="blacklisted">Blacklisted</option>
     </select>
@@ -378,11 +380,12 @@
     function pillClass(st) { st = (st || '').toLowerCase();
       if (/black/.test(st)) return 'pill-black';
       if (/reject|declin/.test(st)) return 'pill-rejected';
+      if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
       if (/active/.test(st)) return 'pill-active';
       if (/approv/.test(st)) return 'pill-approved';
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
-    const STATUS_OPTS = ['Under Review', 'Approved', 'Active', 'Rejected', 'Blacklisted'];
+    const STATUS_OPTS = ['Under Review', 'Approved', 'Active', 'Inactive', 'Rejected', 'Blacklisted'];
     const BID_OPTS = ['Called', 'Bid Sent', 'Bid Received', 'Awarded', 'Passed'];
     function bidClass(b) { b = (b || '').toLowerCase();
       if (/received/.test(b)) return 'bid-received';
@@ -400,7 +403,7 @@
     const moveTargets = []; const _seenT = {};
     subs.forEach(s => { const cat = catOf(s), grp = s.group_label || '', k = cat + '||' + grp; if (!_seenT[k]) { _seenT[k] = 1; moveTargets.push({ cat, grp }); } });
     // Always offer Rejected + Blacklisted as drop targets, even when those buckets are empty
-    [['gc', ['Rejected GCs', 'Blacklisted Buildoly General Contractors']], ['sub', ['Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors']]].forEach(function (pair) {
+    [['gc', ['Inactive GCs', 'Rejected GCs', 'Blacklisted Buildoly General Contractors']], ['sub', ['Inactive Subcontractors', 'Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors']]].forEach(function (pair) {
       pair[1].forEach(function (grp) { const k = pair[0] + '||' + grp; if (!_seenT[k]) { _seenT[k] = 1; moveTargets.push({ cat: pair[0], grp: grp }); } });
     });
   %>
@@ -739,7 +742,7 @@ function filterSubs() {
     const v = vet[r.dataset.cat] || '';
     const okV = !v || (r.dataset.status || '') === v;
     const okR = !recentOnly || r.dataset.recent === '1';
-    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && r.dataset.cat === missingEmailOnly && !/reject|black|^active$/i.test(r.dataset.status || ''));
+    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && r.dataset.cat === missingEmailOnly && !/reject|black|inactive|^active$/i.test(r.dataset.status || ''));
     r.style.display = (okQ && okT && okS && okV && okR && okE) ? '' : 'none';
   });
   // While searching/filtering, hide the empty "drag here" drop zones so results stay clean
@@ -982,6 +985,7 @@ async function delPhoto(id, el) {
 function pillClassJS(st) { st = (st || '').toLowerCase();
   if (/black/.test(st)) return 'pill-black';
   if (/reject|declin/.test(st)) return 'pill-rejected';
+  if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
   if (/active/.test(st)) return 'pill-active';
   if (/approv/.test(st)) return 'pill-approved';
   if (/review|vetting|pending/.test(st)) return 'pill-review';
@@ -1251,7 +1255,7 @@ function mapRender() {
     const isGc = s.cat === 'gc' || (!s.cat && /general\s*contractor|^\s*gc\b/i.test(s.t));
     if (mode === 'gc' && !isGc) return;
     if (mode === 'sub' && isGc) return;
-    if (mstat === 'ready' && !/approved|active/i.test(s.st)) return;
+    if (mstat === 'ready' && !(/approv/i.test(s.st) || /^\s*active\s*$/i.test(s.st))) return;   // "Inactive" is not ready
     if (mstat === 'review' && !/review|vetting|pending/i.test(s.st)) return;
     if (mtrade) {
       const ts = String(s.t).split(',').map(function (x) { return x.trim().toLowerCase(); });
