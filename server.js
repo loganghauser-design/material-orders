@@ -3888,12 +3888,15 @@ app.get('/subs', requireAuth, async (req, res) => {
       if (contactedIds.has(s.id)) b.contacted++;
       if (respondedIds.has(s.id)) b.responded++;
     });
+    // Funnel is scoped to the CONTACTED cohort: of the subs we reached out to,
+    // how many responded / bid / got hired (not diluted by the uncontacted list).
+    const contactedSubs = subs.filter(s => contactedIds.has(s.id));
     const outreach = {
       total: subs.length,
-      contacted: subs.filter(s => contactedIds.has(s.id)).length,
-      responded: subs.filter(s => respondedIds.has(s.id)).length,
-      bids: subs.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
-      hired: subs.filter(s => /^active$/i.test(s.status || '')).length,
+      contacted: contactedSubs.length,
+      responded: contactedSubs.filter(s => respondedIds.has(s.id)).length,
+      bids: contactedSubs.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
+      hired: contactedSubs.filter(s => /^active$/i.test(s.status || '')).length,
       tradeStats: Object.values(byTrade).filter(t => t.contacted >= 1).sort((a, b) => b.contacted - a.contacted).slice(0, 10),
     };
     res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,

@@ -220,21 +220,21 @@
   <% if (typeof outreach !== 'undefined' && outreach && !isSuper) {
        var _o = outreach;
        var _pct = function(a, b) { return b ? Math.round(a / b * 100) : 0; };
+       // All bars are % OF CONTACTED — "of the subs we reached out to, what happened?"
        var _funnel = [
-         { label: 'In list',       n: _o.total,     color: '#94a3b8', pct: 100 },
-         { label: 'Contacted',     n: _o.contacted, color: '#3b82f6', pct: _pct(_o.contacted, _o.total) },
-         { label: 'Responded',     n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.total) },
-         { label: 'Bid received',  n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.total) },
-         { label: 'Hired (Active)',n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.total) },
+         { label: 'Contacted',     n: _o.contacted, color: '#3b82f6', pct: _o.contacted ? 100 : 0 },
+         { label: 'Responded',     n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.contacted) },
+         { label: 'Bid received',  n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
+         { label: 'Hired (Active)',n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.contacted) },
        ];
   %>
   <details class="card" style="margin-bottom:1rem;padding:1rem 1.3rem" open>
     <summary style="cursor:pointer;font-weight:800;font-size:.95rem">📊 Outreach stats
-      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— response rate <strong style="color:#16a34a"><%= _pct(_o.responded, _o.contacted) %>%</strong> (<%= _o.responded %> of <%= _o.contacted %> contacted)</span>
+      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— <%= _o.contacted %> of <%= _o.total %> in the list contacted · response rate <strong style="color:#16a34a"><%= _pct(_o.responded, _o.contacted) %>%</strong></span>
     </summary>
     <div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:.9rem">
       <div style="flex:1;min-width:300px">
-        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Pipeline funnel</div>
+        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Of the <%= _o.contacted %> we contacted…</div>
         <% _funnel.forEach(function(f) { %>
           <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem">
             <span style="flex:none;width:96px;font-size:.78rem;font-weight:600;color:#334155"><%= f.label %></span>
@@ -260,7 +260,7 @@
       </div>
       <% } %>
     </div>
-    <div style="font-size:.74rem;color:var(--muted);margin-top:.5rem">Counted from the email log — a sub is "contacted" once you've emailed them, "responded" once they've replied. Phone-only contact isn't counted (yet).</div>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.5rem">All percentages are of the subs you've <strong>contacted</strong> (emailed at least once, from the email log). Responded / bid / hired only count within that group. Phone-only contact isn't counted (yet).</div>
   </details>
   <% } %>
 
