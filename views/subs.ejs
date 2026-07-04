@@ -217,61 +217,70 @@
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Subcontractor added.</div>
   <% } %>
 
-  <% if (typeof outreach !== 'undefined' && outreach && !isSuper) {
-       var _o = outreach;
+  <% if (typeof outreach !== 'undefined' && outreach && outreach.gc && !isSuper) {
        var _pct = function(a, b) { return b ? Math.round(a / b * 100) : 0; };
-       // All bars are % OF CONTACTED — "of the subs we reached out to, what happened?"
-       var _funnel = [
-         { label: 'Contacted',     n: _o.contacted, color: '#3b82f6', pct: _o.contacted ? 100 : 0 },
-         { label: 'Responded',     n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.contacted) },
-         { label: 'Bid received',  n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
-         { label: 'Hired (Active)',n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.contacted) },
+       var _groups = [
+         { key: 'gc',  title: '🏗 Outside GCs',    o: outreach.gc },
+         { key: 'sub', title: '🔧 Subcontractors', o: outreach.sub },
        ];
   %>
   <details class="card" style="margin-bottom:1rem;padding:1rem 1.3rem" open>
     <summary style="cursor:pointer;font-weight:800;font-size:.95rem">📊 Outreach stats
-      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— <%= _o.pool %> prospects (<%= _o.excluded %> active/ruled-out excluded) · <%= _o.untouched %> untouched · response rate <strong style="color:#16a34a"><%= _pct(_o.responded, _o.contacted) %>%</strong></span>
+      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— GCs respond <strong style="color:#16a34a"><%= _pct(outreach.gc.responded, outreach.gc.contacted) %>%</strong> · Subs respond <strong style="color:#16a34a"><%= _pct(outreach.sub.responded, outreach.sub.contacted) %>%</strong> (tracked separately)</span>
     </summary>
-    <div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:.9rem">
+    <div style="display:flex;gap:2rem;flex-wrap:wrap;margin-top:.9rem">
+      <% _groups.forEach(function(g) { var _o = g.o;
+           var _funnel = [
+             { label: 'Contacted',     n: _o.contacted, color: '#3b82f6', pct: _o.contacted ? 100 : 0 },
+             { label: 'Responded',     n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.contacted) },
+             { label: 'Bid received',  n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
+             { label: 'Hired (Active)',n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.contacted) },
+           ]; %>
       <div style="flex:1;min-width:300px">
-        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem">Prospect coverage <span style="font-weight:400;text-transform:none">(<%= _o.pool %> recruitable — actives &amp; rejected not counted)</span></div>
-        <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--bg);margin-bottom:.9rem" title="<%= _o.poolContacted %> contacted · <%= _o.untouched %> untouched">
+        <div style="font-weight:800;font-size:.92rem;margin-bottom:.55rem"><%= g.title %>
+          <span style="color:var(--muted);font-weight:400;font-size:.78rem">· <%= _o.pool %> prospects · <%= _o.untouched %> untouched <span title="<%= _o.excluded %> Active / Rejected / Blacklisted aren't counted as prospects">(<%= _o.excluded %> excluded)</span></span>
+        </div>
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem">Prospect coverage</div>
+        <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--bg);margin-bottom:.8rem" title="<%= _o.poolContacted %> contacted · <%= _o.untouched %> untouched">
           <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6;color:#fff;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">contacted <%= _o.poolContacted %> · <%= _pct(_o.poolContacted, _o.pool) %>%</div><% } %>
           <% if (_o.untouched) { %><div style="width:<%= _pct(_o.untouched, _o.pool) %>%;background:#cbd5e1;color:#334155;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">untouched <%= _o.untouched %></div><% } %>
         </div>
-        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Conversion — of the <%= _o.contacted %> ever contacted…</div>
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem">Conversion — of the <%= _o.contacted %> ever contacted…</div>
         <% _funnel.forEach(function(f) { %>
-          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem">
+          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.32rem">
             <span style="flex:none;width:96px;font-size:.78rem;font-weight:600;color:#334155"><%= f.label %></span>
-            <div style="flex:1;background:var(--bg);border-radius:6px;height:22px;position:relative;overflow:hidden">
+            <div style="flex:1;background:var(--bg);border-radius:6px;height:20px;position:relative;overflow:hidden">
               <div style="width:<%= Math.max(f.pct, 2) %>%;background:<%= f.color %>;height:100%;border-radius:6px"></div>
-              <span style="position:absolute;left:8px;top:0;line-height:22px;font-size:.74rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= f.n %> · <%= f.pct %>%</span>
+              <span style="position:absolute;left:8px;top:0;line-height:20px;font-size:.72rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= f.n %> · <%= f.pct %>%</span>
             </div>
           </div>
         <% }) %>
         <% if (_o.noEmail > 0) { %>
-          <div id="noEmailChip" onclick="toggleMissingEmail(this)" title="These subs can't receive outreach emails — click to show them in the list, then use ✏️ to add their email"
-               style="margin-top:.6rem;padding:.5rem .7rem;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:.8rem;cursor:pointer;user-select:none">
-            📭 <strong><%= _o.noEmail %></strong> prospect<%= _o.noEmail === 1 ? '' : 's' %> missing an email — can't be contacted. <span style="text-decoration:underline">Click to show &amp; fix</span>
+          <div onclick="toggleMissingEmail(this, '<%= g.key %>')" title="These prospects can't receive outreach emails — click to show them in the list, then use ✏️ to add their email"
+               style="margin-top:.55rem;padding:.45rem .7rem;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:.79rem;cursor:pointer;user-select:none">
+            📭 <strong><%= _o.noEmail %></strong> missing an email — can't be contacted. <span style="text-decoration:underline">Click to show &amp; fix</span>
           </div>
         <% } %>
       </div>
-      <% if (_o.tradeStats && _o.tradeStats.length) { %>
-      <div style="flex:1;min-width:300px">
-        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Response rate by trade <span style="font-weight:400;text-transform:none">(responded / contacted)</span></div>
-        <% _o.tradeStats.forEach(function(t) { var rp = _pct(t.responded, t.contacted); %>
-          <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem">
-            <span style="flex:none;width:130px;font-size:.78rem;font-weight:600;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= t.trade %></span>
-            <div style="flex:1;background:var(--bg);border-radius:6px;height:18px;position:relative;overflow:hidden">
-              <div style="width:<%= Math.max(rp, 2) %>%;background:<%= rp >= 50 ? '#16a34a' : rp >= 25 ? '#d97706' : '#dc2626' %>;height:100%;border-radius:6px"></div>
-              <span style="position:absolute;left:8px;top:0;line-height:18px;font-size:.7rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= rp %>% (<%= t.responded %>/<%= t.contacted %>)</span>
-            </div>
-          </div>
-        <% }) %>
-      </div>
-      <% } %>
+      <% }) %>
     </div>
-    <div style="font-size:.74rem;color:var(--muted);margin-top:.5rem">All percentages are of the subs you've <strong>contacted</strong> (emailed at least once, from the email log). Responded / bid / hired only count within that group. Phone-only contact isn't counted (yet).</div>
+    <% if (outreach.tradeStats && outreach.tradeStats.length) { %>
+    <div style="margin-top:1.1rem">
+      <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem">Sub response rate by trade <span style="font-weight:400;text-transform:none">(responded / contacted)</span></div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:.3rem 2rem">
+      <% outreach.tradeStats.forEach(function(t) { var rp = _pct(t.responded, t.contacted); %>
+        <div style="display:flex;align-items:center;gap:.6rem">
+          <span style="flex:none;width:120px;font-size:.78rem;font-weight:600;color:#334155;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><%= t.trade %></span>
+          <div style="flex:1;background:var(--bg);border-radius:6px;height:16px;position:relative;overflow:hidden">
+            <div style="width:<%= Math.max(rp, 2) %>%;background:<%= rp >= 50 ? '#16a34a' : rp >= 25 ? '#d97706' : '#dc2626' %>;height:100%;border-radius:6px"></div>
+            <span style="position:absolute;left:8px;top:0;line-height:16px;font-size:.68rem;font-weight:800;color:#fff;text-shadow:0 0 3px rgba(0,0,0,.45)"><%= rp %>% (<%= t.responded %>/<%= t.contacted %>)</span>
+          </div>
+        </div>
+      <% }) %>
+      </div>
+    </div>
+    <% } %>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem">GCs and Subs are tracked separately so neither skews the other. Percentages are of each group's <strong>contacted</strong> set (emailed at least once). Actives count as funnel wins, not prospects. Phone-only contact isn't counted (yet).</div>
   </details>
   <% } %>
 
@@ -667,14 +676,14 @@ document.getElementById('licModal').addEventListener('click', function (e) { if 
   const sel = document.getElementById('typeFilter');
   [...set].sort().forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = cap(t); sel.appendChild(o); });
 })();
-let missingEmailOnly = false;
-function toggleMissingEmail(chip) {
-  missingEmailOnly = !missingEmailOnly;
-  if (chip) {
-    chip.style.background = missingEmailOnly ? '#d97706' : '#fff7e6';
-    chip.style.color = missingEmailOnly ? '#fff' : '';
-    chip.style.borderColor = missingEmailOnly ? '#d97706' : '#f0d9a8';
-  }
+let missingEmailOnly = '';   // '' off, or 'gc' / 'sub'
+let _meChip = null;
+function toggleMissingEmail(chip, cat) {
+  const turningOff = missingEmailOnly === cat;
+  if (_meChip) { _meChip.style.background = '#fff7e6'; _meChip.style.color = ''; _meChip.style.borderColor = '#f0d9a8'; }
+  missingEmailOnly = turningOff ? '' : cat;
+  _meChip = turningOff ? null : chip;
+  if (chip && !turningOff) { chip.style.background = '#d97706'; chip.style.color = '#fff'; chip.style.borderColor = '#d97706'; }
   filterSubs();
   if (missingEmailOnly) document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -692,7 +701,7 @@ function filterSubs() {
     const v = vet[r.dataset.cat] || '';
     const okV = !v || (r.dataset.status || '') === v;
     const okR = !recentOnly || r.dataset.recent === '1';
-    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && !/reject|black|^active$/i.test(r.dataset.status || ''));
+    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && r.dataset.cat === missingEmailOnly && !/reject|black|^active$/i.test(r.dataset.status || ''));
     r.style.display = (okQ && okT && okS && okV && okR && okE) ? '' : 'none';
   });
   // While searching/filtering, hide the empty "drag here" drop zones so results stay clean

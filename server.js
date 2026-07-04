@@ -3888,29 +3888,36 @@ app.get('/subs', requireAuth, async (req, res) => {
       if (contactedIds.has(s.id)) b.contacted++;
       if (respondedIds.has(s.id)) b.responded++;
     });
-    // Two lenses:
-    //  • PROSPECT POOL = everyone still recruitable (not Active, not Rejected/Blacklisted).
-    //    Coverage = how much of that pool we've touched; untouched = remaining work.
-    //  • CONVERSION FUNNEL = of everyone EVER contacted, how many responded/bid/hired
+    // Stats are split GC vs Sub so one group doesn't skew the other. Two lenses each:
+    //  • PROSPECT POOL = still recruitable (not Active, not Rejected/Blacklisted);
+    //    coverage = contacted vs untouched within that pool.
+    //  • CONVERSION FUNNEL = of everyone EVER contacted, responded/bid/hired
     //    (Actives count here as wins — they're the funnel's output, not its input).
     const isOut = s => /reject|black/i.test(s.status || '');
     const isActive = s => /^active$/i.test(s.status || '');
-    const prospectPool = subs.filter(s => !isOut(s) && !isActive(s));   // NOTE: don't name this `pool` — it shadows the pg pool
-    const poolContacted = prospectPool.filter(s => contactedIds.has(s.id)).length;
-    const contactedSubs = subs.filter(s => contactedIds.has(s.id) && !isOut(s));
+    const catOfS = s => (s.category === 'gc' || (!s.category && /general\s*contractor|^\s*gc\b/i.test(s.type || ''))) ? 'gc' : 'sub';
+    const buildStats = list => {
+      const prospectPool = list.filter(s => !isOut(s) && !isActive(s));   // NOTE: never name this `pool` — shadows the pg pool
+      const poolContacted = prospectPool.filter(s => contactedIds.has(s.id)).length;
+      const everContacted = list.filter(s => contactedIds.has(s.id) && !isOut(s));
+      return {
+        total: list.length,
+        excluded: list.length - prospectPool.length,
+        pool: prospectPool.length,
+        poolContacted,
+        untouched: prospectPool.length - poolContacted,
+        contacted: everContacted.length,
+        responded: everContacted.filter(s => respondedIds.has(s.id)).length,
+        bids: everContacted.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
+        hired: everContacted.filter(s => isActive(s)).length,
+        noEmail: prospectPool.filter(s => !(s.email || '').trim()).length,
+      };
+    };
     const outreach = {
-      total: subs.length,
-      excluded: subs.length - prospectPool.length,   // actives + rejected/blacklisted
-      pool: prospectPool.length,
-      poolContacted,
-      untouched: prospectPool.length - poolContacted,
-      contacted: contactedSubs.length,
-      responded: contactedSubs.filter(s => respondedIds.has(s.id)).length,
-      bids: contactedSubs.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
-      hired: contactedSubs.filter(s => isActive(s)).length,
-      // Prospects we can't even email (pool only — actives/rejected don't need outreach)
-      noEmail: prospectPool.filter(s => !(s.email || '').trim()).length,
-      tradeStats: Object.values(byTrade).filter(t => t.contacted >= 1).sort((a, b) => b.contacted - a.contacted).slice(0, 10),
+      gc: buildStats(subs.filter(s => catOfS(s) === 'gc')),
+      sub: buildStats(subs.filter(s => catOfS(s) === 'sub')),
+      // trade response rates are a sub-side concept (GCs are all one trade)
+      tradeStats: Object.values(byTrade).filter(t => t.trade !== 'General Contractor' && t.contacted >= 1).sort((a, b) => b.contacted - a.contacted).slice(0, 10),
     };
     res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
