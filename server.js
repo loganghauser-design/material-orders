@@ -3904,19 +3904,24 @@ app.get('/subs', requireAuth, async (req, res) => {
     const catOfS = s => (s.category === 'gc' || (!s.category && /general\s*contractor|^\s*gc\b/i.test(s.type || ''))) ? 'gc' : 'sub';
     const buildStats = list => {
       const prospectPool = list.filter(s => !isOut(s) && !isActive(s));   // NOTE: never name this `pool` — shadows the pg pool
+      const hasEmail = s => !!(s.email || '').trim();
+      // Pool splits into 3 disjoint buckets that sum to the pool:
+      //   contacted · untouched (HAS an email, just never emailed) · missing email (unreachable until one is added)
       const poolContacted = prospectPool.filter(s => contactedIds.has(s.id)).length;
+      const untouched = prospectPool.filter(s => !contactedIds.has(s.id) && hasEmail(s)).length;
+      const noEmail = prospectPool.filter(s => !contactedIds.has(s.id) && !hasEmail(s)).length;
       const everContacted = list.filter(s => contactedIds.has(s.id) && !isOut(s));
       return {
         total: list.length,
         excluded: list.length - prospectPool.length,
         pool: prospectPool.length,
         poolContacted,
-        untouched: prospectPool.length - poolContacted,
+        untouched,
+        noEmail,
         contacted: everContacted.length,
         responded: everContacted.filter(s => respondedIds.has(s.id)).length,
         bids: everContacted.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
         hired: everContacted.filter(s => isActive(s)).length,
-        noEmail: prospectPool.filter(s => !(s.email || '').trim()).length,
       };
     };
     const outreach = {

@@ -241,9 +241,10 @@
           <span style="color:var(--muted);font-weight:400;font-size:.78rem">· <%= _o.pool %> prospects · <%= _o.untouched %> untouched <span title="<%= _o.excluded %> Active / Rejected / Blacklisted aren't counted as prospects">(<%= _o.excluded %> excluded)</span></span>
         </div>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem">Prospect coverage</div>
-        <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--bg);margin-bottom:.8rem" title="<%= _o.poolContacted %> contacted · <%= _o.untouched %> untouched">
-          <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6;color:#fff;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">contacted <%= _o.poolContacted %> · <%= _pct(_o.poolContacted, _o.pool) %>%</div><% } %>
+        <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--bg);margin-bottom:.8rem" title="<%= _o.poolContacted %> contacted · <%= _o.untouched %> untouched (have an email) · <%= _o.noEmail %> missing email">
+          <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6;color:#fff;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">contacted <%= _o.poolContacted %></div><% } %>
           <% if (_o.untouched) { %><div style="width:<%= _pct(_o.untouched, _o.pool) %>%;background:#cbd5e1;color:#334155;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">untouched <%= _o.untouched %></div><% } %>
+          <% if (_o.noEmail) { %><div style="width:<%= _pct(_o.noEmail, _o.pool) %>%;background:#f0d9a8;color:#7a5b00;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">📭 <%= _o.noEmail %></div><% } %>
         </div>
         <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem">Conversion — of the <%= _o.contacted %> ever contacted…</div>
         <% _funnel.forEach(function(f) { %>
@@ -280,7 +281,7 @@
       </div>
     </div>
     <% } %>
-    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem">GCs and Subs are tracked separately so neither skews the other. Percentages are of each group's <strong>contacted</strong> set (emailed at least once). Actives count as funnel wins, not prospects. Phone-only contact isn't counted (yet).</div>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem">GCs and Subs are tracked separately so neither skews the other. <strong>Untouched</strong> = has an email but never contacted (ready to reach out) — prospects <strong>missing an email</strong> sit in their own 📭 bucket until you add one, then they move to untouched. Actives count as funnel wins, not prospects. Phone-only contact isn't counted (yet).</div>
   </details>
   <% } %>
 
