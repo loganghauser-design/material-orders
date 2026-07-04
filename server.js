@@ -3882,11 +3882,17 @@ app.get('/subs', requireAuth, async (req, res) => {
     const respondedIds = new Set(emailRows.filter(e => e.direction === 'in').map(e => e.sub_id));
     const byTrade = {};
     subs.forEach(s => {
-      const t = String(s.type || '').split(',')[0].trim() || 'Other';
-      const b = byTrade[t] = byTrade[t] || { trade: t, total: 0, contacted: 0, responded: 0 };
-      b.total++;
-      if (contactedIds.has(s.id)) b.contacted++;
-      if (respondedIds.has(s.id)) b.responded++;
+      // Count the contractor under EVERY trade they carry, not just the first
+      const trades = String(s.type || '').split(',').map(x => x.trim()).filter(Boolean);
+      if (!trades.length) trades.push('Other');
+      const wasContacted = contactedIds.has(s.id);
+      const hasResponded = respondedIds.has(s.id);
+      trades.forEach(t => {
+        const b = byTrade[t] = byTrade[t] || { trade: t, total: 0, contacted: 0, responded: 0 };
+        b.total++;
+        if (wasContacted) b.contacted++;
+        if (hasResponded) b.responded++;
+      });
     });
     // Stats are split GC vs Sub so one group doesn't skew the other. Two lenses each:
     //  • PROSPECT POOL = still recruitable (not Active, not Rejected/Blacklisted);
@@ -3917,7 +3923,7 @@ app.get('/subs', requireAuth, async (req, res) => {
       gc: buildStats(subs.filter(s => catOfS(s) === 'gc')),
       sub: buildStats(subs.filter(s => catOfS(s) === 'sub')),
       // trade response rates are a sub-side concept (GCs are all one trade)
-      tradeStats: Object.values(byTrade).filter(t => t.trade !== 'General Contractor' && t.contacted >= 1).sort((a, b) => b.contacted - a.contacted).slice(0, 10),
+      tradeStats: Object.values(byTrade).filter(t => t.trade !== 'General Contractor' && t.contacted >= 1).sort((a, b) => b.contacted - a.contacted),   // every contacted trade — no cap
     };
     res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
