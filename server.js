@@ -5452,10 +5452,7 @@ async function ingestOneQb(messageId) {
   if (licM && !(sub.license_number || '').trim()) {
     try { await verifySubLicense({ id: sub.id, company: sub.company, notes: '', license_number: licM[1] }); } catch (e) { /* keep ingesting */ }
   }
-  if (kind === 'estimate') {
-    const LOGAN = '106404376271648731086';
-    postToChat('📥 *Bid received* <users/' + LOGAN + '> — *' + (sub.company || bizClean) + '*' + (amt ? ': $' + amt : '') + (createdNew ? ' (new contractor added 🆕)' : '') + '\n' + subject.slice(0, 120));
-  }
+  // No chat notification — bids show up quietly in the app (bid pipeline + ✉ unread badge).
   return { sub: sub.company, kind, amt, createdNew };
 }
 async function ingestQuickBooksEmails() {
