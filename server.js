@@ -3902,8 +3902,11 @@ app.get('/subs', requireAuth, async (req, res) => {
     const isOut = s => /reject|black/i.test(s.status || '');
     const isActive = s => /^active$/i.test(s.status || '');
     const catOfS = s => (s.category === 'gc' || (!s.category && /general\s*contractor|^\s*gc\b/i.test(s.type || ''))) ? 'gc' : 'sub';
+    const isApproved = s => /^approved$/i.test(s.status || '');
     const buildStats = list => {
-      const prospectPool = list.filter(s => !isOut(s) && !isActive(s));   // NOTE: never name this `pool` — shadows the pg pool
+      // Approved = recruiting win ("we want to work with them"); Active = on a job now.
+      // Neither is a prospect anymore — the pool is only who's still being recruited.
+      const prospectPool = list.filter(s => !isOut(s) && !isActive(s) && !isApproved(s));   // NOTE: never name this `pool` — shadows the pg pool
       const hasEmail = s => !!(s.email || '').trim();
       // Pool splits into 3 disjoint buckets that sum to the pool:
       //   contacted · untouched (HAS an email, just never emailed) · missing email (unreachable until one is added)
@@ -3921,6 +3924,7 @@ app.get('/subs', requireAuth, async (req, res) => {
         contacted: everContacted.length,
         responded: everContacted.filter(s => respondedIds.has(s.id)).length,
         bids: everContacted.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
+        approved: everContacted.filter(s => isApproved(s) || isActive(s)).length,   // approved-or-beyond
         hired: everContacted.filter(s => isActive(s)).length,
       };
     };

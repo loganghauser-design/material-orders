@@ -235,6 +235,7 @@
            { label: 'Contacted',      n: _o.contacted, color: '#3b82f6', pct: _o.contacted ? 100 : 0 },
            { label: 'Responded',      n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.contacted) },
            { label: 'Bid received',   n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
+           { label: 'Approved',       n: _o.approved,  color: '#7c3aed', pct: _pct(_o.approved, _o.contacted) },
            { label: 'Hired (Active)', n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.contacted) },
          ]; %>
     <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:.95rem 1.1rem;margin-top:.9rem">
@@ -294,7 +295,7 @@
       </div>
     </div>
     <% } %>
-    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem"><strong>Untouched</strong> = has an email but never contacted (ready to reach out); prospects <strong>missing an email</strong> move to untouched once you add one. Actives count as funnel wins, not prospects. Phone-only contact isn't counted (yet).</div>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem"><strong>Untouched</strong> = has an email but never contacted (ready to reach out); prospects <strong>missing an email</strong> move to untouched once you add one. <strong>Approved</strong> = vetted &amp; we want to work with them (a win — no longer a prospect); <strong>Hired</strong> = Approved subs who are Active on a job. Phone-only contact isn't counted (yet).</div>
   </details>
   <% } %>
 
