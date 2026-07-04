@@ -1526,6 +1526,7 @@ async function initDb() {
     ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS gmail_message_id VARCHAR(255);
     ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS direction VARCHAR(8) DEFAULT 'out';
     ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS from_email TEXT;
+    ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS body_html TEXT;
     -- Per-sub "unread reply" badge state
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reply_unread BOOLEAN DEFAULT false;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS replies_viewed_at TIMESTAMPTZ;
@@ -3195,6 +3196,63 @@ app.get('/threads/messages/:messageId/attachment/:attachmentId', requireAuth, as
   }
 });
 
+// Pull the original HTML body out of a Gmail message so emails can be shown exactly
+// as sent (QuickBooks estimates etc.), not as stripped text. Inline cid: images are
+// rewritten to our attachment proxy so they still render.
+function gmailHtmlFromPayload(payload, messageId) {
+  let html = '';
+  const cids = [];
+  (function walk(p) {
+    if (!p) return;
+    if (!html && p.mimeType === 'text/html' && p.body && p.body.data) {
+      html = Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+    }
+    const cid = ((p.headers || []).find(h => h.name.toLowerCase() === 'content-id') || {}).value;
+    if (cid && p.body && p.body.attachmentId) cids.push({ cid: cid.replace(/[<>]/g, ''), aid: p.body.attachmentId, mime: p.mimeType });
+    (p.parts || []).forEach(walk);
+  })(payload);
+  if (html) {
+    for (const c of cids) {
+      html = html.split('cid:' + c.cid).join('/threads/messages/' + messageId + '/attachment/' + c.aid + '?name=inline&mime=' + encodeURIComponent(c.mime || 'image/png'));
+    }
+  }
+  return html;
+}
+
+// Render a logged sub email the way Gmail shows it. Uses the HTML stored at ingest;
+// older rows are fetched from Gmail once and cached. Scripts are blocked via CSP.
+app.get('/subs/emails/:id/html', requireAuth, async (req, res) => {
+  try {
+    const { rows: [em] } = await pool.query(
+      'SELECT id, subject, body, body_html, gmail_message_id, from_email, to_email, direction, created_at FROM sub_emails WHERE id=$1', [req.params.id]);
+    if (!em) return res.status(404).send('Email not found.');
+    let html = em.body_html;
+    if (!html && em.gmail_message_id && gmailClient) {
+      try {
+        const { data } = await gmailClient.users.messages.get({ userId: 'me', id: em.gmail_message_id, format: 'full' });
+        html = gmailHtmlFromPayload(data.payload, em.gmail_message_id);
+        if (html) await pool.query('UPDATE sub_emails SET body_html=$1 WHERE id=$2', [html, em.id]);
+      } catch (e) { /* message gone from Gmail — fall through to the text version */ }
+    }
+    if (!html) html = '<pre style="white-space:pre-wrap;font:14px/1.6 system-ui,sans-serif;margin:0">' + escapeHtml(em.body || '(no content)') + '</pre>';
+    const who = em.direction === 'in'
+      ? 'From: ' + escapeHtml(em.from_email || '') + (em.to_email ? ' &nbsp;·&nbsp; To: ' + escapeHtml(em.to_email) : '')
+      : 'To: ' + escapeHtml(em.to_email || '');
+    res.set('Content-Security-Policy', "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'");
+    res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+      + '<title>' + escapeHtml(em.subject || 'Email') + '</title><base target="_blank"></head>'
+      + '<body style="margin:0;background:#f1f3f5">'
+      + '<div style="background:#fff;border-bottom:1px solid #e2e5e9;padding:14px 22px;font:14px system-ui,sans-serif;position:sticky;top:0">'
+      + '<div style="font-weight:700;font-size:16px;margin-bottom:3px">' + escapeHtml(em.subject || '(no subject)') + '</div>'
+      + '<div style="color:#667">' + who + ' &nbsp;·&nbsp; ' + new Date(em.created_at).toLocaleString() + '</div></div>'
+      + '<div style="max-width:900px;margin:18px auto;background:#fff;border:1px solid #e2e5e9;border-radius:10px;padding:22px;overflow-x:auto">' + html + '</div>'
+      + '</body></html>');
+  } catch (err) {
+    console.error('Email html view:', err.message);
+    res.status(500).send('Could not load email: ' + err.message);
+  }
+});
+
 // Reply within a thread
 app.post('/threads/:threadId/reply', requireAuth, async (req, res) => {
   try {
@@ -3875,7 +3933,7 @@ app.get('/subs', requireAuth, async (req, res) => {
     const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
     const photosBySub = {};
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
-    const { rows: emailRows } = await pool.query('SELECT id, sub_id, subject, body, to_email, from_email, direction, created_at FROM sub_emails ORDER BY created_at DESC');
+    const { rows: emailRows } = await pool.query('SELECT id, sub_id, subject, body, to_email, from_email, direction, created_at, (body_html IS NOT NULL OR gmail_message_id IS NOT NULL) AS has_html FROM sub_emails ORDER BY created_at DESC');
     const emailsBySub = {};
     emailRows.forEach(e => (emailsBySub[e.sub_id] = emailsBySub[e.sub_id] || []).push(e));
     const { rows: attRows } = await pool.query('SELECT id, sub_email_id, filename, mime, gmail_message_id, gmail_attachment_id FROM sub_email_attachments ORDER BY id');
@@ -5434,10 +5492,11 @@ async function ingestOneQb(messageId) {
   // Log the email under the sub (+ attachments), flag unread
   const when = isNaN(new Date(hv('Date')).getTime()) ? new Date() : new Date(hv('Date'));
   const bodyText = text.replace(/\s+/g, ' ').trim().slice(0, 1500);
+  const bodyHtml = gmailHtmlFromPayload(data.payload, messageId) || null;   // keep the real email for the Gmail-style viewer
   const { rows: [em] } = await pool.query(
-    `INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at)
-     VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8) RETURNING id`,
-    [sub.id, gmailUser, replyTo || 'quickbooks@notification.intuit.com', subject.slice(0, 250), bodyText, data.threadId, messageId, when]);
+    `INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, body_html, sent_by, direction, gmail_thread_id, gmail_message_id, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,'sub','in',$7,$8,$9) RETURNING id`,
+    [sub.id, gmailUser, replyTo || 'quickbooks@notification.intuit.com', subject.slice(0, 250), bodyText, bodyHtml, data.threadId, messageId, when]);
   const atts = [];
   (function wa(p) { if (!p) return; if (p.filename && p.body && p.body.attachmentId) atts.push({ filename: p.filename, mime: p.mimeType, size: p.body.size, aid: p.body.attachmentId }); (p.parts || []).forEach(wa); })(data.payload);
   for (const a of atts) {
