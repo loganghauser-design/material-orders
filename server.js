@@ -5452,7 +5452,21 @@ async function ingestOneQb(messageId) {
   if (licM && !(sub.license_number || '').trim()) {
     try { await verifySubLicense({ id: sub.id, company: sub.company, notes: '', license_number: licM[1] }); } catch (e) { /* keep ingesting */ }
   }
-  // No chat notification — bids show up quietly in the app (bid pipeline + ✉ unread badge).
+  // Estimates post to the dedicated "Bids" chat space (BIDS_WEBHOOK_URL) — never the
+  // delivery chat. Includes the total and a click-to-open link for each PDF.
+  if (kind === 'estimate' && process.env.BIDS_WEBHOOK_URL) {
+    try {
+      const base = process.env.APP_URL || 'https://buildoly.up.railway.app';
+      const docLinks = atts.filter(a => /pdf/i.test(a.mime || a.filename)).map(a =>
+        '📄 ' + a.filename + '\n' + base + '/threads/messages/' + messageId + '/attachment/' + a.aid + '?name=' + encodeURIComponent(a.filename) + '&mime=' + encodeURIComponent(a.mime || 'application/pdf'));
+      const lines = [
+        '📥 *' + (sub.company || bizClean) + '*' + (amt ? ' — *$' + amt + '*' : '') + (createdNew ? '  (new contractor 🆕)' : ''),
+        subject.slice(0, 140),
+        ...docLinks.slice(0, 3),
+      ];
+      await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text: lines.join('\n') }) });
+    } catch (e) { console.error('bids webhook:', e.message); }
+  }
   return { sub: sub.company, kind, amt, createdNew };
 }
 async function ingestQuickBooksEmails() {
