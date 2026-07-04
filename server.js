@@ -3897,6 +3897,8 @@ app.get('/subs', requireAuth, async (req, res) => {
       responded: contactedSubs.filter(s => respondedIds.has(s.id)).length,
       bids: contactedSubs.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
       hired: contactedSubs.filter(s => /^active$/i.test(s.status || '')).length,
+      // Can't be emailed at all (excludes rejected/blacklisted — you don't want to email those)
+      noEmail: subs.filter(s => !(s.email || '').trim() && !/reject|black/i.test(s.status || '')).length,
       tradeStats: Object.values(byTrade).filter(t => t.contacted >= 1).sort((a, b) => b.contacted - a.contacted).slice(0, 10),
     };
     res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,

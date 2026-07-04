@@ -244,6 +244,12 @@
             </div>
           </div>
         <% }) %>
+        <% if (_o.noEmail > 0) { %>
+          <div id="noEmailChip" onclick="toggleMissingEmail(this)" title="These subs can't receive outreach emails — click to show them in the list, then use ✏️ to add their email"
+               style="margin-top:.6rem;padding:.5rem .7rem;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:.8rem;cursor:pointer;user-select:none">
+            📭 <strong><%= _o.noEmail %></strong> sub<%= _o.noEmail === 1 ? '' : 's' %> missing an email — can't enter this funnel. <span style="text-decoration:underline">Click to show &amp; fix</span>
+          </div>
+        <% } %>
       </div>
       <% if (_o.tradeStats && _o.tradeStats.length) { %>
       <div style="flex:1;min-width:300px">
@@ -394,7 +400,7 @@
               <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13"><%= g %></td></tr><% } %>
               <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : 'Rejected' %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
-              <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
+              <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" data-noemail="<%= (s.email || '').trim() ? '' : '1' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
                 <td class="co"><% if (flagged) { var isBlack = /black/.test((s.status||'').toLowerCase()); %><span class="row-reason <%= isBlack ? 'black' : '' %>" data-reason="<%= s.reject_reason || '' %>"><span class="rr-name"><%= s.company || s.owner || 'Contractor' %></span><span class="rr-reason">⛔ <%= (s.status||'').toUpperCase() %><%= s.reject_reason ? ': ' + s.reject_reason : '' %></span><span class="rr-actions"><button type="button" onclick="blNote(<%= s.id %>, this)" title="Add / edit a note">✏️</button><button type="button" onclick="blReveal(this)" title="Reveal info underneath">👁</button></span></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><%= s.company || '—' %>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
@@ -656,6 +662,17 @@ document.getElementById('licModal').addEventListener('click', function (e) { if 
   const sel = document.getElementById('typeFilter');
   [...set].sort().forEach(t => { const o = document.createElement('option'); o.value = t; o.textContent = cap(t); sel.appendChild(o); });
 })();
+let missingEmailOnly = false;
+function toggleMissingEmail(chip) {
+  missingEmailOnly = !missingEmailOnly;
+  if (chip) {
+    chip.style.background = missingEmailOnly ? '#d97706' : '#fff7e6';
+    chip.style.color = missingEmailOnly ? '#fff' : '';
+    chip.style.borderColor = missingEmailOnly ? '#d97706' : '#f0d9a8';
+  }
+  filterSubs();
+  if (missingEmailOnly) document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
 function filterSubs() {
   const q = document.getElementById('subSearch').value.toLowerCase().trim();
   const tf = document.getElementById('typeFilter').value;
@@ -670,10 +687,11 @@ function filterSubs() {
     const v = vet[r.dataset.cat] || '';
     const okV = !v || (r.dataset.status || '') === v;
     const okR = !recentOnly || r.dataset.recent === '1';
-    r.style.display = (okQ && okT && okS && okV && okR) ? '' : 'none';
+    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && !/reject|black/i.test(r.dataset.status || ''));
+    r.style.display = (okQ && okT && okS && okV && okR && okE) ? '' : 'none';
   });
   // While searching/filtering, hide the empty "drag here" drop zones so results stay clean
-  const anyFilter = !!(q || tf || sf || vet.gc || vet.sub || recentOnly);
+  const anyFilter = !!(q || tf || sf || vet.gc || vet.sub || recentOnly || missingEmailOnly);
   document.querySelectorAll('tr.emptybucket').forEach(r => { r.style.display = anyFilter ? 'none' : ''; });
   // Hide sub-section headers that have no visible rows beneath them
   document.querySelectorAll('.subs-table tbody').forEach(tb => {
