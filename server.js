@@ -3888,17 +3888,28 @@ app.get('/subs', requireAuth, async (req, res) => {
       if (contactedIds.has(s.id)) b.contacted++;
       if (respondedIds.has(s.id)) b.responded++;
     });
-    // Funnel is scoped to the CONTACTED cohort: of the subs we reached out to,
-    // how many responded / bid / got hired (not diluted by the uncontacted list).
-    const contactedSubs = subs.filter(s => contactedIds.has(s.id));
+    // Two lenses:
+    //  • PROSPECT POOL = everyone still recruitable (not Active, not Rejected/Blacklisted).
+    //    Coverage = how much of that pool we've touched; untouched = remaining work.
+    //  • CONVERSION FUNNEL = of everyone EVER contacted, how many responded/bid/hired
+    //    (Actives count here as wins — they're the funnel's output, not its input).
+    const isOut = s => /reject|black/i.test(s.status || '');
+    const isActive = s => /^active$/i.test(s.status || '');
+    const pool = subs.filter(s => !isOut(s) && !isActive(s));
+    const poolContacted = pool.filter(s => contactedIds.has(s.id)).length;
+    const contactedSubs = subs.filter(s => contactedIds.has(s.id) && !isOut(s));
     const outreach = {
       total: subs.length,
+      excluded: subs.length - pool.length,           // actives + rejected/blacklisted
+      pool: pool.length,
+      poolContacted,
+      untouched: pool.length - poolContacted,
       contacted: contactedSubs.length,
       responded: contactedSubs.filter(s => respondedIds.has(s.id)).length,
       bids: contactedSubs.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
-      hired: contactedSubs.filter(s => /^active$/i.test(s.status || '')).length,
-      // Can't be emailed at all (excludes rejected/blacklisted — you don't want to email those)
-      noEmail: subs.filter(s => !(s.email || '').trim() && !/reject|black/i.test(s.status || '')).length,
+      hired: contactedSubs.filter(s => isActive(s)).length,
+      // Prospects we can't even email (pool only — actives/rejected don't need outreach)
+      noEmail: pool.filter(s => !(s.email || '').trim()).length,
       tradeStats: Object.values(byTrade).filter(t => t.contacted >= 1).sort((a, b) => b.contacted - a.contacted).slice(0, 10),
     };
     res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,

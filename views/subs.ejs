@@ -230,11 +230,16 @@
   %>
   <details class="card" style="margin-bottom:1rem;padding:1rem 1.3rem" open>
     <summary style="cursor:pointer;font-weight:800;font-size:.95rem">📊 Outreach stats
-      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— <%= _o.contacted %> of <%= _o.total %> in the list contacted · response rate <strong style="color:#16a34a"><%= _pct(_o.responded, _o.contacted) %>%</strong></span>
+      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— <%= _o.pool %> prospects (<%= _o.excluded %> active/ruled-out excluded) · <%= _o.untouched %> untouched · response rate <strong style="color:#16a34a"><%= _pct(_o.responded, _o.contacted) %>%</strong></span>
     </summary>
     <div style="display:flex;gap:2.5rem;flex-wrap:wrap;margin-top:.9rem">
       <div style="flex:1;min-width:300px">
-        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Of the <%= _o.contacted %> we contacted…</div>
+        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem">Prospect coverage <span style="font-weight:400;text-transform:none">(<%= _o.pool %> recruitable — actives &amp; rejected not counted)</span></div>
+        <div style="display:flex;height:22px;border-radius:6px;overflow:hidden;background:var(--bg);margin-bottom:.9rem" title="<%= _o.poolContacted %> contacted · <%= _o.untouched %> untouched">
+          <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6;color:#fff;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">contacted <%= _o.poolContacted %> · <%= _pct(_o.poolContacted, _o.pool) %>%</div><% } %>
+          <% if (_o.untouched) { %><div style="width:<%= _pct(_o.untouched, _o.pool) %>%;background:#cbd5e1;color:#334155;font-size:.72rem;font-weight:800;line-height:22px;padding-left:8px;white-space:nowrap;overflow:hidden">untouched <%= _o.untouched %></div><% } %>
+        </div>
+        <div style="font-size:.72rem;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:.5rem">Conversion — of the <%= _o.contacted %> ever contacted…</div>
         <% _funnel.forEach(function(f) { %>
           <div style="display:flex;align-items:center;gap:.6rem;margin-bottom:.35rem">
             <span style="flex:none;width:96px;font-size:.78rem;font-weight:600;color:#334155"><%= f.label %></span>
@@ -247,7 +252,7 @@
         <% if (_o.noEmail > 0) { %>
           <div id="noEmailChip" onclick="toggleMissingEmail(this)" title="These subs can't receive outreach emails — click to show them in the list, then use ✏️ to add their email"
                style="margin-top:.6rem;padding:.5rem .7rem;border-radius:8px;background:#fff7e6;border:1px solid #f0d9a8;font-size:.8rem;cursor:pointer;user-select:none">
-            📭 <strong><%= _o.noEmail %></strong> sub<%= _o.noEmail === 1 ? '' : 's' %> missing an email — can't enter this funnel. <span style="text-decoration:underline">Click to show &amp; fix</span>
+            📭 <strong><%= _o.noEmail %></strong> prospect<%= _o.noEmail === 1 ? '' : 's' %> missing an email — can't be contacted. <span style="text-decoration:underline">Click to show &amp; fix</span>
           </div>
         <% } %>
       </div>
@@ -687,7 +692,7 @@ function filterSubs() {
     const v = vet[r.dataset.cat] || '';
     const okV = !v || (r.dataset.status || '') === v;
     const okR = !recentOnly || r.dataset.recent === '1';
-    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && !/reject|black/i.test(r.dataset.status || ''));
+    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && !/reject|black|^active$/i.test(r.dataset.status || ''));
     r.style.display = (okQ && okT && okS && okV && okR && okE) ? '' : 'none';
   });
   // While searching/filtering, hide the empty "drag here" drop zones so results stay clean
