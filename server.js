@@ -3235,10 +3235,15 @@ app.get('/subs/emails/:id/html', requireAuth, async (req, res) => {
       } catch (e) { /* message gone from Gmail — fall through to the text version */ }
     }
     if (!html) html = '<pre style="white-space:pre-wrap;font:14px/1.6 system-ui,sans-serif;margin:0">' + escapeHtml(em.body || '(no content)') + '</pre>';
+    res.set('Content-Security-Policy', "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'");
+    if (req.query.embed) {
+      // Bare version for the inline reading pane (iframe) — just the email on white.
+      return res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><base target="_blank"></head>'
+        + '<body style="margin:0;padding:10px 14px;background:#fff;overflow-x:auto">' + html + '</body></html>');
+    }
     const who = em.direction === 'in'
       ? 'From: ' + escapeHtml(em.from_email || '') + (em.to_email ? ' &nbsp;·&nbsp; To: ' + escapeHtml(em.to_email) : '')
       : 'To: ' + escapeHtml(em.to_email || '');
-    res.set('Content-Security-Policy', "script-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'");
     res.send('<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
       + '<title>' + escapeHtml(em.subject || 'Email') + '</title><base target="_blank"></head>'
       + '<body style="margin:0;background:#f1f3f5">'
