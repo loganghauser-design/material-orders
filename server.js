@@ -5659,17 +5659,15 @@ async function coverageDigest() {
         FROM subcontractors s WHERE s.status IN ('Bid Requested', 'Bid Under Review')`);
       if (bidOut.length) {
         const byTrade = {};
-        const waiting = [];
         bidOut.forEach(s => {
           const t = (String(s.type || '').split(',')[0] || '').trim() || 'Other';
           const answered = /bid under review/i.test(s.status || '') || (s.last_in && (!s.last_out || new Date(s.last_in) > new Date(s.last_out)));
           const b = byTrade[t] = byTrade[t] || { asked: 0, answered: 0 };
           b.asked++;
-          if (answered) b.answered++; else waiting.push(s.company + ' (' + t + ')');
+          if (answered) b.answered++;
         });
         const parts = Object.keys(byTrade).sort().map(t => t + ' ' + byTrade[t].answered + '/' + byTrade[t].asked);
         lines.push('🔨 *Bid-outs — responded/asked by trade:* ' + parts.join(' · '));
-        if (waiting.length) lines.push('⏳ Still waiting on: ' + waiting.slice(0, 10).join(', ') + (waiting.length > 10 ? ' +' + (waiting.length - 10) + ' more' : ''));
       }
     } catch (e) { /* keep the digest going */ }
     const base = process.env.APP_URL || 'https://buildoly.up.railway.app';
