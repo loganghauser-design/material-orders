@@ -68,7 +68,7 @@
     <div class="sp-head">
       <div class="sp-ava"><%= initials %></div>
       <div style="min-width:0;flex:1">
-        <h1 style="margin:0;font-size:1.35rem"><%= sub.company || '(no name)' %></h1>
+        <h1 style="margin:0;font-size:1.35rem"><%= sub.company || sub.owner || '(no name)' %></h1>
         <div style="color:var(--muted);font-size:.86rem"><%= [sub.type, sub.location, sub.referenced_by ? 'ref. by ' + sub.referenced_by : ''].filter(Boolean).join(' · ') %></div>
       </div>
       <span class="sp-pill" style="background:<%= pillBg %>;color:<%= pillFg %>"><%= sub.status || '—' %></span>

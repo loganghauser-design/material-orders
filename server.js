@@ -4695,7 +4695,8 @@ app.get('/subs/fixit/list', requireAuth, async (req, res) => {
       FROM subcontractors WHERE status !~* 'reject|black' ORDER BY id`);
     const cards = [];
     rows.forEach(s => {
-      const noName = !String(s.company || '').trim();
+      // A one-man operation is fine: the guy's name in Contact counts as a name.
+      const noName = !String(s.company || '').trim() && !String(s.owner || '').trim();
       const noArea = !String(s.location || '').trim();
       const noEmail = !String(s.email || '').trim();
       const known = [s.email ? 'email ✓' : null, s.phone ? 'phone ✓' : null, s.status || null].filter(Boolean).join(' · ');
@@ -5872,8 +5873,13 @@ async function sweepPlatformBids() {
       // Match ONLY against contractors already on the list — by name in the subject or sender
       const normFull = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
       const hay = normFull(subject + ' ' + from);
-      const { rows: subsAll } = await pool.query("SELECT id, company FROM subcontractors WHERE status !~* 'reject|black' AND company IS NOT NULL AND TRIM(company) <> ''");
-      const sub = subsAll.find(s => { const k = normFull(s.company); return k.length >= 8 && hay.includes(k); });
+      const { rows: subsAll } = await pool.query("SELECT id, company, owner FROM subcontractors WHERE status !~* 'reject|black'");
+      const sub = subsAll.find(s => {
+        const k = normFull(s.company);
+        if (k.length >= 8 && hay.includes(k)) return true;
+        const o = normFull(s.owner);   // one-man shops: match the guy's full name too
+        return o.length >= 8 && hay.includes(o);
+      });
       if (!sub) continue;
       const atts = [];
       (function wa(p) { if (!p) return; if (p.filename && p.body && p.body.attachmentId) atts.push({ filename: p.filename, mimeType: p.mimeType, size: p.body.size, attachmentId: p.body.attachmentId }); (p.parts || []).forEach(wa); })(full.payload);
