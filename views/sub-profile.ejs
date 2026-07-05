@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= sub.company || 'Contractor' %> — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .sp-head { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+    .sp-ava { width:52px; height:52px; border-radius:50%; background:#ede9fe; color:#5b21b6; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:1.1rem; flex:none; }
+    .sp-pill { font-size:.74rem; font-weight:800; padding:3px 12px; border-radius:10px; white-space:nowrap; }
+    .sp-badges { display:flex; flex-wrap:wrap; gap:.45rem; margin-top:.8rem; }
+    .sp-badge { font-size:.76rem; font-weight:700; padding:4px 11px; border-radius:9px; border:1px solid; white-space:nowrap; }
+    .spb-ok { background:#e7f6ec; border-color:#b9e4c8; color:#176b3a; }
+    .spb-warn { background:#fff4dd; border-color:#f0d9a6; color:#8a6100; }
+    .spb-bad { background:#fdeaea; border-color:#f3bcbc; color:#b42323; }
+    .spb-mut { background:var(--bg); border-color:var(--border); color:var(--muted); }
+    .sp-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem; margin:1rem 0; }
+    .sp-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1rem 1.2rem; }
+    .sp-card h3 { font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); margin:0 0 .7rem; }
+    .sp-kv { width:100%; font-size:.88rem; }
+    .sp-kv td { padding:.22rem 0; }
+    .sp-kv td:first-child { color:var(--muted); width:80px; }
+    .sp-doc { display:flex; align-items:baseline; gap:.4rem; font-size:.86rem; padding:.25rem 0; }
+    .sp-doc a { text-decoration:none; }
+    .sp-ev { display:flex; gap:.8rem; padding:.55rem 0; border-bottom:1px solid var(--border); font-size:.88rem; align-items:baseline; }
+    .sp-ev:last-child { border-bottom:none; }
+    .sp-ev .d { flex:none; width:64px; color:var(--muted); font-size:.78rem; }
+    .sp-ev .tag { flex:none; font-size:.68rem; font-weight:800; padding:2px 8px; border-radius:8px; }
+    .ev-in { background:#eef6ff; color:#1d4ed8; } .ev-out { background:#eef0f4; color:#555; }
+    .ev-bid { background:#e7f6ec; color:#176b3a; } .ev-lic { background:#ede9fe; color:#5b21b6; } .ev-ins { background:#fff4dd; color:#8a6100; }
+    .sp-photos { display:flex; flex-wrap:wrap; gap:.5rem; }
+    .sp-photos img { height:92px; border-radius:9px; border:1px solid var(--border); }
+    .sp-reply { display:flex; gap:.5rem; margin-top:.8rem; }
+    .sp-reply textarea { flex:1; font:inherit; font-size:.88rem; border:1px solid var(--border); border-radius:9px; padding:.45rem .6rem; resize:vertical; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'subs' }) %>
+
+<div class="container">
+  <p style="margin:0 0 .7rem"><a href="/subs" style="font-size:.86rem;color:var(--muted);text-decoration:none">← Back to Subs</a></p>
+
+  <%
+    function money(a) { return a == null ? '' : '$' + Number(a).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function docUrl(mid, aid, name, mime) {
+      var mm = mime || (/\.docx?$/i.test(name || '') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf');
+      return '/threads/messages/' + mid + '/attachment/' + aid + '?name=' + encodeURIComponent(name || 'file') + '&mime=' + encodeURIComponent(mm);
+    }
+    var st = (sub.status || '').toLowerCase();
+    var pillBg = /bid under review/.test(st) ? '#7c3aed' : /black/.test(st) ? '#111' : /reject/.test(st) ? '#c0392b' : /inactive/.test(st) ? '#6b7280' : /active/.test(st) ? '#38761d' : /approv/.test(st) ? '#b6d7a8' : /bid (sent|request)/.test(st) ? '#c7d2fe' : '#e6e6e6';
+    var pillFg = /approv/.test(st) ? '#274e13' : /bid (sent|request)/.test(st) ? '#3730a3' : (/bid under review|black|reject|inactive|active/.test(st) ? '#fff' : '#555');
+    var lf = []; try { lf = JSON.parse(sub.license_flags || '[]'); } catch (e) {}
+    var licWorst = lf.some(function (f) { return f.level === 'red'; }) ? 'bad' : (lf.some(function (f) { return f.level === 'amber'; }) ? 'warn' : (sub.license_checked_at ? 'ok' : 'mut'));
+    var licText = licWorst === 'ok' ? '✓ License active' + (sub.license_expire ? ' · exp ' + new Date(sub.license_expire).toLocaleDateString() : '')
+                : licWorst === 'mut' ? 'License not verified'
+                : ((licWorst === 'bad' ? '⛔ ' : '⚠ ') + ((lf.find(function (f) { return f.level === (licWorst === 'bad' ? 'red' : 'amber'); }) || {}).text || 'license issue'));
+    var insD = sub.ins_expires ? Math.floor((new Date(sub.ins_expires) - Date.now()) / 86400000) : null;
+    var insCls = insD == null ? 'mut' : insD < 0 ? 'bad' : insD <= 60 ? 'warn' : 'ok';
+    var insText = insD == null ? '🛡 No COI on file' : insD < 0 ? '🛡 Insurance EXPIRED ' + new Date(sub.ins_expires).toLocaleDateString() : '🛡 Insurance thru ' + new Date(sub.ins_expires).toLocaleDateString() + (insD <= 60 ? ' (' + insD + 'd)' : '');
+    var initials = String(sub.company || sub.owner || '?').replace(/[^A-Za-z0-9 ]/g, '').split(/\s+/).map(function (w) { return w[0]; }).filter(Boolean).slice(0, 2).join('').toUpperCase() || '?';
+  %>
+
+  <div class="sp-card">
+    <div class="sp-head">
+      <div class="sp-ava"><%= initials %></div>
+      <div style="min-width:0;flex:1">
+        <h1 style="margin:0;font-size:1.35rem"><%= sub.company || '(no name)' %></h1>
+        <div style="color:var(--muted);font-size:.86rem"><%= [sub.type, sub.location, sub.referenced_by ? 'ref. by ' + sub.referenced_by : ''].filter(Boolean).join(' · ') %></div>
+      </div>
+      <span class="sp-pill" style="background:<%= pillBg %>;color:<%= pillFg %>"><%= sub.status || '—' %></span>
+    </div>
+    <div class="sp-badges">
+      <span class="sp-badge spb-<%= licWorst %>"><%= licText %></span>
+      <span class="sp-badge spb-<%= insCls %>"><%= insText %></span>
+      <% if (sub.bid_price) { %><span class="sp-badge spb-ok">💰 Bid <%= sub.bid_price %><%= /awarded/i.test(sub.bid_status || '') ? ' 🏆' : '' %></span><% } %>
+    </div>
+  </div>
+
+  <div class="sp-grid">
+    <div class="sp-card">
+      <h3>Contact</h3>
+      <table class="sp-kv">
+        <tr><td>Owner</td><td><%= sub.owner || '—' %></td></tr>
+        <tr><td>Email</td><td><% if (sub.email) { %><a href="mailto:<%= sub.email %>"><%= sub.email %></a><% } else { %>—<% } %></td></tr>
+        <tr><td>Phone</td><td><% if (sub.phone) { %><a href="tel:<%= sub.phone.replace(/[^0-9+]/g,'') %>"><%= sub.phone %></a><% } else { %>—<% } %></td></tr>
+        <tr><td>Areas</td><td><%= sub.location || '—' %></td></tr>
+        <tr><td>License #</td><td><%= sub.license_number || '—' %></td></tr>
+      </table>
+      <% if (sub.notes) { %><div style="font-size:.82rem;color:var(--muted);margin-top:.6rem;white-space:pre-wrap"><%= sub.notes %></div><% } %>
+    </div>
+    <div class="sp-card">
+      <h3>Documents (<%= attachments.length %>)</h3>
+      <% if (!attachments.length) { %><div style="color:var(--muted);font-size:.85rem">Nothing emailed yet.</div><% } %>
+      <% attachments.slice(0, 12).forEach(function (a) {
+           var icon = /coi|acord|insur|liab|certificat/i.test(a.filename || '') ? '🛡' : /bid|proposal|estimate|quote/i.test(a.filename || '') ? '💰' : /\.(png|jpe?g|gif|webp)$/i.test(a.filename || '') ? '🖼' : '📄'; %>
+        <div class="sp-doc"><span><%= icon %></span><a href="<%= docUrl(a.gmail_message_id, a.gmail_attachment_id, a.filename, a.mime) %>" target="_blank" rel="noopener"><%= a.filename %></a><span style="color:var(--muted);font-size:.74rem">· <%= new Date(a.created_at).toLocaleDateString() %></span></div>
+      <% }) %>
+      <% if (attachments.length > 12) { %><div style="color:var(--muted);font-size:.78rem;margin-top:.3rem">+<%= attachments.length - 12 %> more in the emails below</div><% } %>
+    </div>
+  </div>
+
+  <% if (bids.length) { %>
+  <div class="sp-card" style="margin-bottom:1rem">
+    <h3>Bids (<%= bids.length %>)</h3>
+    <% bids.forEach(function (b) { %>
+      <div class="sp-doc">
+        <strong style="font-size:.95rem"><%= money(b.amount) || '—' %></strong>
+        <span style="color:var(--muted);font-size:.8rem"><%= b.project_address ? '🏠 ' + b.project_address : (b.job_hint ? '“' + b.job_hint + '”' : 'no project matched') %> · <%= new Date(b.received_at).toLocaleDateString() %> · <%= b.status %></span>
+        <% if (b.gmail_attachment_id) { %><a href="<%= docUrl(b.gmail_message_id, b.gmail_attachment_id, b.filename) %>" target="_blank" rel="noopener">📄 open</a><% } %>
+      </div>
+    <% }) %>
+  </div>
+  <% } %>
+
+  <div class="sp-card" style="margin-bottom:1rem">
+    <h3>History — emails, bids &amp; checks</h3>
+    <% if (!events.length) { %><div style="color:var(--muted);font-size:.85rem">No activity yet.</div><% } %>
+    <% events.slice(0, 40).forEach(function (ev) { %>
+      <div class="sp-ev">
+        <span class="d"><%= new Date(ev.t).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) %></span>
+        <% if (ev.kind === 'in') { %><span class="tag ev-in">↩ reply</span><span><%= ev.subject %><% if (ev.hasHtml) { %> <a href="/subs/emails/<%= ev.emailId %>/html" target="_blank" rel="noopener" style="font-size:.78rem">open ↗</a><% } %></span>
+        <% } else if (ev.kind === 'out') { %><span class="tag ev-out">sent</span><span><%= ev.subject %><% if (ev.hasHtml) { %> <a href="/subs/emails/<%= ev.emailId %>/html" target="_blank" rel="noopener" style="font-size:.78rem">open ↗</a><% } %></span>
+        <% } else if (ev.kind === 'bid') { %><span class="tag ev-bid">bid</span><span><strong><%= money(ev.amount) %></strong><%= ev.project ? ' — ' + ev.project : '' %><% if (ev.aid) { %> <a href="<%= docUrl(ev.mid, ev.aid, ev.filename) %>" target="_blank" rel="noopener" style="font-size:.78rem">📄</a><% } %></span>
+        <% } else if (ev.kind === 'lic') { %><span class="tag ev-lic">license</span><span>CSLB checked — <%= ev.status || 'see report' %><%= ev.expire ? ' · exp ' + new Date(ev.expire).toLocaleDateString() : '' %></span>
+        <% } else { %><span class="tag ev-ins">insurance</span><span>COI scanned — <%= ev.expires ? 'next lapse ' + new Date(ev.expires).toLocaleDateString() : '' %> <span style="color:var(--muted);font-size:.78rem"><%= ev.note || '' %></span></span><% } %>
+      </div>
+    <% }) %>
+    <div class="sp-reply">
+      <textarea id="spReply" rows="2" placeholder="Reply to <%= sub.company || 'this sub' %>… (goes into their latest email thread)"></textarea>
+      <button type="button" class="btn btn-primary" id="spSend" onclick="spSendReply()">Send</button>
+    </div>
+  </div>
+
+  <% if (photos.length) { %>
+  <div class="sp-card" style="margin-bottom:1rem">
+    <h3>Photos (<%= photos.length %>)</h3>
+    <div class="sp-photos">
+      <% photos.forEach(function (p) { %><a href="/sub-photo/<%= p.id %>" target="_blank" rel="noopener"><img src="/sub-photo/<%= p.id %>" alt="" loading="lazy"></a><% }) %>
+    </div>
+  </div>
+  <% } %>
+</div>
+
+<div id="toast" class="toast"></div>
+<script>
+async function spSendReply() {
+  const ta = document.getElementById('spReply');
+  const body = ta.value.trim();
+  if (!body) return ta.focus();
+  const btn = document.getElementById('spSend');
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/subs/<%= sub.id %>/reply', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body }) });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else { alert(d.error || 'Could not send'); btn.disabled = false; btn.textContent = 'Send'; }
+  } catch (e) { alert('Could not send'); btn.disabled = false; btn.textContent = 'Send'; }
+}
+</script>
+</body>
+</html>

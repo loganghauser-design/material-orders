@@ -302,6 +302,7 @@
       <button type="button" class="btn btn-ghost" onclick="verifyAllLic(this)" title="Check every contractor's license against CSLB — flags expired / suspended / disciplinary">🛡 Verify licenses</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
       <button type="button" class="btn btn-ghost" onclick="openCardScan()" title="Guided scan: photo of the front, then the back — I'll read both and prefill the Add form">📇 Scan card</button>
+      <button type="button" class="btn btn-ghost" id="fixitBtn" onclick="openFixit()" title="Walk through subs missing a name, service area, or email — one card at a time" style="display:none">🛠 Needs info <span id="fixitN" style="background:#d97706;color:#fff;font-size:.72rem;font-weight:800;padding:1px 8px;border-radius:9px"></span></button>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
@@ -579,7 +580,7 @@
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" data-noemail="<%= (s.email || '').trim() ? '' : '1' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
-                <td class="co"><% if (flagged) { var isBlack = /black/.test((s.status||'').toLowerCase()); %><span class="row-reason <%= isBlack ? 'black' : '' %>" data-reason="<%= s.reject_reason || '' %>"><span class="rr-name"><%= s.company || s.owner || 'Contractor' %></span><span class="rr-reason">⛔ <%= (s.status||'').toUpperCase() %><%= s.reject_reason ? ': ' + s.reject_reason : '' %></span><span class="rr-actions"><button type="button" onclick="blNote(<%= s.id %>, this)" title="Add / edit a note">✏️</button><button type="button" onclick="blReveal(this)" title="Reveal info underneath">👁</button></span></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><%= s.company || '—' %>
+                <td class="co"><% if (flagged) { var isBlack = /black/.test((s.status||'').toLowerCase()); %><span class="row-reason <%= isBlack ? 'black' : '' %>" data-reason="<%= s.reject_reason || '' %>"><span class="rr-name"><%= s.company || s.owner || 'Contractor' %></span><span class="rr-reason">⛔ <%= (s.status||'').toUpperCase() %><%= s.reject_reason ? ': ' + s.reject_reason : '' %></span><span class="rr-actions"><button type="button" onclick="blNote(<%= s.id %>, this)" title="Add / edit a note">✏️</button><button type="button" onclick="blReveal(this)" title="Reveal info underneath">👁</button></span></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><a href="/subs/profile/<%= s.id %>" style="color:inherit;text-decoration:none;font-weight:inherit" title="Open <%= (s.company || 'this contractor').replace(/"/g,'&quot;') %>'s profile — emails, bids, docs, history" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'"><%= s.company || '—' %></a>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
                   <% if (s.notes) { %><span class="conote-btn" onclick="this.nextElementSibling.classList.toggle('show')" title="Show / hide notes">📝 notes</span><div class="conote-body"><%= s.notes %></div><% } %>
                 </td>
@@ -759,6 +760,32 @@
   <option>Tile</option><option>Stone</option><option>Countertops</option><option>Cabinets</option><option>Solar</option><option>Stucco</option>
   <option>Insulation</option><option>Fire Sprinklers</option><option>Decking</option><option>Finishes</option><option>Tree Removal</option><option>Methane</option>
 </datalist>
+
+<!-- Fix-it deck: cycle through subs missing a name / service area / email -->
+<div class="modal-bk" id="fixitModal">
+  <div class="modal-card" style="max-width:480px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:.4rem">
+      <h2 style="margin:0">🛠 Needs info</h2>
+      <span id="fxProg" style="font-size:.82rem;color:var(--muted)"></span>
+    </div>
+    <div style="height:6px;background:var(--bg);border-radius:3px;overflow:hidden;margin-bottom:1rem"><div id="fxBar" style="height:100%;width:0;background:#16a34a"></div></div>
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:1rem 1.1rem">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:.5rem;flex-wrap:wrap">
+        <strong id="fxName" style="font-size:1.05rem"></strong>
+        <span id="fxTrade" style="background:#eef0f4;color:#555;font-size:.72rem;font-weight:700;padding:2px 9px;border-radius:9px"></span>
+      </div>
+      <div id="fxKnown" style="font-size:.8rem;color:var(--muted);margin:.2rem 0 .8rem"></div>
+      <div id="fxAsk" style="background:#fff7e6;border:1px solid #f0d9a8;border-radius:9px;padding:.5rem .8rem;font-size:.88rem;color:#7a5b00;margin-bottom:.8rem"></div>
+      <div id="fxChips" style="display:flex;flex-wrap:wrap;gap:.45rem;margin-bottom:.9rem"></div>
+      <input type="text" id="fxInput" style="display:none;width:100%;margin-bottom:.9rem" placeholder="">
+      <div style="display:flex;justify-content:flex-end;gap:.5rem">
+        <button type="button" class="btn btn-ghost btn-sm" onclick="fixitSkip()">Skip</button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="fixitSave()">✓ Save &amp; next</button>
+      </div>
+    </div>
+    <div style="margin-top:.8rem"><button type="button" class="btn btn-ghost btn-sm" onclick="closeFixit()">Done for now</button></div>
+  </div>
+</div>
 
 <!-- Guided business-card scan: forces two photos — front, then back -->
 <div class="modal-bk" id="cardModal">
@@ -1189,6 +1216,86 @@ async function subField(id, obj) {
 }
 const BID_CLASSES = ['bid-received','bid-sent','bid-called','bid-awarded','bid-passed'];
 function bidClassJS(b){ b=(b||'').toLowerCase(); if(/received/.test(b))return 'bid-received'; if(/sent/.test(b))return 'bid-sent'; if(/called/.test(b))return 'bid-called'; if(/awarded/.test(b))return 'bid-awarded'; if(/passed/.test(b))return 'bid-passed'; return ''; }
+// 🛠 Fix-it deck: one card per missing field, saves through the normal inline-field endpoint
+let fxCards = [], fxDone = 0, fxTotal = 0;
+async function fixitLoad() {
+  try {
+    const r = await fetch('/subs/fixit/list');
+    const d = await r.json();
+    if (!d.ok) return;
+    fxCards = d.cards; fxTotal = fxCards.length; fxDone = 0;
+    const btn = document.getElementById('fixitBtn');
+    if (btn && fxTotal) { btn.style.display = ''; document.getElementById('fixitN').textContent = fxTotal; }
+    else if (btn) btn.style.display = 'none';
+  } catch (e) {}
+}
+function openFixit() {
+  if (!fxCards.length) return;
+  fixitRender();
+  document.getElementById('fixitModal').classList.add('show');
+}
+function closeFixit() { document.getElementById('fixitModal').classList.remove('show'); reloadKeepScroll(); }
+const FX_ASK = {
+  company: '👤 Missing company name — who is this?',
+  location: '📍 Missing service area — where do they work?',
+  email: '📧 Missing email — they can\'t be reached or counted until this is filled.',
+};
+function fixitRender() {
+  if (!fxCards.length) {
+    document.getElementById('fxName').textContent = '🎉 All caught up';
+    document.getElementById('fxTrade').textContent = '';
+    document.getElementById('fxKnown').textContent = 'Every sub has a name, service area, and email.';
+    document.getElementById('fxAsk').style.display = 'none';
+    document.getElementById('fxChips').innerHTML = '';
+    document.getElementById('fxInput').style.display = 'none';
+    document.getElementById('fxProg').textContent = fxDone + ' fixed';
+    document.getElementById('fxBar').style.width = '100%';
+    return;
+  }
+  const c = fxCards[0];
+  document.getElementById('fxName').textContent = String(c.company || '').trim() || '(no name)' + (c.owner ? ' — ' + c.owner : '');
+  document.getElementById('fxTrade').textContent = (String(c.type || '').split(',')[0] || '').trim() || '—';
+  document.getElementById('fxKnown').textContent = c.known || '';
+  const ask = document.getElementById('fxAsk');
+  ask.style.display = ''; ask.textContent = FX_ASK[c.field];
+  const chips = document.getElementById('fxChips'), inp = document.getElementById('fxInput');
+  if (c.field === 'location') {
+    inp.style.display = 'none'; chips.style.display = 'flex';
+    chips.innerHTML = COUNTIES.map(function (a) {
+      return '<button type="button" class="sortbtn fx-cty" data-a="' + a + '" onclick="this.classList.toggle(\'on\')">' + a.replace(' County', '') + '</button>';
+    }).join('');
+  } else {
+    chips.style.display = 'none'; chips.innerHTML = '';
+    inp.style.display = ''; inp.value = '';
+    inp.placeholder = c.field === 'email' ? 'name@company.com' : 'Company name';
+    inp.focus();
+  }
+  document.getElementById('fxProg').textContent = (fxDone + 1) + ' of ' + fxTotal;
+  document.getElementById('fxBar').style.width = Math.round(fxDone / fxTotal * 100) + '%';
+}
+async function fixitSave() {
+  const c = fxCards[0];
+  if (!c) return;
+  let val = '';
+  if (c.field === 'location') {
+    val = Array.prototype.map.call(document.querySelectorAll('.fx-cty.on'), function (b) { return b.dataset.a; }).join(', ');
+    if (!val) return alert('Tap at least one county (or Skip).');
+  } else {
+    val = document.getElementById('fxInput').value.trim();
+    if (!val) return alert('Type it in (or Skip).');
+    if (c.field === 'email' && !/[\w.+-]+@[\w-]+\.[\w.]+/.test(val)) return alert('That doesn\'t look like an email.');
+  }
+  const ok = await subField(c.id, { [c.field]: val });
+  if (!ok) return alert('Could not save — try again');
+  fxCards.shift(); fxDone++;
+  fixitRender();
+}
+function fixitSkip() {
+  fxCards.push(fxCards.shift());   // to the back of the deck
+  fixitRender();
+}
+document.addEventListener('DOMContentLoaded', function () { <% if (canEdit && !isSuper) { %>fixitLoad();<% } %> });
+
 // 📇 Guided business-card scan: step 1 FRONT photo, step 2 BACK photo, then both
 // get OCR'd together and the Add form opens prefilled with both photos attached.
 let csFiles = { front: null, back: null };

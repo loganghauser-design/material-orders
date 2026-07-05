@@ -4512,6 +4512,18 @@ async function verifySubLicense(sub) {
 // Text extraction: pdf-parse for digital PDFs; Cloud Vision OCR for scans and photos.
 async function docTextOrOcr(buf, filename) {
   let text = '';
+  if (/\.docx$/i.test(filename || '')) {
+    try {
+      const JSZip = require('jszip');
+      const zip = await JSZip.loadAsync(buf);
+      const doc = zip.file('word/document.xml');
+      if (doc) {
+        const xml = await doc.async('string');
+        return xml.replace(/<w:p\b[^>]*>/g, '\n').replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+      }
+    } catch (e) { /* corrupt docx */ }
+    return '';
+  }
   const isPdf = /\.pdf$/i.test(filename || '') || buf.slice(0, 4).toString() === '%PDF';
   if (isPdf) {
     try {
@@ -4623,7 +4635,7 @@ async function cslbSearchByCounty(classification, counties) {
 }
 
 // Inline-save a whitelisted contractor field (bid pipeline + license)
-const SUB_INLINE_FIELDS = { bid_status: 'text', bid_price: 'text', license_number: 'text', licensed: 'bool', email: 'text', phone: 'text' };
+const SUB_INLINE_FIELDS = { bid_status: 'text', bid_price: 'text', license_number: 'text', licensed: 'bool', email: 'text', phone: 'text', location: 'text', company: 'text' };
 app.post('/subs/:id/field', requireAuth, async (req, res) => {
   try {
     const sets = [], vals = [];
@@ -4631,13 +4643,65 @@ app.post('/subs/:id/field', requireAuth, async (req, res) => {
       if (!(k in req.body)) continue;
       let v = req.body[k];
       if (type === 'bool') v = (v === 'true' || v === true) ? true : (v === 'false' || v === false) ? false : null;
-      else v = (v != null && String(v).trim()) ? String(v).trim().slice(0, 80) : null;
+      else v = (v != null && String(v).trim()) ? String(v).trim().slice(0, 200) : null;   // location can list several counties
       sets.push(`${k}=$${vals.length + 1}`); vals.push(v);
     }
     if (!sets.length) return res.json({ ok: true });
     vals.push(req.params.id);
     await pool.query(`UPDATE subcontractors SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
     res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── Sub profile page: everything about one contractor in one place ──
+app.get('/subs/profile/:id', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: [sub] } = await pool.query('SELECT * FROM subcontractors WHERE id=$1', [req.params.id]);
+    if (!sub) return res.status(404).send('Contractor not found.');
+    const { rows: photos } = await pool.query('SELECT id FROM sub_photos WHERE sub_id=$1 ORDER BY id', [sub.id]);
+    const { rows: emails } = await pool.query(
+      `SELECT id, subject, body, direction, created_at, gmail_message_id,
+              (body_html IS NOT NULL OR gmail_message_id IS NOT NULL) AS has_html
+       FROM sub_emails WHERE sub_id=$1 ORDER BY created_at DESC`, [sub.id]);
+    const { rows: attachments } = await pool.query(
+      `SELECT a.id, a.filename, a.mime, a.gmail_message_id, a.gmail_attachment_id, e.created_at
+       FROM sub_email_attachments a JOIN sub_emails e ON e.id = a.sub_email_id
+       WHERE e.sub_id=$1 ORDER BY e.created_at DESC`, [sub.id]);
+    const { rows: bids } = await pool.query(
+      `SELECT b.*, p.address AS project_address FROM bids b LEFT JOIN projects p ON p.id = b.project_id
+       WHERE b.sub_id=$1 ORDER BY b.received_at DESC`, [sub.id]);
+    // One merged timeline: emails, bids, and compliance checks in date order
+    const events = [];
+    emails.forEach(e => events.push({ t: e.created_at, kind: e.direction === 'in' ? 'in' : 'out', subject: e.subject, emailId: e.id, hasHtml: e.has_html }));
+    bids.forEach(b => events.push({ t: b.received_at, kind: 'bid', amount: b.amount, project: b.project_address, filename: b.filename, mid: b.gmail_message_id, aid: b.gmail_attachment_id }));
+    if (sub.license_checked_at) events.push({ t: sub.license_checked_at, kind: 'lic', status: sub.license_status, expire: sub.license_expire });
+    if (sub.ins_checked_at) events.push({ t: sub.ins_checked_at, kind: 'ins', expires: sub.ins_expires, note: sub.ins_note });
+    events.sort((a, b) => new Date(b.t) - new Date(a.t));
+    res.render('sub-profile', { sub, photos, emails, attachments, bids, events });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
+// Fix-it deck: every usable sub that's missing a name, service area, or email —
+// one card per missing field, worst gaps first (blank names, then areas, then emails)
+app.get('/subs/fixit/list', requireAuth, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT id, company, owner, type, status, location, email, phone
+      FROM subcontractors WHERE status !~* 'reject|black' ORDER BY id`);
+    const cards = [];
+    rows.forEach(s => {
+      const noName = !String(s.company || '').trim();
+      const noArea = !String(s.location || '').trim();
+      const noEmail = !String(s.email || '').trim();
+      const known = [s.email ? 'email ✓' : null, s.phone ? 'phone ✓' : null, s.status || null].filter(Boolean).join(' · ');
+      const base = { id: s.id, company: s.company, owner: s.owner, type: s.type, known };
+      if (noName) cards.push({ ...base, field: 'company' });
+      if (noArea) cards.push({ ...base, field: 'location' });
+      if (noEmail) cards.push({ ...base, field: 'email' });
+    });
+    cards.sort((a, b) => ({ company: 0, location: 1, email: 2 })[a.field] - ({ company: 0, location: 1, email: 2 })[b.field]);
+    res.json({ ok: true, cards });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
@@ -5517,6 +5581,9 @@ async function checkSubReplies() {
               "INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)",
               [ins.id, a.filename, a.mimeType || null, a.size || null, m.id, a.attachmentId]);
           }
+          // Bid attached? Read it and put it in the pipeline — same as a QuickBooks estimate.
+          try { await maybeIngestDirectBid(r.sub_id, m.id, atts, m.subject || r.subject, text, when); }
+          catch (e) { console.error('direct bid ingest:', e.message); }
         }
         const latest = new Date(Math.max(...inbound.map(m => new Date(m.date).getTime())));
         const { rows: [sub] } = await pool.query('SELECT replies_viewed_at FROM subcontractors WHERE id=$1', [r.sub_id]);
@@ -5675,6 +5742,103 @@ async function coverageDigest() {
     await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
     console.log('coverageDigest posted');
   } catch (e) { console.error('coverageDigest:', e.message); }
+}
+
+// ── Direct-email bid ingest ─────────────────────────────────────────────────────
+// Subs who don't use QuickBooks email their bids as PDFs, Word docs, or scans.
+// When the reply-checker logs one, read it: a bid-looking doc with a labeled total
+// gets the exact same treatment as a QuickBooks estimate. Conservative on purpose —
+// no readable total, or it looks like an insurance cert, and nothing changes.
+function normBidAmount(s) {
+  s = String(s).replace(/\s/g, '').replace(/[.,]$/, '');
+  const m = s.match(/^(\d{1,3}(?:[.,]\d{3})*)(?:[.,](\d{2}))?$/);   // handles 14,000.00 AND 14.000.00
+  if (!m) { const n = Number(s.replace(/,/g, '')); return isFinite(n) ? n : null; }
+  return Number(m[1].replace(/[.,]/g, '')) + (m[2] ? Number('0.' + m[2]) : 0);
+}
+function parseBidTotal(text) {
+  const t = String(text || '');
+  let best = null, m;
+  const labeled = /(?:grand\s*total|total[^\n$]{0,60}?|sum\s+of|balance\s+due|amount\s+due)[^0-9$\n]{0,80}\$?\s*([\d][\d.,]*)/gi;
+  while ((m = labeled.exec(t))) { const v = normBidAmount(m[1]); if (v && v >= 100 && v <= 5000000 && (best == null || v > best)) best = v; }
+  if (best == null) {   // fallback: largest $-prefixed amount in a sane range
+    const dollar = /\$\s*([\d][\d.,]*)/g;
+    while ((m = dollar.exec(t))) { const v = normBidAmount(m[1]); if (v && v >= 500 && v <= 5000000 && (best == null || v > best)) best = v; }
+  }
+  return best;
+}
+const BIDDOC_RE = /bid|proposal|estimate|quote/i;
+async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyText, when) {
+  if (!atts || !atts.length || !gmailClient) return;
+  const { rows: [dup] } = await pool.query('SELECT id FROM bids WHERE gmail_message_id=$1 LIMIT 1', [gmailMessageId]);
+  if (dup) return;
+  const cands = atts.filter(a => /\.(pdf|docx?|png|jpe?g)$/i.test(a.filename || '') && !COI_FILE_RE.test(a.filename || '')).slice(0, 3);
+  for (const a of cands) {
+    const att = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId: gmailMessageId, id: a.attachmentId });
+    const buf = Buffer.from(String(att.data.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+    const text = await docTextOrOcr(buf, a.filename);
+    if (!text || /certificate of liability|acord\b|workers'? comp(?:ensation)? insurance/i.test(text.slice(0, 1500))) continue;
+    const bidish = BIDDOC_RE.test(a.filename || '') || BIDDOC_RE.test(String(subject || '')) || BIDDOC_RE.test(text.slice(0, 1200));
+    if (!bidish) continue;
+    const amount = parseBidTotal(text);
+    if (!amount) continue;
+    const { rows: [sub] } = await pool.query('SELECT id, company, status, bid_status FROM subcontractors WHERE id=$1', [subId]);
+    if (!sub) return;
+    const priceStr = '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const newBidStatus = /awarded/i.test(sub.bid_status || '') ? sub.bid_status : 'Bid Received';
+    await pool.query('UPDATE subcontractors SET bid_status=$1, bid_price=$2 WHERE id=$3', [newBidStatus, priceStr.slice(0, 40), sub.id]);
+    if (!/active|approv|inactive|reject|black|bid under review/i.test(sub.status || '')) {
+      await pool.query("UPDATE subcontractors SET status='Bid Under Review', group_label='Bid Under Review' WHERE id=$1", [sub.id]);
+    }
+    const hint = bidJobHint(subject, text);
+    const proj = hint ? await matchBidToProject(hint) : null;
+    await pool.query(
+      `INSERT INTO bids (sub_id, project_id, amount, estimate_no, subject, job_hint, gmail_message_id, filename, gmail_attachment_id, auto_matched, received_at, seen)
+       VALUES ($1,$2,$3,NULL,$4,$5,$6,$7,$8,$9,$10,false)`,
+      [sub.id, proj ? proj.id : null, amount, String(subject || '').slice(0, 250), hint, gmailMessageId, a.filename, a.attachmentId, !!proj, when || new Date()]);
+    await postBidToBidsSpace(
+      '📥 *' + sub.company + '* — *' + priceStr + '*' + (proj ? '\n🏠 ' + proj.address : ''),
+      String(subject || '').slice(0, 140),
+      [{ filename: a.filename, mime: a.mimeType, aid: a.attachmentId }], gmailMessageId);
+    console.log('direct bid ingested: ' + sub.company + ' ' + priceStr + (proj ? ' -> ' + proj.address : ' (no project match)'));
+    return;
+  }
+}
+// Post a bid to the Bids chat space — Chat API with the real file attached, webhook links as fallback
+async function postBidToBidsSpace(header, subjectLine, docs, messageId) {
+  if (!(process.env.BIDS_SPACE || process.env.BIDS_WEBHOOK_URL)) return;
+  let posted = false;
+  if (process.env.BIDS_SPACE && gOauth2) {
+    try {
+      const space = process.env.BIDS_SPACE;
+      const at = (await gOauth2.getAccessToken()).token;
+      const refs = [];
+      for (const a of (docs || []).slice(0, 3)) {
+        const r = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId, id: a.aid });
+        const buf = Buffer.from(String(r.data.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        const boundary = 'qbbid' + Math.floor(Math.random() * 1e9);
+        const body = Buffer.concat([
+          Buffer.from('--' + boundary + '\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n' + JSON.stringify({ filename: a.filename }) + '\r\n--' + boundary + '\r\nContent-Type: ' + (a.mime || 'application/pdf') + '\r\n\r\n'),
+          buf, Buffer.from('\r\n--' + boundary + '--')]);
+        const up = await fetch('https://chat.googleapis.com/upload/v1/' + space + '/attachments:upload?uploadType=multipart', {
+          method: 'POST', headers: { 'Authorization': 'Bearer ' + at, 'Content-Type': 'multipart/related; boundary=' + boundary }, body });
+        const upd = await up.json();
+        if (!up.ok) throw new Error('upload HTTP ' + up.status + ': ' + JSON.stringify(upd).slice(0, 120));
+        refs.push({ attachmentDataRef: upd.attachmentDataRef });
+      }
+      const mr = await fetch('https://chat.googleapis.com/v1/' + space + '/messages', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + at, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: header + '\n' + subjectLine, attachment: refs }) });
+      if (!mr.ok) throw new Error('message HTTP ' + mr.status);
+      posted = true;
+    } catch (e) { console.error('bids chat api (fallback to webhook):', e.message); }
+  }
+  if (!posted && process.env.BIDS_WEBHOOK_URL) {
+    try {
+      const base = process.env.APP_URL || 'https://buildoly.up.railway.app';
+      const links = (docs || []).slice(0, 3).map(a => '📄 ' + a.filename + '\n' + base + '/threads/messages/' + messageId + '/attachment/' + a.aid + '?name=' + encodeURIComponent(a.filename) + '&mime=' + encodeURIComponent(a.mime || 'application/pdf'));
+      await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text: [header, subjectLine, ...links].join('\n') }) });
+    } catch (e) { console.error('bids webhook:', e.message); }
+  }
 }
 
 // ── Bid → project matching ─────────────────────────────────────────────────────
