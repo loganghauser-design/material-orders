@@ -61,9 +61,12 @@
     .of-chip .mut { color:var(--muted); }
     .of-chip-warn { cursor:pointer; user-select:none; background:#fff7e6; border:1px solid #f0d9a8; border-radius:8px; padding:.05rem .4rem; color:#7a5b00; }
     @media (max-width: 800px) { .of-left { width:100%; flex-direction:row; align-items:baseline; gap:.6rem; } .of-right { width:100%; } }
-    .co-meta { color:var(--muted); font-size:.76rem; margin-top:.15rem; max-width:280px; }
+    .co-meta { color:var(--muted); font-size:.76rem; margin-top:.15rem; max-width:240px; }
     .co-ref { white-space:nowrap; }
-    .subs-table td.co { min-width:190px; }
+    .subs-table td.co { min-width:170px; }
+    .subs-table td.areas { font-size:.8rem; max-width:130px; }
+    .lic-num { width:92px; }
+    @media (min-width: 901px) { .subs-table tbody td, .subs-table thead th { padding-left:.5rem !important; padding-right:.5rem !important; } }
     .c-owner { font-weight:600; font-size:.85rem; }
     .c-phone { font-size:.8rem; margin-top:.15rem; }
     .c-email { margin-top:.1rem; }
@@ -585,7 +588,7 @@
       <div class="tbl-wrap">
         <table class="subs-table">
           <thead><tr>
-            <th></th><th>Company</th><th>Status / Bid</th><th>License &amp; Insurance</th><th>Contact</th><th></th>
+            <th></th><th>Company</th><th>Service areas</th><th>Status / Bid</th><th>License &amp; Insurance</th><th>Contact</th><th></th>
           </tr></thead>
           <tbody id="tbody_<%= sec.key %>">
             <%
@@ -609,16 +612,19 @@
               }
             %>
             <% groups.forEach(g => { %>
-              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="6"><%= g %></td></tr><% } %>
-              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="6" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : /inactive/i.test(g) ? 'Inactive' : 'Rejected' %></td></tr><% } %>
+              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="7"><%= g %></td></tr><% } %>
+              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="7" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : /inactive/i.test(g) ? 'Inactive' : 'Rejected' %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" data-noemail="<%= (s.email || '').trim() ? '' : '1' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
                 <td class="co"><% if (flagged) { var isBlack = /black/.test((s.status||'').toLowerCase()); %><span class="row-reason <%= isBlack ? 'black' : '' %>" data-reason="<%= s.reject_reason || '' %>"><span class="rr-name"><%= s.company || s.owner || 'Contractor' %></span><span class="rr-reason">⛔ <%= (s.status||'').toUpperCase() %><%= s.reject_reason ? ': ' + s.reject_reason : '' %></span><span class="rr-actions"><button type="button" onclick="blNote(<%= s.id %>, this)" title="Add / edit a note">✏️</button><button type="button" onclick="blReveal(this)" title="Reveal info underneath">👁</button></span></span><% } %><% if (s.recent_add) { %><span class="newdot" title="Recently added — verify">🆕</span> <% } %><a href="/subs/profile/<%= s.id %>" style="color:inherit;text-decoration:none;font-weight:inherit" title="Open <%= (s.company || s.owner || 'this contractor').replace(/"/g,'&quot;') %>'s profile — emails, bids, docs, history" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'"><%= s.company || s.owner || '—' %></a>
-                  <div class="co-meta"><%= s.type || '' %><% if (s.location) { %> · <% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.location %></span><% } else { %><%= s.location %><% } %><% } %><% if (s.referenced_by) { %> <span class="co-ref">· ref <%= s.referenced_by %></span><% } %></div>
+                  <div class="co-meta"><%= s.type || '' %><% if (s.referenced_by) { %> <span class="co-ref">· Referred by <%= s.referenced_by %></span><% } %></div>
                   <% if (ph.length) { %><div class="thumbs"><% ph.forEach(pid => { %><span class="thumb"><a href="/sub-photo/<%= pid %>" target="_blank"><img src="/sub-photo/<%= pid %>"></a><span class="thx" onclick="delPhoto(<%= pid %>, this)" title="Remove photo">✕</span></span><% }) %></div><% } %>
                   <% if (s.notes) { %><span class="conote-btn" onclick="this.nextElementSibling.classList.toggle('show')" title="Show / hide notes">📝 notes</span><div class="conote-body"><%= s.notes %></div><% } %>
                 </td>
+                <td class="areas" data-label="Service areas" title="<%= s.location || '' %>"><%
+                  var _areasShort = String(s.location || '').split(',').map(function (x) { return x.trim().replace(/\s*County$/i, ''); }).filter(Boolean).join(', ');
+                %><% if (flagged && _areasShort) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= _areasShort %></span><% } else { %><%= _areasShort %><% } %></td>
                 <td data-label="Status">
                   <select class="spill <%= pillClass(s.status) %>" data-id="<%= s.id %>" onchange="changeStatus(this)">
                     <option value="">—</option>
