@@ -36,6 +36,14 @@
     .sp-photos img { height:92px; border-radius:9px; border:1px solid var(--border); }
     .sp-reply { display:flex; gap:.5rem; margin-top:.8rem; }
     .sp-reply textarea { flex:1; font:inherit; font-size:.88rem; border:1px solid var(--border); border-radius:9px; padding:.45rem .6rem; resize:vertical; }
+    .sp-edit { display:none; border-top:1px solid var(--border); margin-top:.8rem; padding-top:.8rem; }
+    .sp-edit.show { display:block; }
+    .se-g { margin-bottom:.6rem; }
+    .se-g label { display:block; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); margin-bottom:.2rem; }
+    .se-g input, .se-g textarea { width:100%; font:inherit; font-size:.88rem; border:1px solid var(--border); border-radius:8px; padding:.4rem .55rem; box-sizing:border-box; }
+    .se-hint { font-weight:400; text-transform:none; letter-spacing:0; }
+    .se-counties { display:flex; flex-wrap:wrap; gap:.3rem .8rem; }
+    .se-cty { font-size:.84rem; font-weight:400; text-transform:none; letter-spacing:0; color:var(--text); white-space:nowrap; cursor:pointer; }
   </style>
 </head>
 <body>
@@ -82,7 +90,10 @@
 
   <div class="sp-grid">
     <div class="sp-card">
-      <h3>Contact</h3>
+      <div style="display:flex;justify-content:space-between;align-items:baseline">
+        <h3>Contact</h3>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="document.getElementById('spEdit').classList.toggle('show');this.textContent=document.getElementById('spEdit').classList.contains('show')?'✕ Close':'✏ Edit details'">✏ Edit details</button>
+      </div>
       <table class="sp-kv">
         <tr><td>Owner</td><td><%= sub.owner || '—' %></td></tr>
         <tr><td>Email</td><td><% if (sub.email) { %><a href="mailto:<%= sub.email %>"><%= sub.email %></a><% } else { %>—<% } %></td></tr>
@@ -91,6 +102,24 @@
         <tr><td>License #</td><td><%= sub.license_number || '—' %></td></tr>
       </table>
       <% if (sub.notes) { %><div style="font-size:.82rem;color:var(--muted);margin-top:.6rem;white-space:pre-wrap"><%= sub.notes %></div><% } %>
+      <!-- The one and only edit form — the subs list links here instead of its own modal -->
+      <div id="spEdit" class="sp-edit">
+        <% var COUNTIES = ['LA County','Orange County','Riverside County','San Diego County','Ventura County','San Bernardino County','The Valley'];
+           var subLocs = String(sub.location || '').split(',').map(function (x) { return x.trim(); }); %>
+        <div class="se-g"><label>Company</label><input id="se_company" value="<%= sub.company || '' %>"></div>
+        <div class="se-g"><label>Contact / Owner</label><input id="se_owner" value="<%= sub.owner || '' %>"></div>
+        <div class="se-g"><label>Trade(s) <span class="se-hint">comma-separated</span></label><input id="se_type" value="<%= sub.type || '' %>"></div>
+        <div class="se-g"><label>Service areas</label>
+          <div class="se-counties"><% COUNTIES.forEach(function (c) { %><label class="se-cty"><input type="checkbox" value="<%= c %>" <%= subLocs.indexOf(c) >= 0 ? 'checked' : '' %>> <%= c.replace(' County','') %></label><% }) %></div>
+        </div>
+        <div class="se-g"><label>Email</label><input id="se_email" type="email" value="<%= sub.email || '' %>"></div>
+        <div class="se-g"><label>Phone</label><input id="se_phone" value="<%= sub.phone || '' %>"></div>
+        <div class="se-g"><label>Referred by</label><input id="se_ref" value="<%= sub.referenced_by || '' %>"></div>
+        <div class="se-g"><label>Notes</label><textarea id="se_notes" rows="3"><%= sub.notes || '' %></textarea></div>
+        <div style="display:flex;justify-content:flex-end;gap:.5rem;margin-top:.6rem">
+          <button type="button" class="btn btn-primary btn-sm" id="se_save" onclick="spSaveEdit()">✓ Save changes</button>
+        </div>
+      </div>
     </div>
     <div class="sp-card">
       <h3>Documents (<%= attachments.length %>)</h3>
@@ -160,6 +189,31 @@
 
 <div id="toast" class="toast"></div>
 <script>
+// Save the edit form through the same endpoint the old list modal used
+async function spSaveEdit() {
+  const btn = document.getElementById('se_save');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const locs = Array.prototype.filter.call(document.querySelectorAll('.se-cty input'), function (c) { return c.checked; })
+    .map(function (c) { return c.value; }).join(', ');
+  const body = {
+    company: document.getElementById('se_company').value.trim(),
+    owner: document.getElementById('se_owner').value.trim(),
+    type: document.getElementById('se_type').value.trim(),
+    location: locs,
+    email: document.getElementById('se_email').value.trim(),
+    phone: document.getElementById('se_phone').value.trim(),
+    referenced_by: document.getElementById('se_ref').value.trim(),
+    notes: document.getElementById('se_notes').value,
+    status: <%- JSON.stringify(sub.status || '') %>,
+    category: <%- JSON.stringify(sub.category || '') %>,
+  };
+  try {
+    const r = await fetch('/subs/<%= sub.id %>', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (d.ok) location.reload();
+    else { alert(d.error || 'Could not save'); btn.disabled = false; btn.textContent = '✓ Save changes'; }
+  } catch (e) { alert('Could not save'); btn.disabled = false; btn.textContent = '✓ Save changes'; }
+}
 // Each embedded email grows to fit its content (same-origin, so we can measure it)
 function spSizeFrame(f) {
   try {

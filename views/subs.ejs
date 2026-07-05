@@ -690,9 +690,8 @@
                   <div class="rowmenu">
                     <button type="button" class="rowmenu-btn" onclick="rowMenu(this)" title="Actions — edit, email, photos, delete">⋯</button>
                     <div class="rowmenu-pop">
-                      <button type="button" onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)'>✏ Edit details</button>
                       <button type="button" class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" data-name="<%= s.company || s.owner || '' %>" data-trade="<%= (s.type || '').split(',')[0].trim() %>" onclick="openCompose(this)"<%= s.email ? '' : ' disabled' %>>✉ Send email</button>
-                      <a href="/subs/profile/<%= s.id %>">👤 Open profile</a>
+                      <a href="/subs/profile/<%= s.id %>">👤 Profile &amp; edit</a>
                       <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0">
                         <label class="upl" title="Pick several at once — work, vehicle, job site">📷 Add photos<input type="file" name="photos" accept="image/*" multiple style="display:none" onchange="this.form.submit()"></label>
                       </form>
