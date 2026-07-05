@@ -269,21 +269,11 @@
     var _cntSub = subs.filter(function (s) { return _catQ(s) !== 'gc' && !_flagRe.test(s.status || ''); }).length;
     var _cntGc = subs.filter(function (s) { return _catQ(s) === 'gc' && !_flagRe.test(s.status || ''); }).length;
     var _cntFlag = subs.filter(function (s) { return _flagRe.test(s.status || ''); }).length;
-    var _cntDecide = (typeof pendingBids !== 'undefined' && pendingBids) ? pendingBids.length : 0;
   %>
   <div class="subtabs" id="subTabs">
     <button type="button" class="subtab on" data-tab="sub" onclick="switchTab('sub')">🔧 Subcontractors <span class="tabn"><%= _cntSub %></span></button>
     <button type="button" class="subtab" data-tab="gc" onclick="switchTab('gc')">🏗 Outside GCs <span class="tabn"><%= _cntGc %></span></button>
-    <% if (!isSuper || canEdit) { %>
-    <button type="button" class="subtab <%= _cntDecide ? 'pulse' : '' %>" data-tab="decide" onclick="switchTab('decide')">📥 Needs decision <span class="tabn <%= _cntDecide ? 'hot' : '' %>"><%= _cntDecide %></span></button>
-    <% } %>
     <button type="button" class="subtab" data-tab="flagged" onclick="switchTab('flagged')">🚩 Flagged &amp; Inactive <span class="tabn"><%= _cntFlag %></span></button>
-  </div>
-
-  <!-- Needs-decision tab: every received bid with its vetting checklist -->
-  <div id="decidePanel" style="display:none">
-    <p style="color:var(--muted);font-size:.88rem;margin:0 0 .9rem;max-width:740px">Each card is a bid waiting on you. The checks are pulled live from CSLB, the emailed COIs, and your other bids — <strong>Approve</strong> awards the bid and moves the sub to Approved (the step before Active); <strong>Pass</strong> declines the bid but keeps the sub.</p>
-    <%- include('_bidqueue', { pendingBids: (typeof pendingBids !== 'undefined' ? pendingBids : []), bidProjects: (typeof bidProjects !== 'undefined' ? bidProjects : []), composeAvailable: true }) %>
   </div>
 
   <div id="mainPanel">
@@ -818,11 +808,7 @@ const TAB_FLAG_RE = /reject|black|inactive/i;
 function switchTab(t) {
   currentTab = t;
   document.querySelectorAll('.subtab').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
-  const decide = t === 'decide';
-  const dp = document.getElementById('decidePanel'), mp = document.getElementById('mainPanel');
-  if (dp) dp.style.display = decide ? '' : 'none';
-  if (mp) mp.style.display = decide ? 'none' : '';
-  if (!decide) filterSubs();
+  filterSubs();
   closeEmlogAll();
 }
 function filterSubs() {
