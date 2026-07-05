@@ -4029,7 +4029,16 @@ app.get('/subs', requireAuth, async (req, res) => {
       // trade response rates are a sub-side concept (GCs are all one trade)
       tradeStats: Object.values(byTrade).filter(t => t.trade !== 'General Contractor' && t.contacted >= 1).sort((a, b) => b.contacted - a.contacted),   // every contacted trade — no cap
     };
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
+    // Latest bid document per sub — powers the 📄/✉ jump-to-bid link next to the price
+    const bidDocs = {};
+    try {
+      const { rows: bd } = await pool.query(`
+        SELECT DISTINCT ON (b.sub_id) b.sub_id, b.gmail_message_id, b.gmail_attachment_id, b.filename, e.id AS email_id
+        FROM bids b LEFT JOIN sub_emails e ON e.gmail_message_id = b.gmail_message_id AND e.sub_id = b.sub_id
+        ORDER BY b.sub_id, b.received_at DESC`);
+      bd.forEach(r => { bidDocs[r.sub_id] = r; });
+    } catch (e) { /* bids table brand new */ }
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -5113,9 +5122,9 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
     let advanced = null;
     const { rows: [cur] } = await pool.query('SELECT status FROM subcontractors WHERE id=$1', [sub.id]);
-    if (cur && !/active|approv|inactive|reject|black|bid under review|bid sent/i.test(cur.status || '')) {
-      advanced = 'Bid Sent';
-      await pool.query("UPDATE subcontractors SET status='Bid Sent' WHERE id=$1", [sub.id]);
+    if (cur && !/active|approv|inactive|reject|black|bid under review|bid request/i.test(cur.status || '')) {
+      advanced = 'Bid Requested';
+      await pool.query("UPDATE subcontractors SET status='Bid Requested' WHERE id=$1", [sub.id]);
     }
     res.json({ ok: true, bid_status: 'Bid Sent', status: advanced });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }

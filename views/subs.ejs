@@ -92,6 +92,12 @@
     .pill-bid { background:#7c3aed; color:#fff; }
     .pill-called { background:#dbeafe; color:#1e40af; }
     .pill-sent { background:#c7d2fe; color:#3730a3; }
+    .bidline { display:flex; align-items:center; gap:.35rem; margin-top:.3rem; white-space:nowrap; }
+    .bidamt { font-weight:800; font-size:.92rem; cursor:pointer; }
+    .bidamt:hover { text-decoration:underline; }
+    .bidadd { color:var(--muted); font-size:.72rem; font-weight:600; cursor:pointer; border:1px dashed var(--border); border-radius:8px; padding:.05rem .4rem; }
+    .bidadd:hover { color:var(--text); }
+    .biddoc { text-decoration:none; font-size:.88rem; }
     .pill-rejected { background:#e06666; color:#fff; }
     .pill-black { background:#111; color:#fff; }
     .pill-default { background:#e6e6e6; color:#555; }
@@ -400,7 +406,7 @@
       <option value="">All statuses</option>
       <option value="under review">Under Review</option>
       <option value="called">Called</option>
-      <option value="bid sent">Bid Sent</option>
+      <option value="bid requested">Bid Requested</option>
       <option value="bid under review">Bid Under Review</option>
       <option value="approved">Approved</option>
       <option value="active">Active</option>
@@ -458,12 +464,12 @@
       if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
       if (/active/.test(st)) return 'pill-active';
       if (/approv/.test(st)) return 'pill-approved';
-      if (/bid sent/.test(st)) return 'pill-sent';
+      if (/bid (sent|request)/.test(st)) return 'pill-sent';
       if (/^called$/.test(st)) return 'pill-called';
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
-    // One pipeline: the old Bidding stages (Called / Bid Sent / Bid Received) are statuses now.
-    const STATUS_OPTS = ['Under Review', 'Called', 'Bid Sent', 'Bid Under Review', 'Approved', 'Active', 'Inactive', 'Rejected', 'Blacklisted'];
+    // One pipeline: the old Bidding stages are statuses now (Bid Requested = we asked them to bid).
+    const STATUS_OPTS = ['Under Review', 'Called', 'Bid Requested', 'Bid Under Review', 'Approved', 'Active', 'Inactive', 'Rejected', 'Blacklisted'];
     const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County', 'The Valley'];
     const sections = [
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
@@ -545,8 +551,24 @@
                     <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>" <%= s.status===o?'selected':'' %>><%= o %></option><% }) %>
                     <% if (s.status && STATUS_OPTS.indexOf(s.status) < 0) { %><option value="<%= s.status %>" selected><%= s.status %></option><% } %>
                   </select>
-                  <input type="text" class="bid-price" data-id="<%= s.id %>" value="<%= s.bid_price || '' %>" placeholder="$ bid" onchange="saveBid(this,'bid_price')" title="Their bid price<%= /awarded/i.test(s.bid_status || '') ? ' — 🏆 awarded' : '' %>">
-                  <% if (/awarded/i.test(s.bid_status || '')) { %><span title="Bid awarded" style="font-size:.8rem">🏆</span><% } %>
+                  <%
+                    var _bd = (typeof bidDocs !== 'undefined' && bidDocs[s.id]) || null;
+                    var _bpNum = Number(String(s.bid_price || '').replace(/[^0-9.]/g, ''));
+                    var _bpFmt = _bpNum ? '$' + _bpNum.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+                  %>
+                  <div class="bidline">
+                    <% if (_bpFmt) { %>
+                      <span class="bidamt" onclick="editBidPrice(<%= s.id %>, this)" title="Their bid — click to edit"><%= _bpFmt %></span>
+                      <% if (/awarded/i.test(s.bid_status || '')) { %><span title="Bid awarded" style="font-size:.8rem">🏆</span><% } %>
+                    <% } else { %>
+                      <span class="bidadd" onclick="editBidPrice(<%= s.id %>, this)" title="Add a bid price">+ $ bid</span>
+                    <% } %>
+                    <% if (_bd && _bd.gmail_attachment_id) { %>
+                      <a class="biddoc" href="/threads/messages/<%= _bd.gmail_message_id %>/attachment/<%= _bd.gmail_attachment_id %>?name=<%= encodeURIComponent(_bd.filename || 'estimate.pdf') %>&mime=application%2Fpdf" target="_blank" rel="noopener" title="Open the bid: <%= _bd.filename || 'estimate PDF' %>">📄</a>
+                    <% } else if (_bd && _bd.email_id) { %>
+                      <a class="biddoc" href="/subs/emails/<%= _bd.email_id %>/html" target="_blank" rel="noopener" title="Open the bid email">✉</a>
+                    <% } %>
+                  </div>
                 </td>
                 <td data-label="License">
                   <select class="lic-sel" data-id="<%= s.id %>" onchange="saveLicense(this)">
@@ -1082,7 +1104,7 @@ function pillClassJS(st) { st = (st || '').toLowerCase();
   if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
   if (/active/.test(st)) return 'pill-active';
   if (/approv/.test(st)) return 'pill-approved';
-  if (/bid sent/.test(st)) return 'pill-sent';
+  if (/bid (sent|request)/.test(st)) return 'pill-sent';
   if (/^called$/.test(st)) return 'pill-called';
   if (/review|vetting|pending/.test(st)) return 'pill-review';
   return 'pill-default'; }
@@ -1112,6 +1134,17 @@ async function subField(id, obj) {
 }
 const BID_CLASSES = ['bid-received','bid-sent','bid-called','bid-awarded','bid-passed'];
 function bidClassJS(b){ b=(b||'').toLowerCase(); if(/received/.test(b))return 'bid-received'; if(/sent/.test(b))return 'bid-sent'; if(/called/.test(b))return 'bid-called'; if(/awarded/.test(b))return 'bid-awarded'; if(/passed/.test(b))return 'bid-passed'; return ''; }
+async function editBidPrice(id, el) {
+  const cur = (el.textContent || '').replace(/[^0-9.]/g, '');
+  const v = prompt('Bid amount ($):', cur);
+  if (v === null) return;
+  const n = Number(v.replace(/[^0-9.]/g, ''));
+  const val = n ? '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+  const ok = await subField(id, { bid_price: val });
+  if (!ok) return alert('Could not save — try again');
+  el.textContent = val || '+ $ bid';
+  el.className = val ? 'bidamt' : 'bidadd';
+}
 async function saveBid(el, field) {
   if (el.classList.contains('bid-sel')) { BID_CLASSES.forEach(c => el.classList.remove(c)); const c = bidClassJS(el.value); if (c) el.classList.add(c); }
   const ok = await subField(el.dataset.id, { [field]: el.value });
