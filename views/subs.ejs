@@ -211,6 +211,19 @@
     .cov-tile-good { background:#f0fdf4; border-color:#bbf7d0; } .cov-tile-good .ct-n { color:#16a34a; }
     .cov-tile-na { border-style:dashed; cursor:default; } .cov-tile-na .ct-n { color:#b45309; }
     .cov-tile-na:hover { transform:none; }
+    /* Coverage matrix: trade × zone, colored against the 4-sub minimum */
+    .cov-matrix-wrap { overflow-x:auto; margin-bottom:.7rem; }
+    .cov-matrix { border-collapse:separate; border-spacing:3px; font-size:.8rem; width:100%; }
+    .cov-matrix th { font-size:.66rem; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); padding:.3rem .45rem; text-align:center; white-space:nowrap; }
+    .cov-matrix td { padding:.32rem .45rem; text-align:center; font-weight:800; border-radius:7px; min-width:42px; }
+    .cov-matrix .cm-t { text-align:left; font-weight:700; font-size:.78rem; cursor:pointer; white-space:nowrap; max-width:160px; overflow:hidden; text-overflow:ellipsis; background:none; }
+    .cov-matrix .cm-t:hover { text-decoration:underline; }
+    .cm-gap { background:#fdeaea; color:#b42323; }
+    .cm-thin { background:#fff4dd; color:#8a6100; }
+    .cm-ok { background:#e7f6ec; color:#176b3a; }
+    .cm-na, .cm-nah { color:var(--muted); font-weight:600; background:var(--bg); }
+    .cm-sel { outline:2px solid #1d4ed8; outline-offset:-1px; }
+    .cm-selh { color:#1d4ed8; font-weight:800; }
     .cov-chip { display:inline-flex; align-items:center; gap:.45rem; border-radius:16px; padding:.34rem .75rem; font-size:.82rem; font-weight:600; cursor:pointer; border:1px solid; }
     .cov-chip .n { font-weight:800; }
     .cov-ok { background:#e7f6ec; border-color:#b9e4c8; color:#176b3a; }
@@ -424,15 +437,14 @@
     <% } %>
   </div>
 
-  <!-- Area + trade coverage: subs per coverage area (target: 4+ per trade per area), gaps flagged -->
+  <!-- Coverage matrix: subs per TRADE per COUNTY, every cell measured against the 4-sub minimum -->
   <div class="cov-panel" id="covPanel">
     <div class="cov-head">
       <strong>Coverage</strong>
-      <select id="covCounty" onchange="covRender()"><option value="">All service areas</option></select>
-      <span class="cov-legend-inline">Target: <strong>4+ subs per trade in every area</strong>. Excludes rejected/blacklisted subs and outside GCs. Click an area tile to zoom in; click a trade to filter the list.</span>
+      <span class="cov-legend-inline">Target: <strong>4+ subs per trade in every coverage zone</strong>. Excludes rejected/blacklisted subs and outside GCs. Click a zone tile to highlight its column; click a trade name to filter the list.</span>
     </div>
     <div class="cov-areas" id="covAreas"></div>
-    <div class="cov-grid" id="covGrid"></div>
+    <div class="cov-matrix-wrap"><table class="cov-matrix" id="covMatrix"></table></div>
     <div class="cov-legend"><span class="cov-chip cov-gap" style="cursor:default">Gap · 0</span> <span class="cov-chip cov-thin" style="cursor:default">Thin · 1–3</span> <span class="cov-chip cov-ok" style="cursor:default">Covered · 4+</span></div>
   </div>
 
@@ -1278,20 +1290,14 @@ const COV_DATA = <%- JSON.stringify(subs.map(function (s) { return { t: s.type |
 let covInit = false;
 function covToggle() {
   const p = document.getElementById('covPanel');
-  const show = p.classList.toggle('show');
-  if (show && !covInit) {
-    covInit = true;
-    const sel = document.getElementById('covCounty');
-    AREA_LIST.forEach(function (a) { const o = document.createElement('option'); o.value = a; o.textContent = a; sel.appendChild(o); });
-  }
-  if (show) covRender();
+  if (p.classList.toggle('show')) covRender();
 }
-const COV_MIN = 4;   // recruiting target: at least this many subs per trade in every coverage area
+const COV_MIN = 4;   // recruiting target: at least this many subs per trade in every coverage zone
+let covSel = '';     // clicked zone tile → highlight its matrix column
 function covRender() {
-  const county = document.getElementById('covCounty').value.toLowerCase();
   const tradeList = TRADES.filter(function (t) { return t !== 'General Contractor'; });
-  const counts = {}, globalTrade = {}, areaTot = {}, areaTrade = {};
-  tradeList.forEach(function (t) { counts[t] = 0; globalTrade[t] = 0; });
+  const globalTrade = {}, areaTot = {}, areaTrade = {}, noAreaTrade = {};
+  tradeList.forEach(function (t) { globalTrade[t] = 0; noAreaTrade[t] = 0; });
   AREA_LIST.forEach(function (a) { areaTot[a] = 0; areaTrade[a] = {}; });
   let noArea = 0;
   COV_DATA.forEach(function (s) {
@@ -1300,38 +1306,49 @@ function covRender() {
     if (isGc) return;                                                              // outside GCs aren't trade coverage
     const locs = String(s.l || '').split(',').map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
     const ts = String(s.t).split(',').map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);
-    if (!locs.length) noArea++;
-    tradeList.forEach(function (t) { if (ts.includes(t.toLowerCase())) globalTrade[t]++; });
+    tradeList.forEach(function (t) {
+      if (!ts.includes(t.toLowerCase())) return;
+      globalTrade[t]++;
+      if (!locs.length) noAreaTrade[t]++;
+    });
+    if (!locs.length) { noArea++; return; }
     AREA_LIST.forEach(function (a) {
       if (!locs.includes(a.toLowerCase())) return;
       areaTot[a]++;
       tradeList.forEach(function (t) { if (ts.includes(t.toLowerCase())) areaTrade[a][t] = (areaTrade[a][t] || 0) + 1; });
     });
-    if (county && !locs.includes(county)) return;
-    tradeList.forEach(function (t) { if (ts.includes(t.toLowerCase())) counts[t]++; });
   });
-  // Area tiles: the running per-area headcount. Trades-under-target only looks at
-  // trades we actually recruit (≥1 usable sub somewhere), so unused trades don't scream.
+  // Zone tiles: per-area headcount + how many trades there are under the minimum.
+  // Trades-under-target only looks at trades we actually recruit (≥1 usable sub somewhere).
   const activeTrades = tradeList.filter(function (t) { return globalTrade[t] > 0; });
   document.getElementById('covAreas').innerHTML = AREA_LIST.map(function (a) {
     const tot = areaTot[a];
     const under = activeTrades.filter(function (t) { return (areaTrade[a][t] || 0) < COV_MIN; }).length;
     const cls = tot < COV_MIN ? 'cov-tile-bad' : (under ? 'cov-tile-mid' : 'cov-tile-good');
-    const sel = county === a.toLowerCase() ? ' sel' : '';
+    const sel = covSel === a ? ' sel' : '';
     const status = tot < COV_MIN ? '🚨 need ' + (COV_MIN - tot) + ' more (min ' + COV_MIN + ')' : (under ? under + ' trade' + (under === 1 ? '' : 's') + ' under ' + COV_MIN : '✓ all trades at ' + COV_MIN + '+');
-    return '<div class="cov-tile ' + cls + sel + '" onclick="covPick(this.dataset.a)" data-a="' + a.replace(/"/g, '&quot;') + '" title="Subs covering ' + a + ' — click to see its trade breakdown"><div class="ct-n">' + tot + '</div><div class="ct-a">' + a + '</div><div class="ct-s">' + status + '</div></div>';
-  }).join('') + (noArea ? '<div class="cov-tile cov-tile-na" title="These subs count toward NO area until you set their service areas — open them and pick counties"><div class="ct-n">' + noArea + '</div><div class="ct-a">No area set</div><div class="ct-s">⚠ not counted anywhere</div></div>' : '');
-  // Gaps first so what's missing is impossible to overlook
-  const order = tradeList.slice().sort(function (a, b) { return counts[a] - counts[b] || a.localeCompare(b); });
-  document.getElementById('covGrid').innerHTML = order.map(function (t) {
-    const n = counts[t];
-    const cls = n === 0 ? 'cov-gap' : (n < COV_MIN ? 'cov-thin' : 'cov-ok');
-    return '<span class="cov-chip ' + cls + '" onclick="covJump(this.dataset.t)" data-t="' + t.replace(/"/g, '&quot;') + '">' + t + ' <span class="n">' + n + '</span></span>';
-  }).join('');
+    return '<div class="cov-tile ' + cls + sel + '" onclick="covPick(this.dataset.a)" data-a="' + a.replace(/"/g, '&quot;') + '" title="Subs covering ' + a + ' — click to highlight its column"><div class="ct-n">' + tot + '</div><div class="ct-a">' + a + '</div><div class="ct-s">' + status + '</div></div>';
+  }).join('') + (noArea ? '<div class="cov-tile cov-tile-na" title="These subs count toward NO zone until you set their service areas — open them and pick counties"><div class="ct-n">' + noArea + '</div><div class="ct-a">No area set</div><div class="ct-s">⚠ not counted anywhere</div></div>' : '');
+  // The matrix: trade rows × zone columns, worst-covered trades first
+  const gapsOf = function (t) { return AREA_LIST.filter(function (a) { return (areaTrade[a][t] || 0) < COV_MIN; }).length; };
+  const order = activeTrades.slice().sort(function (a, b) { return gapsOf(b) - gapsOf(a) || a.localeCompare(b); });
+  const anyNoArea = order.some(function (t) { return noAreaTrade[t] > 0; });
+  let html = '<thead><tr><th class="cm-t">Trade</th>' + AREA_LIST.map(function (a) {
+    return '<th class="' + (covSel === a ? 'cm-selh' : '') + '">' + a.replace(' County', '') + '</th>';
+  }).join('') + (anyNoArea ? '<th class="cm-nah" title="Subs in this trade with no service area set — they count toward no zone">No area</th>' : '') + '</tr></thead><tbody>';
+  order.forEach(function (t) {
+    html += '<tr><td class="cm-t" onclick="covJump(this.dataset.t)" data-t="' + t.replace(/"/g, '&quot;') + '" title="Click to filter the list to ' + t + '">' + t + '</td>'
+      + AREA_LIST.map(function (a) {
+          const n = areaTrade[a][t] || 0;
+          const cls = n === 0 ? 'cm-gap' : (n < COV_MIN ? 'cm-thin' : 'cm-ok');
+          return '<td class="' + cls + (covSel === a ? ' cm-sel' : '') + '" title="' + t + ' in ' + a + ': ' + n + ' (target ' + COV_MIN + ')">' + n + '</td>';
+        }).join('')
+      + (anyNoArea ? '<td class="cm-na">' + (noAreaTrade[t] || '') + '</td>' : '') + '</tr>';
+  });
+  document.getElementById('covMatrix').innerHTML = html + '</tbody>';
 }
 function covPick(a) {
-  const sel = document.getElementById('covCounty');
-  sel.value = (sel.value === a) ? '' : a;   // click the selected tile again to go back to all areas
+  covSel = (covSel === a) ? '' : a;   // click the selected tile again to clear the highlight
   covRender();
 }
 function covJump(t) {
