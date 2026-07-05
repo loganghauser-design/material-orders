@@ -4232,6 +4232,7 @@ app.post('/team/save', requireAuth, async (req, res) => {
 function bucketForStatus(category, status) {
   const s = (status || '').toLowerCase();
   const gc = category === 'gc';
+  if (/bid under review/.test(s)) return 'Bid Under Review';   // bid came in — own section at the top of the list
   if (/inactive/.test(s)) return gc ? 'Inactive GCs' : 'Inactive Subcontractors';   // must beat /active/ — "inactive" contains it
   if (/active/.test(s)) return gc ? 'Active Buildoly Outside General Contractors' : 'Active Buildoly Subcontractors';
   if (/black/.test(s)) return gc ? 'Blacklisted Buildoly General Contractors' : 'Blacklisted Buildoly Sub Contractors';
@@ -4242,6 +4243,7 @@ function bucketForStatus(category, status) {
 // Inverse: dropping a sub into a bucket sets its status to match (keeps the pill + section in sync).
 function statusForBucket(grp) {
   const g = (grp || '').toLowerCase();
+  if (/bid under review/.test(g)) return 'Bid Under Review';
   if (/black/.test(g)) return 'Blacklisted';
   if (/reject/.test(g)) return 'Rejected';
   if (/inactive/.test(g)) return 'Inactive';   // must beat /active/ — "inactive" contains it
@@ -5727,25 +5729,15 @@ async function ingestOneQb(messageId) {
   // Match to a contractor: reply-to email → exact name → word-stripped name → long contains
   const normFull = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
   const normWords = s => String(s || '').toLowerCase().replace(/\b(inc|llc|corp|co|company|corporation|svc|svcs|service|services|electric|electrical|plumbing|construction|builders?|contractors?|design|build)\b/g, '').replace(/[^a-z0-9]/g, '');
-  const { rows: subsAll } = await pool.query('SELECT id, company, email, license_number, bid_status FROM subcontractors');
+  const { rows: subsAll } = await pool.query('SELECT id, company, email, status, license_number, bid_status FROM subcontractors');
   const bk = normFull(bizClean), bw = normWords(bizClean);
-  let sub = (replyTo && subsAll.find(s => (s.email || '').toLowerCase() === replyTo))
+  const sub = (replyTo && subsAll.find(s => (s.email || '').toLowerCase() === replyTo))
     || subsAll.find(s => normFull(s.company) && normFull(s.company) === bk)
     || subsAll.find(s => bw && normWords(s.company) === bw)
     || subsAll.find(s => bk.length >= 8 && normFull(s.company).length >= 8 && (normFull(s.company).includes(bk) || bk.includes(normFull(s.company))));
-  let createdNew = false;
-  if (!sub && kind !== 'estimate') return null;   // only BIDS may create contractors — supplier invoices etc. are skipped
-  if (!sub) {
-    // Unknown business with a bid — add it so the bid doesn't fall on the floor
-    const trade = qbTradeFromName(bizClean);
-    const cat = /general contractor/i.test(trade) ? 'gc' : 'sub';
-    const title = bizClean.replace(/\w\S*/g, w => /^(LLC|INC|DBA|USA|HVAC|II|III)\.?,?$/i.test(w) ? w.toUpperCase() : w[0].toUpperCase() + w.slice(1).toLowerCase()).slice(0, 200);
-    const { rows: [ins] } = await pool.query(
-      `INSERT INTO subcontractors (company, type, status, email, notes, group_label, category, sort_order, recent_add)
-       VALUES ($1,$2,'Under Review',$3,$4,'Under Vetting',$5,9999,TRUE) RETURNING id, company, email, license_number, bid_status`,
-      [title, trade || null, replyTo || null, ('Added automatically from a QuickBooks ' + kind + ' ' + new Date().toLocaleDateString()).slice(0, 300), cat]);
-    sub = ins; createdNew = true;
-  }
+  // Only pull bids for contractors already on the list (matched by their email or name).
+  // Unknown senders are ignored — QuickBooks never creates new subs.
+  if (!sub) return null;
   // Log the email under the sub (+ attachments), flag unread
   const when = isNaN(new Date(hv('Date')).getTime()) ? new Date() : new Date(hv('Date'));
   const bodyText = text.replace(/\s+/g, ' ').trim().slice(0, 1500);
@@ -5765,6 +5757,11 @@ async function ingestOneQb(messageId) {
   if (kind === 'estimate' && amt) {
     const newStatus = /awarded/i.test(sub.bid_status || '') ? sub.bid_status : 'Bid Received';
     await pool.query('UPDATE subcontractors SET bid_status=$1, bid_price=$2 WHERE id=$3', [newStatus, ('$' + amt).slice(0, 40), sub.id]);
+    // …and the sub moves from Under Review into the "Bid Under Review" section so the
+    // new bid is impossible to miss in the list. Actives/Approved/Flagged stay put.
+    if (!/active|approv|inactive|reject|black|bid under review/i.test(sub.status || '')) {
+      await pool.query("UPDATE subcontractors SET status='Bid Under Review', group_label='Bid Under Review' WHERE id=$1", [sub.id]);
+    }
   }
   // …and the bid board: one row per estimate, auto-matched to a project by job address
   if (kind === 'estimate') {
@@ -5797,7 +5794,7 @@ async function ingestOneQb(messageId) {
   // Preferred: Chat API as the Gmail user with the real PDF(s) attached (needs BIDS_SPACE
   // + a refresh token carrying chat.messages.create). Fallback: webhook with PDF links.
   if (kind === 'estimate' && (process.env.BIDS_SPACE || process.env.BIDS_WEBHOOK_URL)) {
-    const header = '📥 *' + (sub.company || bizClean) + '*' + (amt ? ' — *$' + amt + '*' : '') + (createdNew ? '  (new contractor 🆕)' : '');
+    const header = '📥 *' + (sub.company || bizClean) + '*' + (amt ? ' — *$' + amt + '*' : '');
     const pdfs = atts.filter(a => /pdf/i.test(a.mime || a.filename)).slice(0, 3);
     let posted = false;
     if (process.env.BIDS_SPACE && gOauth2) {
@@ -5834,7 +5831,7 @@ async function ingestOneQb(messageId) {
       } catch (e) { console.error('bids webhook:', e.message); }
     }
   }
-  return { sub: sub.company, kind, amt, createdNew };
+  return { sub: sub.company, kind, amt };
 }
 async function ingestQuickBooksEmails() {
   if (!useGmail) return;
@@ -5847,7 +5844,7 @@ async function ingestQuickBooksEmails() {
       await pool.query('INSERT INTO qb_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [m.id]);
       try {
         const r = await ingestOneQb(m.id);
-        if (r) console.log('qb ingested: ' + r.kind + ' ' + r.sub + (r.amt ? ' $' + r.amt : '') + (r.createdNew ? ' (new)' : ''));
+        if (r) console.log('qb ingested: ' + r.kind + ' ' + r.sub + (r.amt ? ' $' + r.amt : ''));
       } catch (e) { console.error('qb ingest ' + m.id + ':', e.message); }
     }
   } catch (e) { console.error('ingestQuickBooksEmails:', e.message); }

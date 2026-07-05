@@ -89,6 +89,7 @@
     .pill-approved { background:#b6d7a8; color:#274e13; }
     .pill-active { background:#38761d; color:#fff; }
     .pill-inactive { background:#6b7280; color:#fff; }
+    .pill-bid { background:#7c3aed; color:#fff; }
     .pill-rejected { background:#e06666; color:#fff; }
     .pill-black { background:#111; color:#fff; }
     .pill-default { background:#e6e6e6; color:#555; }
@@ -395,6 +396,7 @@
     <select id="statusFilter" onchange="filterSubs()" class="trade-select">
       <option value="">All statuses</option>
       <option value="under review">Under Review</option>
+      <option value="bid under review">Bid Under Review</option>
       <option value="approved">Approved</option>
       <option value="active">Active</option>
       <option value="inactive">Inactive</option>
@@ -445,6 +447,7 @@
   <%
     function catOf(s) { return s.category || (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'); }
     function pillClass(st) { st = (st || '').toLowerCase();
+      if (/bid under review/.test(st)) return 'pill-bid';   // must beat /review/
       if (/black/.test(st)) return 'pill-black';
       if (/reject|declin/.test(st)) return 'pill-rejected';
       if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
@@ -452,7 +455,7 @@
       if (/approv/.test(st)) return 'pill-approved';
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
-    const STATUS_OPTS = ['Under Review', 'Approved', 'Active', 'Inactive', 'Rejected', 'Blacklisted'];
+    const STATUS_OPTS = ['Under Review', 'Bid Under Review', 'Approved', 'Active', 'Inactive', 'Rejected', 'Blacklisted'];
     const BID_OPTS = ['Called', 'Bid Sent', 'Bid Received', 'Awarded', 'Passed'];
     function bidClass(b) { b = (b || '').toLowerCase();
       if (/received/.test(b)) return 'bid-received';
@@ -470,7 +473,7 @@
     const moveTargets = []; const _seenT = {};
     subs.forEach(s => { const cat = catOf(s), grp = s.group_label || '', k = cat + '||' + grp; if (!_seenT[k]) { _seenT[k] = 1; moveTargets.push({ cat, grp }); } });
     // Always offer Rejected + Blacklisted as drop targets, even when those buckets are empty
-    [['gc', ['Inactive GCs', 'Rejected GCs', 'Blacklisted Buildoly General Contractors']], ['sub', ['Inactive Subcontractors', 'Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors']]].forEach(function (pair) {
+    [['gc', ['Bid Under Review', 'Inactive GCs', 'Rejected GCs', 'Blacklisted Buildoly General Contractors']], ['sub', ['Bid Under Review', 'Inactive Subcontractors', 'Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors']]].forEach(function (pair) {
       pair[1].forEach(function (grp) { const k = pair[0] + '||' + grp; if (!_seenT[k]) { _seenT[k] = 1; moveTargets.push({ cat: pair[0], grp: grp }); } });
     });
   %>
@@ -512,6 +515,8 @@
               const groups = []; const gmap = {};
               sec.list.forEach(x => { const g = keyOf(x); if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
               if (byTrade) groups.sort((a, b) => a.localeCompare(b));
+              // Fresh bids always float to the top of the section
+              if (!byTrade) { const bi = groups.indexOf('Bid Under Review'); if (bi > 0) { groups.splice(bi, 1); groups.unshift('Bid Under Review'); } }
               // Always show a Rejected (and Blacklisted) drop zone for this section, even if empty
               if (!byTrade) {
                 (sec.key === 'gc' ? ['Rejected GCs', 'Blacklisted Buildoly General Contractors'] : ['Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors'])
@@ -1072,6 +1077,7 @@ async function delPhoto(id, el) {
   } catch (e) { alert('Could not remove photo.'); }
 }
 function pillClassJS(st) { st = (st || '').toLowerCase();
+  if (/bid under review/.test(st)) return 'pill-bid';   // must beat /review/
   if (/black/.test(st)) return 'pill-black';
   if (/reject|declin/.test(st)) return 'pill-rejected';
   if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
