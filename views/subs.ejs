@@ -211,8 +211,9 @@
       .thumbs img { width:64px; height:64px; }
       .modal-card { width:96vw; max-width:96vw; max-height:92vh; overflow-y:auto; }
     }
-    .row-actions { width:130px; }
-    .moveSel { display:block; width:100%; margin-bottom:.3rem; font-size:.72rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); cursor:pointer; }
+    .row-actions { width:56px; text-align:center; }
+    .rowmenu-pop .moveSel { display:block; width:calc(100% - .6rem); margin:.35rem .3rem .25rem; font-size:.76rem; padding:.3rem .35rem; border:1px solid var(--border); border-radius:8px; background:var(--bg); cursor:pointer; border-top:none; }
+    .rowmenu-pop .moveSel-wrap { border-top:1px solid var(--border); margin-top:.25rem; }
     /* One ⋯ menu instead of a strip of buttons */
     .rowmenu { display:inline-block; }
     .rowmenu-btn { font-size:1rem; font-weight:800; padding:.1rem .7rem; border:1px solid var(--border); background:var(--surface); border-radius:8px; cursor:pointer; line-height:1.3; }
@@ -680,15 +681,6 @@
                 </td>
                 <td data-label="Contact" data-email="<%= s.email || '' %>"><% if (s.owner) { %><div class="c-owner"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></div><% } %><div class="c-email"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _em.length %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body"><div class="emlog-head"><strong>✉ <%= s.company || s.owner || 'Emails' %></strong><button type="button" class="emlog-close" onclick="closeEmlogAll()" title="Close">✕</button></div><% _em.forEach(function(e){ var _inb = e.direction === 'in'; %><div class="emlog-item<%= _inb ? ' inbound' : '' %>"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><% if (_inb) { %><span class="emlog-tag">↩ reply</span><% } %><strong><%= e.subject %></strong><% if (e.has_html) { %><a class="emlog-view" href="/subs/emails/<%= e.id %>/html" target="_blank" rel="noopener" title="Open in its own tab">🗖</a><iframe class="emlog-frame" data-src="/subs/emails/<%= e.id %>/html?embed=1" sandbox="allow-same-origin allow-popups" loading="lazy" title="<%= e.subject %>"></iframe><% } else if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %><% var _att = (typeof attByEmail !== 'undefined' && attByEmail[e.id]) || []; if (_att.length) { %><div class="emlog-atts"><% _att.forEach(function(a){ %><% var _isImg = /^image\//i.test(a.mime || '') || /\.(png|jpe?g|gif|webp|heic)$/i.test(a.filename || ''); var _aurl = '/threads/messages/' + a.gmail_message_id + '/attachment/' + a.gmail_attachment_id + '?name=' + encodeURIComponent(a.filename || 'file') + '&mime=' + encodeURIComponent(a.mime || ''); %><% if (_isImg) { %><a class="emlog-att emlog-attimg" href="<%= _aurl %>" target="_blank" rel="noopener" title="<%= a.filename || 'image' %> - click to open full size"><img src="<%= _aurl %>" alt="" loading="lazy"></a><% } else { %><a class="emlog-att" href="<%= _aurl %>" target="_blank" rel="noopener" title="Open / download attachment">&#128206; <%= a.filename || 'attachment' %></a><% } %><% }) %></div><% } %></div><% }) %><% if (canEdit) { %><div class="emlog-reply"><select class="emlog-fu" data-name="<%= s.company || s.owner || '' %>" onchange="applyFollowup(this)"><option value="">Follow-up templates...</option><option value="checkin">Quick check-in</option><option value="docs">Missing docs reminder</option><option value="deadline">Proposal deadline nudge</option><option value="final">Final follow-up</option></select><textarea class="emlog-reply-text" rows="2" placeholder="Reply to this sub…"></textarea><button type="button" class="emlog-reply-btn" onclick="sendSubReply(this, <%= s.id %>)">Send reply</button><span class="emlog-reply-hint">✓ Your email signature is added automatically</span></div><% } %></div><% } %></div><% if (s.phone) { %><div class="c-phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></div><% } %></td>
                 <td class="row-actions">
-                  <select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
-                    <option value="">Move…</option>
-                    <optgroup label="Outside GCs">
-                      <% moveTargets.filter(t => t.cat === 'gc').forEach(t => { %><option value="gc||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
-                    </optgroup>
-                    <optgroup label="Subcontractors">
-                      <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
-                    </optgroup>
-                  </select>
                   <div class="rowmenu">
                     <button type="button" class="rowmenu-btn" onclick="rowMenu(this)" title="Actions — edit, email, photos, delete">⋯</button>
                     <div class="rowmenu-pop">
@@ -700,6 +692,15 @@
                       <form method="POST" action="/subs/<%= s.id %>/delete" style="margin:0" onsubmit="return confirm('Delete this subcontractor?')">
                         <button type="submit" class="del">🗑 Delete</button>
                       </form>
+                      <div class="moveSel-wrap"><select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
+                    <option value="">Move…</option>
+                    <optgroup label="Outside GCs">
+                      <% moveTargets.filter(t => t.cat === 'gc').forEach(t => { %><option value="gc||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
+                    </optgroup>
+                    <optgroup label="Subcontractors">
+                      <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
+                    </optgroup>
+                  </select></div>
                     </div>
                   </div>
                 </td>
