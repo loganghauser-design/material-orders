@@ -1203,6 +1203,7 @@ const PAGE_META = [
   { key: 'issues', label: 'Issues', path: '/issues' },
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
   { key: 'subs', label: 'Subs', path: '/subs' },
+  { key: 'bids', label: 'Bids', path: '/bids' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
   { key: 'driving', label: 'Driving Log', path: '/driving' },
@@ -1248,6 +1249,7 @@ function pageForPath(p) {
   if (p.startsWith('/warranty-claims')) return 'warranty';
   if (p.startsWith('/suppliers')) return 'suppliers';
   if (p.startsWith('/subs') || p.startsWith('/sub-photo')) return 'subs';
+  if (p.startsWith('/bids')) return 'bids';
   if (p.startsWith('/settings')) return 'settings';
   if (p.startsWith('/team')) return 'team';
   return null;
@@ -1557,6 +1559,25 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_business TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_checked_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_report TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_expires DATE;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_note TEXT;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_checked_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS bids (
+      id SERIAL PRIMARY KEY,
+      sub_id INTEGER REFERENCES subcontractors(id) ON DELETE CASCADE,
+      project_id INTEGER REFERENCES projects(id) ON DELETE SET NULL,
+      amount NUMERIC,
+      estimate_no VARCHAR(40),
+      subject TEXT,
+      job_hint TEXT,
+      gmail_message_id VARCHAR(255),
+      filename TEXT,
+      gmail_attachment_id TEXT,
+      status VARCHAR(24) DEFAULT 'received',
+      auto_matched BOOLEAN DEFAULT FALSE,
+      received_at TIMESTAMPTZ DEFAULT NOW()
+    );
     -- Files a sub attaches to a reply (license PDF, COI, insurance, photos). We store
     -- metadata + the Gmail ids and stream the bytes on demand via the attachment route.
     CREATE TABLE IF NOT EXISTS sub_email_attachments (
@@ -4352,6 +4373,7 @@ function countyFromZip(zipish) {
   if (z >= 92501 && z <= 92599) return 'Riverside County';
   if (z >= 92601 && z <= 92899) return 'Orange County';
   if (z >= 93001 && z <= 93099) return 'Ventura County';
+  if (z >= 93510 && z <= 93599) return 'LA County';   // Antelope Valley (Palmdale/Lancaster)
   return '';
 }
 // CSLB county display names → our location labels
@@ -4460,14 +4482,98 @@ async function verifySubLicense(sub) {
     status: det.statusText, classes: det.classifications,
     bond: det.hasBond, wc: det.wcText, riskLines: det.riskLines || [],
   };
+  // Bonus: the CSLB business address gives us a county — fill the service area if it's blank
+  const cslbLoc = countyFromZip(det.address);
   await pool.query(
     `UPDATE subcontractors SET license_number=$1, licensed=true, license_status=$2, license_expire=$3,
-       license_classes=$4, license_flags=$5, license_business=$6, license_report=$7, license_checked_at=NOW() WHERE id=$8`,
+       license_classes=$4, license_flags=$5, license_business=$6, license_report=$7, license_checked_at=NOW(),
+       location = COALESCE(NULLIF(TRIM(location), ''), $9) WHERE id=$8`,
     [lic, det.statusText || null, exp ? exp.toISOString().slice(0, 10) : null,
-     det.classifications || null, JSON.stringify(flags), det.businessName || null, JSON.stringify(report), sub.id]
+     det.classifications || null, JSON.stringify(flags), det.businessName || null, JSON.stringify(report), sub.id,
+     cslbLoc || null]
   );
   return { ok: true, detail: det, flags };
 }
+// ── Insurance watchdog: read COI attachments the subs emailed us, pull expiration dates ──
+// Text extraction: pdf-parse for digital PDFs; Cloud Vision OCR for scans and photos.
+async function docTextOrOcr(buf, filename) {
+  let text = '';
+  const isPdf = /\.pdf$/i.test(filename || '') || buf.slice(0, 4).toString() === '%PDF';
+  if (isPdf) {
+    try {
+      const { PDFParse } = require('pdf-parse');
+      const parser = new PDFParse({ data: new Uint8Array(buf) });
+      try { const r = await parser.getText(); text = (r && r.text) || ''; }
+      finally { if (parser.destroy) { try { await parser.destroy(); } catch (e) {} } }
+    } catch (e) { /* corrupt or scanned — OCR below */ }
+    if (text.replace(/\s/g, '').length >= 100) return text;
+  }
+  const key = process.env.GOOGLE_PLACES_API_KEY;   // same key, Vision API enabled on it
+  if (!key) return text;
+  if (isPdf) {
+    const r = await fetch('https://vision.googleapis.com/v1/files:annotate?key=' + key, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ inputConfig: { content: buf.toString('base64'), mimeType: 'application/pdf' }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }], pages: [1, 2, 3] }] }),
+    });
+    const d = await r.json();
+    const resps = ((d.responses || [])[0] || {}).responses || [];
+    return resps.map(x => (x.fullTextAnnotation || {}).text || '').join('\n') || text;
+  }
+  const r = await fetch('https://vision.googleapis.com/v1/images:annotate?key=' + key, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ requests: [{ image: { content: buf.toString('base64') }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] }),
+  });
+  const d = await r.json();
+  return (((d.responses || [])[0] || {}).fullTextAnnotation || {}).text || '';
+}
+// In a COI every future date is a policy expiration; the earliest one is the next lapse.
+function coiDates(text) {
+  const out = [];
+  const re = /\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/g;
+  let m;
+  while ((m = re.exec(text))) {
+    let y = Number(m[3]); if (y < 100) y += 2000;
+    const d = new Date(y, Number(m[1]) - 1, Number(m[2]));
+    if (!isNaN(d) && y >= 2015 && y <= new Date().getFullYear() + 6) out.push(d);
+  }
+  return out;
+}
+const COI_FILE_RE = /coi|acord|certificat|insur|liab|workers.?comp|\bwc\b|policy/i;
+async function scanSubInsurance(subId) {
+  const { rows } = await pool.query(`
+    SELECT a.filename, a.mime, a.gmail_message_id, a.gmail_attachment_id
+    FROM sub_email_attachments a JOIN sub_emails e ON e.id = a.sub_email_id
+    WHERE e.sub_id = $1 AND (a.mime ~* 'pdf|image' OR a.filename ~* '\\.(pdf|png|jpe?g)$')
+    ORDER BY a.id DESC`, [subId]);
+  const a = rows.find(r => COI_FILE_RE.test(r.filename || ''));   // newest insurance-looking doc
+  if (!a) return { ok: false, reason: 'no insurance attachment' };
+  const att = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId: a.gmail_message_id, id: a.gmail_attachment_id });
+  const buf = Buffer.from(String(att.data.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+  const dates = coiDates(await docTextOrOcr(buf, a.filename));
+  if (!dates.length) return { ok: false, reason: 'no dates readable in ' + a.filename };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const future = dates.filter(d => d >= today).map(d => d.getTime());
+  const exp = future.length ? new Date(Math.min.apply(null, future)) : new Date(Math.max.apply(null, dates.map(d => d.getTime())));
+  const note = (a.filename || 'attachment').slice(0, 120) + (future.length ? '' : ' — all policies expired');
+  await pool.query('UPDATE subcontractors SET ins_expires=$1, ins_note=$2, ins_checked_at=NOW() WHERE id=$3',
+    [exp.toISOString().slice(0, 10), note, subId]);
+  return { ok: true, expires: exp.toISOString().slice(0, 10), file: a.filename };
+}
+// Scan every sub that has emailed us attachments (used by the button and the weekly cron)
+async function insuranceScanAll() {
+  const { rows } = await pool.query(`
+    SELECT DISTINCT e.sub_id FROM sub_email_attachments a JOIN sub_emails e ON e.id = a.sub_email_id`);
+  const out = { scanned: 0, found: 0, skipped: 0, errors: 0 };
+  for (const r of rows) {
+    try {
+      out.scanned++;
+      const res = await scanSubInsurance(r.sub_id);
+      if (res.ok) out.found++; else out.skipped++;
+    } catch (e) { out.errors++; console.error('insurance scan sub ' + r.sub_id + ':', e.message); }
+  }
+  return out;
+}
+
 // Search CSLB for licensed contractors by classification + counties → rows
 async function cslbSearchByCounty(classification, counties) {
   const XLSX = require('xlsx');
@@ -4548,6 +4654,47 @@ app.post('/subs/licenses/verify-all', requireAuth, async (req, res) => {   // 3-
     const flagged = results.filter(r => (r.flags || []).some(f => f.level !== 'info'));
     res.json({ ok: true, checked: results.length, flagged: flagged.length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Insurance watchdog: scan every sub's emailed COIs for expiration dates (3-segment path)
+app.post('/subs/insurance/scan-all', requireAuth, async (req, res) => {
+  try {
+    if (!useGmail) return res.status(400).json({ ok: false, error: 'Gmail not configured.' });
+    const out = await insuranceScanAll();
+    res.json({ ok: true, ...out });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ── Bid board: every QuickBooks estimate, grouped by the project it's for ──
+app.get('/bids', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: bids } = await pool.query(`
+      SELECT b.*, s.company, s.type AS sub_type, s.license_flags
+      FROM bids b JOIN subcontractors s ON s.id = b.sub_id
+      ORDER BY b.received_at DESC`);
+    const { rows: projects } = await pool.query('SELECT id, address FROM projects ORDER BY sort_order NULLS LAST, id');
+    res.render('bids', { bids, projects });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/bids/:id/assign', requireAuth, async (req, res) => {
+  try {
+    const pid = req.body.project_id ? Number(req.body.project_id) : null;
+    await pool.query('UPDATE bids SET project_id=$1, auto_matched=false WHERE id=$2', [pid, req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/bids/:id/status', requireAuth, async (req, res) => {
+  try {
+    const st = ['received', 'awarded', 'passed'].includes(req.body.status) ? req.body.status : 'received';
+    const { rows: [b] } = await pool.query('UPDATE bids SET status=$1 WHERE id=$2 RETURNING sub_id', [st, req.params.id]);
+    if (b && st === 'awarded') await pool.query("UPDATE subcontractors SET bid_status='Awarded' WHERE id=$1", [b.sub_id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/bids/:id/delete', requireAuth, async (req, res) => {
+  try { await pool.query('DELETE FROM bids WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Sub Finder page (lives under /subs so it inherits the Subs access rules — Rick can use it)
@@ -5428,6 +5575,102 @@ async function licenseWatchdog() {
   } catch (e) { console.error('licenseWatchdog:', e.message); }
 }
 
+// ── Weekly recruiting digest → the Bids chat space ─────────────────────────────
+// One short Monday post: coverage gaps vs the 4-per-area minimum, expiring licenses
+// and insurance, and the bids that came in during the week.
+const COVERAGE_AREAS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County', 'The Valley'];
+async function coverageDigest() {
+  if (!process.env.BIDS_WEBHOOK_URL) return;
+  try {
+    const COV_MIN = 4;
+    const { rows: subs } = await pool.query('SELECT company, type, status, location, category, license_expire, license_flags, ins_expires FROM subcontractors');
+    const usable = subs.filter(s => !/reject|black/i.test(s.status || '') &&
+      !(s.category === 'gc' || (!s.category && /general\s*contractor|^\s*gc\b/i.test(s.type || ''))));
+    const lines = [];
+    // Coverage vs the minimum
+    const short = [];
+    let noArea = 0;
+    const covLine = COVERAGE_AREAS.map(a => {
+      const n = usable.filter(s => String(s.location || '').toLowerCase().includes(a.toLowerCase())).length;
+      if (n < COV_MIN) short.push(a + ' has ' + n + ' (need ' + (COV_MIN - n) + ' more)');
+      return a.replace(' County', '') + ' ' + n;
+    }).join(' · ');
+    noArea = usable.filter(s => !String(s.location || '').trim()).length;
+    lines.push('📍 *Sub coverage:* ' + covLine);
+    if (short.length) lines.push('🚨 Below the ' + COV_MIN + '-sub minimum: ' + short.join('; '));
+    if (noArea) lines.push('⚠ ' + noArea + ' subs have no service area set (they count nowhere)');
+    // Licenses expiring ≤60d or flagged red
+    const now = Date.now();
+    const licBad = subs.filter(s => {
+      if (/reject|black/i.test(s.status || '')) return false;
+      let flags = []; try { flags = JSON.parse(s.license_flags || '[]'); } catch (e) {}
+      const expSoon = s.license_expire && (new Date(s.license_expire) - now) / 86400000 <= 60;
+      return expSoon || flags.some(f => f.level === 'red');
+    }).slice(0, 6);
+    if (licBad.length) lines.push('📜 *License attention:* ' + licBad.map(s => s.company).join(', '));
+    // Insurance expired / expiring ≤30d
+    const insBad = subs.filter(s => !/reject|black/i.test(s.status || '') && s.ins_expires && (new Date(s.ins_expires) - now) / 86400000 <= 30).slice(0, 6);
+    if (insBad.length) lines.push('🛡 *Insurance lapsing:* ' + insBad.map(s => s.company + ' (' + new Date(s.ins_expires).toLocaleDateString() + ')').join(', '));
+    // Bids this week
+    try {
+      const { rows: wk } = await pool.query(`
+        SELECT b.amount, s.company FROM bids b JOIN subcontractors s ON s.id = b.sub_id
+        WHERE b.received_at > NOW() - INTERVAL '7 days' ORDER BY b.received_at DESC`);
+      if (wk.length) lines.push('📥 *Bids this week (' + wk.length + '):* ' + wk.slice(0, 6).map(b =>
+        b.company + (b.amount != null ? ' $' + Number(b.amount).toLocaleString() : '')).join(', '));
+    } catch (e) { /* bids table may be empty/new */ }
+    const base = process.env.APP_URL || 'https://buildoly.up.railway.app';
+    const text = ['🧭 *Weekly recruiting digest*', ...lines, base + '/subs'].join('\n');
+    await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
+    console.log('coverageDigest posted');
+  } catch (e) { console.error('coverageDigest:', e.message); }
+}
+
+// ── Bid → project matching ─────────────────────────────────────────────────────
+// Estimates often carry the job address ("840 N Edgemond") that's spelled slightly
+// differently from the project ("842 N Edgemont St") — so match on street name
+// similarity + house number proximity, not equality.
+function parseStreetAddr(s) {
+  const m = String(s || '').match(/\b(\d{2,6})\s+((?:[NSEW]\.?\s+)?[A-Za-z][A-Za-z' ]{2,40}?)(?:\s+(?:St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Rd|Road|Ln|Lane|Way|Ct|Court|Pl|Place|Cir|Circle|Ter|Terrace)\.?\b|\s*[,#]|$)/i);
+  if (!m) return null;
+  return { num: parseInt(m[1], 10), street: m[2].toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim() };
+}
+function editDistance(a, b) {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++)
+    dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  return dp[a.length][b.length];
+}
+// Find the best project for an address hint. Returns { id, address } or null.
+async function matchBidToProject(hint) {
+  const want = parseStreetAddr(hint);
+  if (!want) return null;
+  const { rows: projects } = await pool.query('SELECT id, address, full_address FROM projects');
+  let best = null, bestScore = 1e9;
+  for (const p of projects) {
+    const have = parseStreetAddr(p.address) || parseStreetAddr(p.full_address);
+    if (!have) continue;
+    const dist = editDistance(want.street, have.street);
+    const numDiff = Math.abs(want.num - have.num);
+    if (dist > Math.max(2, Math.floor(have.street.length / 5)) || numDiff > 8) continue;   // not the same street / block
+    const score = dist * 10 + numDiff;
+    if (score < bestScore) { bestScore = score; best = p; }
+  }
+  return best;
+}
+// Pull an address-looking string out of estimate text (subject line first, then body)
+function bidJobHint(subject, bodyText) {
+  for (const src of [subject, String(bodyText || '').slice(0, 3000)]) {
+    const a = parseStreetAddr(src);
+    if (a) {
+      const m = String(src).match(/\b\d{2,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z][A-Za-z'. ]{2,40}(?:\s+(?:St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Rd|Road|Ln|Lane|Way|Ct|Court|Pl|Place|Cir|Circle|Ter|Terrace)\.?)?/i);
+      return m ? m[0].trim() : null;
+    }
+  }
+  return null;
+}
+
 // ── QuickBooks bid ingester ────────────────────────────────────────────────────
 // Subs send QuickBooks estimates from Intuit's notification address (not their own
 // email), so the reply-checker never sees them. This watches the inbox for those,
@@ -5517,6 +5760,29 @@ async function ingestOneQb(messageId) {
     const newStatus = /awarded/i.test(sub.bid_status || '') ? sub.bid_status : 'Bid Received';
     await pool.query('UPDATE subcontractors SET bid_status=$1, bid_price=$2 WHERE id=$3', [newStatus, ('$' + amt).slice(0, 40), sub.id]);
   }
+  // …and the bid board: one row per estimate, auto-matched to a project by job address
+  if (kind === 'estimate') {
+    try {
+      const estNo = (subject.match(/estimate\s*#?\s*([\w-]+)/i) || [])[1] || null;
+      const hint = bidJobHint(subject, text);
+      const pdf = atts.find(a => /pdf/i.test(a.mime || a.filename));
+      const numAmt = amt ? Number(amt.replace(/,/g, '')) : null;
+      const { rows: [dup] } = await pool.query(
+        'SELECT id FROM bids WHERE gmail_message_id=$1 OR (sub_id=$2 AND estimate_no IS NOT NULL AND estimate_no=$3) LIMIT 1',
+        [messageId, sub.id, estNo]);
+      if (dup) {
+        await pool.query('UPDATE bids SET amount=COALESCE($1, amount), subject=$2, job_hint=COALESCE($3, job_hint) WHERE id=$4',
+          [numAmt, subject.slice(0, 250), hint, dup.id]);
+      } else {
+        const proj = hint ? await matchBidToProject(hint) : null;
+        await pool.query(
+          `INSERT INTO bids (sub_id, project_id, amount, estimate_no, subject, job_hint, gmail_message_id, filename, gmail_attachment_id, auto_matched, received_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+          [sub.id, proj ? proj.id : null, numAmt, estNo, subject.slice(0, 250), hint,
+           messageId, pdf ? pdf.filename : null, pdf ? pdf.aid : null, !!proj, when]);
+      }
+    } catch (e) { console.error('bid board insert:', e.message); }
+  }
   // License number from the sender name → save + verify against CSLB
   if (licM && !(sub.license_number || '').trim()) {
     try { await verifySubLicense({ id: sub.id, company: sub.company, notes: '', license_number: licM[1] }); } catch (e) { /* keep ingesting */ }
@@ -5590,6 +5856,8 @@ function startCron() {
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
   cron.schedule('40 15 * * 1', licenseWatchdog);        // Mondays — CSLB license re-check
+  cron.schedule('0 14 * * 0', () => insuranceScanAll().then(o => console.log('insurance scan:', JSON.stringify(o))).catch(e => console.error('insurance scan:', e.message)));   // Sundays — re-read COIs
+  cron.schedule('10 15 * * 1', coverageDigest);         // Mondays — recruiting digest to the Bids space
   console.log('Cron jobs scheduled');
 }
 

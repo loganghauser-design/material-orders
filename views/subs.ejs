@@ -108,6 +108,10 @@
     .licb-ok { background:#dcfce7; color:#166534; }
     .licb-amber { background:#fde68a; color:#7a5b00; }
     .licb-red { background:#dc2626; color:#fff; }
+    .insb { display:block; margin-top:.25rem; font-size:.68rem; font-weight:700; padding:2px 7px; border-radius:9px; max-width:160px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; }
+    .insb-ok { background:#e0f2fe; color:#075985; }
+    .insb-amber { background:#fde68a; color:#7a5b00; }
+    .insb-red { background:#dc2626; color:#fff; }
     .licb-more { display:block; margin-top:2px; font-size:.66rem; font-weight:700; color:#dc2626; cursor:pointer; }
     .licb-more:hover { text-decoration:underline; }
     .lm-row { display:flex; gap:.7rem; padding:.4rem 0; border-bottom:1px solid var(--border); font-size:.9rem; }
@@ -322,6 +326,37 @@
   </details>
   <% } %>
 
+  <!-- Insurance watch: COI expirations parsed from the certificates subs email us -->
+  <%
+    var _insAll = subs.filter(function(s){ return s.ins_expires && !/reject|black/i.test(s.status || ''); });
+    function _insDays(d){ return Math.floor((new Date(d) - Date.now()) / 86400000); }
+    var _insExp = _insAll.filter(function(s){ return _insDays(s.ins_expires) < 0; });
+    var _insSoon = _insAll.filter(function(s){ var d = _insDays(s.ins_expires); return d >= 0 && d <= 90; }).sort(function(a,b){ return new Date(a.ins_expires) - new Date(b.ins_expires); });
+  %>
+  <% if (!isSuper && (canEdit || _insAll.length)) { %>
+  <details class="card" style="margin-bottom:1.1rem;padding:1rem 1.3rem" <%= (_insExp.length || _insSoon.length) ? 'open' : '' %>>
+    <summary style="cursor:pointer;font-weight:800;font-size:.95rem">🛡 Insurance watch
+      <span style="color:var(--muted);font-weight:400;font-size:.83rem">— <%= _insAll.length %> on file<% if (_insExp.length) { %> · <strong style="color:#dc2626"><%= _insExp.length %> EXPIRED</strong><% } %><% if (_insSoon.length) { %> · <strong style="color:#b45309"><%= _insSoon.length %> expiring ≤90d</strong><% } %></span>
+    </summary>
+    <div style="margin-top:.8rem;display:flex;flex-direction:column;gap:.35rem">
+      <% if (!_insAll.length) { %><div style="color:var(--muted);font-size:.85rem">Nothing scanned yet — hit the button below and I'll read every COI/insurance certificate the subs have emailed us and pull the expiration dates.</div><% } %>
+      <% _insExp.forEach(function(s){ %>
+        <div style="font-size:.86rem"><span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:9px">EXPIRED</span> <strong><%= s.company %></strong> — lapsed <%= new Date(s.ins_expires).toLocaleDateString() %> <span style="color:var(--muted);font-size:.76rem">(<%= s.ins_note %>)</span></div>
+      <% }) %>
+      <% _insSoon.forEach(function(s){ var d = _insDays(s.ins_expires); %>
+        <div style="font-size:.86rem"><span style="background:#fde68a;color:#7a5b00;font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:9px"><%= d %>d</span> <strong><%= s.company %></strong> — expires <%= new Date(s.ins_expires).toLocaleDateString() %> <span style="color:var(--muted);font-size:.76rem">(<%= s.ins_note %>)</span></div>
+      <% }) %>
+      <% if (_insAll.length && !_insExp.length && !_insSoon.length) { %><div style="color:#16a34a;font-size:.86rem">✓ Nothing expired or expiring in the next 90 days.</div><% } %>
+    </div>
+    <% if (canEdit) { %>
+    <div style="margin-top:.8rem;display:flex;align-items:center;gap:.7rem">
+      <button type="button" class="btn btn-ghost btn-sm" id="insScanBtn" onclick="insScanAll()">🔍 Scan emailed COIs now</button>
+      <span style="font-size:.74rem;color:var(--muted)">Reads every insurance certificate in the email log (OCR for scans) and pulls the next expiration. Also re-runs automatically every Sunday.</span>
+    </div>
+    <% } %>
+  </details>
+  <% } %>
+
   <div class="subs-toolbar">
     <input type="search" id="subSearch" placeholder="Search name, trade, phone…" oninput="filterSubs()">
     <select id="typeFilter" onchange="filterSubs()" class="trade-select"><option value="">All trades</option></select>
@@ -495,6 +530,11 @@
                   <% } else if (_worst) { %>
                     <span class="licb licb-<%= _worst %>" onclick="openLicModal(<%= s.id %>)" title="Click to see what the issue is"><%= _worst==='red' ? '⛔' : '⚠' %> <%= (_lf.find(function(f){return f.level===_worst;})||{}).text %></span>
                     <% var _more = _lf.filter(function(f){return f.level!=='info';}).length - 1; if (_more > 0) { %><span class="licb-more" onclick="openLicModal(<%= s.id %>)">+<%= _more %> more issue<%= _more>1?'s':'' %> — click</span><% } %>
+                  <% } %>
+                  <% if (s.ins_expires) {
+                       var _insD = Math.floor((new Date(s.ins_expires) - Date.now()) / 86400000);
+                       var _insCls = _insD < 0 ? 'red' : (_insD <= 60 ? 'amber' : 'ok'); %>
+                    <span class="insb insb-<%= _insCls %>" title="Insurance (from <%= s.ins_note || 'emailed COI' %> — checked <%= s.ins_checked_at ? new Date(s.ins_checked_at).toLocaleDateString() : '' %>)">🛡 ins <%= _insD < 0 ? 'EXPIRED' : 'exp' %> <%= new Date(s.ins_expires).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) %></span>
                   <% } %>
                 </td>
                 <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
@@ -1407,6 +1447,16 @@ function openEmlog(btn, id) {
     const dot = btn.querySelector('.reply-dot'); if (dot) dot.remove();
     fetch('/subs/' + id + '/replies/seen', { method: 'POST', headers: { 'X-Requested-With': 'fetch' } }).catch(function () {});
   }
+}
+async function insScanAll() {
+  const btn = document.getElementById('insScanBtn');
+  btn.disabled = true; btn.textContent = '⏳ Reading COIs… (can take a minute)';
+  try {
+    const r = await fetch('/subs/insurance/scan-all', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) { btn.textContent = '✓ Scanned ' + d.scanned + ' subs — ' + d.found + ' with insurance docs'; setTimeout(function () { location.reload(); }, 1200); }
+    else { btn.textContent = '⚠ ' + (d.error || 'Scan failed'); btn.disabled = false; }
+  } catch (e) { btn.textContent = '⚠ Scan failed'; btn.disabled = false; }
 }
 function closeEmlogAll() {
   document.querySelectorAll('.emlog-body.show').forEach(function (p) { p.classList.remove('show'); });

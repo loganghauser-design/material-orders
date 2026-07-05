@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bids — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .bid-table { width:100%; border-collapse:collapse; font-size:.88rem; }
+    .bid-table th { text-align:left; padding:.45rem .7rem; font-size:.7rem; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); }
+    .bid-table td { padding:.5rem .7rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .bid-amt { font-weight:800; white-space:nowrap; }
+    .bid-low { color:#16a34a; }
+    .bidst { font-size:.7rem; font-weight:800; padding:2px 9px; border-radius:9px; white-space:nowrap; }
+    .bidst-received { background:#e0e7ff; color:#3730a3; }
+    .bidst-awarded { background:#16a34a; color:#fff; }
+    .bidst-passed { background:#e6e6e6; color:#666; }
+    .bid-actions button { background:none; border:1px solid var(--border); border-radius:8px; padding:.15rem .5rem; font-size:.74rem; cursor:pointer; margin-right:.25rem; }
+    .bid-actions button:hover { background:var(--bg); }
+    .bid-assign { font-size:.78rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:8px; max-width:190px; }
+    .bid-auto { font-size:.66rem; color:#b45309; font-weight:700; }
+    .proj-card { margin-top:1.2rem; }
+    .proj-head { display:flex; align-items:baseline; gap:.6rem; flex-wrap:wrap; margin-bottom:.4rem; }
+    .proj-head h2 { font-size:1.05rem; font-weight:800; margin:0; }
+    .trade-band { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:.6rem; }
+    .trade-cell { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:.6rem .75rem; }
+    .trade-cell .tc-t { font-size:.78rem; font-weight:800; }
+    .trade-cell .tc-r { font-size:.82rem; margin-top:.2rem; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'bids' }) %>
+
+<div class="container">
+  <div class="page-header">
+    <h1>Bids</h1>
+  </div>
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.2rem;max-width:760px">
+    Every QuickBooks estimate lands here automatically, matched to a project by the job address on the estimate.
+    Auto-matches are marked <span class="bid-auto">≈ auto</span> — fix any wrong ones with the project dropdown. Awarding a bid also sets the sub's pipeline to Awarded.
+  </p>
+
+  <%
+    function money(a) { return a == null ? '—' : '$' + Number(a).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    function pdfUrl(b) { return b.gmail_attachment_id ? '/threads/messages/' + b.gmail_message_id + '/attachment/' + b.gmail_attachment_id + '?name=' + encodeURIComponent(b.filename || 'estimate.pdf') + '&mime=application%2Fpdf' : null; }
+    var byProject = {};
+    var unassigned = [];
+    bids.forEach(function (b) { if (b.project_id) (byProject[b.project_id] = byProject[b.project_id] || []).push(b); else unassigned.push(b); });
+    var projById = {}; projects.forEach(function (p) { projById[p.id] = p; });
+    function firstTrade(b) { return (String(b.sub_type || '').split(',')[0] || '').trim() || 'Other'; }
+  %>
+
+  <% function bidRows(list, showProject) { %>
+    <table class="bid-table">
+      <thead><tr><th>Sub</th><th>Trade</th><th>Amount</th><th>Est #</th><th>Job on estimate</th><% if (showProject) { %><th>Project</th><% } %><th>Received</th><th>PDF</th><th>Status</th><th></th></tr></thead>
+      <tbody>
+      <%
+        var lowest = null;
+        list.forEach(function (b) { if (b.amount != null && b.status !== 'passed' && (lowest == null || Number(b.amount) < lowest)) lowest = Number(b.amount); });
+        list.forEach(function (b) { var u = pdfUrl(b);
+      %>
+        <tr id="bid_<%= b.id %>">
+          <td><strong><%= b.company %></strong></td>
+          <td><%= firstTrade(b) %></td>
+          <td class="bid-amt <%= (b.amount != null && Number(b.amount) === lowest && list.length > 1) ? 'bid-low' : '' %>"><%= money(b.amount) %><%= (b.amount != null && Number(b.amount) === lowest && list.length > 1) ? ' ▼' : '' %></td>
+          <td><%= b.estimate_no || '' %></td>
+          <td style="font-size:.8rem;color:var(--muted)"><%= b.job_hint || '' %></td>
+          <% if (showProject) { %>
+          <td>
+            <select class="bid-assign" onchange="bidAssign(<%= b.id %>, this.value)">
+              <option value="">— unassigned —</option>
+              <% projects.forEach(function (p) { %><option value="<%= p.id %>" <%= b.project_id === p.id ? 'selected' : '' %>><%= p.address %></option><% }) %>
+            </select>
+            <% if (b.auto_matched) { %><div class="bid-auto" title="Matched by address similarity — double-check me">≈ auto</div><% } %>
+          </td>
+          <% } %>
+          <td style="white-space:nowrap;font-size:.8rem"><%= new Date(b.received_at).toLocaleDateString() %></td>
+          <td><% if (u) { %><a href="<%= u %>" target="_blank" rel="noopener" title="Open the estimate PDF">📄</a><% } %></td>
+          <td><span class="bidst bidst-<%= b.status %>"><%= b.status %></span></td>
+          <td class="bid-actions" style="white-space:nowrap">
+            <% if (b.status !== 'awarded') { %><button type="button" onclick="bidStatus(<%= b.id %>, 'awarded')" title="Award this bid">🏆</button><% } %>
+            <% if (b.status !== 'passed') { %><button type="button" onclick="bidStatus(<%= b.id %>, 'passed')" title="Pass on this bid">✋</button><% } %>
+            <% if (b.status !== 'received') { %><button type="button" onclick="bidStatus(<%= b.id %>, 'received')" title="Back to received">↩</button><% } %>
+            <button type="button" onclick="bidDelete(<%= b.id %>, '<%= (b.company || '').replace(/'/g, "\\'") %>')" title="Remove from the board" style="color:#cc2222">✕</button>
+          </td>
+        </tr>
+      <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+
+  <% if (!bids.length) { %>
+    <div class="card"><p style="color:var(--muted);margin:0">No bids yet — they'll appear automatically as QuickBooks estimates arrive by email.</p></div>
+  <% } %>
+
+  <% if (unassigned.length) { %>
+  <div class="card proj-card" style="border-left:4px solid #d97706">
+    <div class="proj-head"><h2>📥 Needs a project (<%= unassigned.length %>)</h2><span style="color:var(--muted);font-size:.82rem">No job address recognized — pick the project by hand.</span></div>
+    <% bidRows(unassigned, true) %>
+  </div>
+  <% } %>
+
+  <% Object.keys(byProject).forEach(function (pid) { var list = byProject[pid]; var proj = projById[pid]; %>
+  <div class="card proj-card">
+    <div class="proj-head">
+      <h2>🏠 <%= proj ? proj.address : ('Project #' + pid) %></h2>
+      <span style="color:var(--muted);font-size:.82rem"><%= list.length %> bid<%= list.length === 1 ? '' : 's' %></span>
+      <% if (proj) { %><a href="/projects/<%= proj.id %>" style="font-size:.82rem">open project →</a><% } %>
+    </div>
+    <% bidRows(list, true) %>
+  </div>
+  <% }) %>
+
+  <% if (bids.length) {
+       var byTrade = {};
+       bids.filter(function (b) { return b.status !== 'passed' && b.amount != null; }).forEach(function (b) {
+         var t = firstTrade(b); (byTrade[t] = byTrade[t] || []).push(Number(b.amount));
+       });
+       var tradeKeys = Object.keys(byTrade).sort();
+  %>
+  <div class="card proj-card">
+    <div class="proj-head"><h2>📊 Price board by trade</h2><span style="color:var(--muted);font-size:.82rem">Across all live bids — a gut-check for what a trade should cost.</span></div>
+    <div class="trade-band">
+      <% tradeKeys.forEach(function (t) { var a = byTrade[t]; var lo = Math.min.apply(null, a), hi = Math.max.apply(null, a), avg = a.reduce(function (x, y) { return x + y; }, 0) / a.length; %>
+      <div class="trade-cell">
+        <div class="tc-t"><%= t %> <span style="color:var(--muted);font-weight:400">(<%= a.length %>)</span></div>
+        <div class="tc-r"><%= money(lo) %><% if (a.length > 1) { %> – <%= money(hi) %> <span style="color:var(--muted);font-size:.76rem">avg <%= money(avg) %></span><% } %></div>
+      </div>
+      <% }) %>
+    </div>
+  </div>
+  <% } %>
+</div>
+
+<div id="toast" class="toast"></div>
+<script>
+async function bidAssign(id, pid) {
+  const r = await fetch('/bids/' + id + '/assign', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ project_id: pid }) });
+  const d = await r.json().catch(function () { return {}; });
+  if (d.ok) location.reload(); else showToast('Could not assign', true);
+}
+async function bidStatus(id, st) {
+  const r = await fetch('/bids/' + id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ status: st }) });
+  const d = await r.json().catch(function () { return {}; });
+  if (d.ok) location.reload(); else showToast('Could not update', true);
+}
+async function bidDelete(id, name) {
+  if (!confirm('Remove the bid from "' + name + '" off the board? (The email + PDF stay in the sub\'s log.)')) return;
+  const r = await fetch('/bids/' + id + '/delete', { method: 'POST' });
+  const d = await r.json().catch(function () { return {}; });
+  if (d.ok) { var tr = document.getElementById('bid_' + id); if (tr) tr.remove(); showToast('Removed'); } else showToast('Could not remove', true);
+}
+function showToast(msg, err) {
+  const t = document.getElementById('toast');
+  if (!t) return alert(msg);
+  t.textContent = msg; t.className = 'toast show' + (err ? ' error' : '');
+  setTimeout(function () { t.className = 'toast'; }, 1800);
+}
+</script>
+</body>
+</html>
