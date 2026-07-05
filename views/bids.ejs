@@ -48,7 +48,21 @@
     bids.forEach(function (b) { if (b.project_id) (byProject[b.project_id] = byProject[b.project_id] || []).push(b); else unassigned.push(b); });
     var projById = {}; projects.forEach(function (p) { projById[p.id] = p; });
     function firstTrade(b) { return (String(b.sub_type || '').split(',')[0] || '').trim() || 'Other'; }
+    // Review queue: pending bids + per-trade averages for the price sanity check
+    var _tradeSums = {};
+    bids.forEach(function (b) { if (b.status !== 'passed' && b.amount != null) (_tradeSums[firstTrade(b)] = _tradeSums[firstTrade(b)] || []).push(Number(b.amount)); });
+    var _pending = bids.filter(function (b) { return b.status === 'received'; });
+    _pending.forEach(function (b) {
+      var arr = (_tradeSums[firstTrade(b)] || []).filter(function (a) { return a !== Number(b.amount); });
+      b.trade_avg = arr.length ? arr.reduce(function (x, y) { return x + y; }, 0) / arr.length : null;
+      b.project_address = b.project_id && projById[b.project_id] ? projById[b.project_id].address : null;
+    });
   %>
+
+  <% if (_pending.length) { %>
+  <div class="proj-head" style="margin-top:.4rem"><h2>📥 Needs a decision (<%= _pending.length %>)</h2></div>
+  <%- include('_bidqueue', { pendingBids: _pending, bidProjects: projects, composeAvailable: false }) %>
+  <% } %>
 
   <% function bidRows(list, showProject) { %>
     <table class="bid-table">

@@ -219,6 +219,24 @@
     .segbtn { flex:1; font:inherit; font-size:.95rem; font-weight:700; padding:.6rem; border:2px solid var(--border); border-radius:10px; background:var(--bg); color:var(--text); cursor:pointer; }
     .segbtn.on { background:#111; color:#fff; border-color:#111; }
     .subs-table .refby { color:var(--muted); font-size:.8rem; max-width:160px; }
+    /* ── Tabbed layout ── */
+    .subtabs { display:flex; gap:.35rem; flex-wrap:wrap; border-bottom:2px solid var(--border); margin-bottom:1.1rem; }
+    .subtab { font:inherit; font-size:.92rem; font-weight:700; color:var(--muted); background:none; border:none; border-bottom:3px solid transparent; padding:.55rem .9rem; margin-bottom:-2px; cursor:pointer; white-space:nowrap; }
+    .subtab:hover { color:var(--text); background:var(--bg); border-radius:9px 9px 0 0; }
+    .subtab.on { color:var(--text); border-bottom-color:#111; }
+    .subtab .tabn { display:inline-block; background:#eef0f4; color:#555; font-size:.72rem; font-weight:800; padding:1px 8px; border-radius:9px; margin-left:.25rem; }
+    .subtab .tabn.hot { background:#d97706; color:#fff; }
+    .subtab.pulse .tabn.hot { animation:bqpulse 2s ease-in-out infinite; }
+    @keyframes bqpulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.15); } }
+    /* ── Visual refresh ── */
+    .subs-toolbar { position:sticky; top:0; z-index:40; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.6rem .8rem; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+    .subs-table tr.subhdr td { background:var(--bg); color:var(--muted); font-size:.78rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:.55rem .8rem; border-top:none; }
+    .subs-table tr.subhdr:hover td { background:var(--bg); }
+    .subs-table thead th { position:sticky; top:56px; z-index:5; background:var(--surface); }
+    .subs-table tbody tr:not(.subhdr):not(.emptybucket):nth-child(even) { background:rgba(0,0,0,.014); }
+    .subs-table tbody tr:not(.subhdr):not(.emptybucket):hover { background:rgba(29,78,216,.045); }
+    .sub-section { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1rem 1.2rem 1.2rem; margin-bottom:1.3rem; box-shadow:0 1px 4px rgba(0,0,0,.04); }
+    @media (max-width: 900px) { .subs-toolbar { position:static; } .subs-table thead th { position:static; } }
   </style>
 </head>
 <body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
@@ -243,6 +261,32 @@
   <% if (typeof added !== 'undefined' && added) { %>
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Subcontractor added.</div>
   <% } %>
+
+  <!-- Tabs: the page's main navigation. Flagged/Inactive live in their own tab so the working lists stay clean. -->
+  <%
+    var _flagRe = /reject|black|inactive/i;
+    var _catQ = function (s) { return s.category || (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'); };
+    var _cntSub = subs.filter(function (s) { return _catQ(s) !== 'gc' && !_flagRe.test(s.status || ''); }).length;
+    var _cntGc = subs.filter(function (s) { return _catQ(s) === 'gc' && !_flagRe.test(s.status || ''); }).length;
+    var _cntFlag = subs.filter(function (s) { return _flagRe.test(s.status || ''); }).length;
+    var _cntDecide = (typeof pendingBids !== 'undefined' && pendingBids) ? pendingBids.length : 0;
+  %>
+  <div class="subtabs" id="subTabs">
+    <button type="button" class="subtab on" data-tab="sub" onclick="switchTab('sub')">🔧 Subcontractors <span class="tabn"><%= _cntSub %></span></button>
+    <button type="button" class="subtab" data-tab="gc" onclick="switchTab('gc')">🏗 Outside GCs <span class="tabn"><%= _cntGc %></span></button>
+    <% if (!isSuper || canEdit) { %>
+    <button type="button" class="subtab <%= _cntDecide ? 'pulse' : '' %>" data-tab="decide" onclick="switchTab('decide')">📥 Needs decision <span class="tabn <%= _cntDecide ? 'hot' : '' %>"><%= _cntDecide %></span></button>
+    <% } %>
+    <button type="button" class="subtab" data-tab="flagged" onclick="switchTab('flagged')">🚩 Flagged &amp; Inactive <span class="tabn"><%= _cntFlag %></span></button>
+  </div>
+
+  <!-- Needs-decision tab: every received bid with its vetting checklist -->
+  <div id="decidePanel" style="display:none">
+    <p style="color:var(--muted);font-size:.88rem;margin:0 0 .9rem;max-width:740px">Each card is a bid waiting on you. The checks are pulled live from CSLB, the emailed COIs, and your other bids — <strong>Approve</strong> awards the bid and moves the sub to Approved (the step before Active); <strong>Pass</strong> declines the bid but keeps the sub.</p>
+    <%- include('_bidqueue', { pendingBids: (typeof pendingBids !== 'undefined' ? pendingBids : []), bidProjects: (typeof bidProjects !== 'undefined' ? bidProjects : []), composeAvailable: true }) %>
+  </div>
+
+  <div id="mainPanel">
 
   <% if (typeof outreach !== 'undefined' && outreach && outreach.gc && !isSuper) {
        var _pct = function(a, b) { return b ? Math.round(a / b * 100) : 0; };
@@ -488,7 +532,7 @@
             %>
             <% groups.forEach(g => { %>
               <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13"><%= g %></td></tr><% } %>
-              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : 'Rejected' %></td></tr><% } %>
+              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : /inactive/i.test(g) ? 'Inactive' : 'Rejected' %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" data-noemail="<%= (s.email || '').trim() ? '' : '1' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
@@ -569,6 +613,7 @@
       <% } %>
     </div>
   <% }) %>
+  </div><!-- /mainPanel -->
 </div>
 
 <!-- Email subcontractor modal -->
@@ -768,6 +813,18 @@ function toggleMissingEmail(chip, cat) {
   filterSubs();
   if (missingEmailOnly) document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
+let currentTab = 'sub';
+const TAB_FLAG_RE = /reject|black|inactive/i;
+function switchTab(t) {
+  currentTab = t;
+  document.querySelectorAll('.subtab').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
+  const decide = t === 'decide';
+  const dp = document.getElementById('decidePanel'), mp = document.getElementById('mainPanel');
+  if (dp) dp.style.display = decide ? '' : 'none';
+  if (mp) mp.style.display = decide ? 'none' : '';
+  if (!decide) filterSubs();
+  closeEmlogAll();
+}
 function filterSubs() {
   const q = document.getElementById('subSearch').value.toLowerCase().trim();
   const tf = document.getElementById('typeFilter').value;
@@ -776,18 +833,26 @@ function filterSubs() {
   const vet = { gc: vg ? vg.value.toLowerCase() : '', sub: vs ? vs.value.toLowerCase() : '' };
   const ro = document.getElementById('recentOnly'); const recentOnly = !!(ro && ro.checked);
   document.querySelectorAll('tr[data-search]').forEach(r => {
+    const st = r.dataset.status || '';
+    // Which tab does this row belong to? Flagged/Inactive rows only show on their own tab.
+    const okTab = currentTab === 'flagged' ? TAB_FLAG_RE.test(st) : (r.dataset.cat === currentTab && !TAB_FLAG_RE.test(st));
     const okQ = !q || r.dataset.search.includes(q);
     const okT = !tf || r.dataset.type.split(',').map(x => x.trim()).includes(tf);
-    const okS = !sf || (r.dataset.status || '') === sf;
+    const okS = !sf || st === sf;
     const v = vet[r.dataset.cat] || '';
-    const okV = !v || (r.dataset.status || '') === v;
+    const okV = !v || st === v;
     const okR = !recentOnly || r.dataset.recent === '1';
-    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && r.dataset.cat === missingEmailOnly && !/reject|black|inactive|^active$/i.test(r.dataset.status || ''));
-    r.style.display = (okQ && okT && okS && okV && okR && okE) ? '' : 'none';
+    const okE = !missingEmailOnly || (r.dataset.noemail === '1' && r.dataset.cat === missingEmailOnly && !/reject|black|inactive|^active$/i.test(st));
+    r.style.display = (okTab && okQ && okT && okS && okV && okR && okE) ? '' : 'none';
   });
-  // While searching/filtering, hide the empty "drag here" drop zones so results stay clean
+  // While searching/filtering, hide the empty "drag here" drop zones so results stay clean;
+  // otherwise show only the ones that belong on the current tab.
   const anyFilter = !!(q || tf || sf || vet.gc || vet.sub || recentOnly || missingEmailOnly);
-  document.querySelectorAll('tr.emptybucket').forEach(r => { r.style.display = anyFilter ? 'none' : ''; });
+  document.querySelectorAll('tr.emptybucket').forEach(r => {
+    const g = r.dataset.grp || '';
+    const okT = currentTab === 'flagged' ? TAB_FLAG_RE.test(g) : (r.dataset.cat === currentTab && !TAB_FLAG_RE.test(g));
+    r.style.display = (anyFilter || !okT) ? 'none' : '';
+  });
   // Hide sub-section headers that have no visible rows beneath them
   document.querySelectorAll('.subs-table tbody').forEach(tb => {
     const trs = [...tb.children];
@@ -1463,6 +1528,8 @@ function closeEmlogAll() {
   const bd = document.getElementById('emlogBackdrop'); if (bd) bd.classList.remove('show');
 }
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeEmlogAll(); });
+// Apply the default tab's filtering on first paint (hides GCs + flagged from the Subs tab)
+document.addEventListener('DOMContentLoaded', function () { filterSubs(); });
 function openCompose(btn) {
   const email = btn.dataset.email || '';
   if (!email) { alert('No email on file for this sub — add one first with the ✏️ in the Email column.'); return; }

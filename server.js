@@ -4026,7 +4026,37 @@ app.get('/subs', requireAuth, async (req, res) => {
       // trade response rates are a sub-side concept (GCs are all one trade)
       tradeStats: Object.values(byTrade).filter(t => t.trade !== 'General Contractor' && t.contacted >= 1).sort((a, b) => b.contacted - a.contacted),   // every contacted trade — no cap
     };
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
+    // Bid review queue: every received bid, with the vetting facts needed to decide on it
+    let pendingBids = [], bidProjects = [];
+    try {
+      const { rows: pb } = await pool.query(`
+        SELECT b.id, b.amount, b.estimate_no, b.subject, b.job_hint, b.project_id, b.filename,
+               b.gmail_message_id, b.gmail_attachment_id, b.received_at, b.auto_matched,
+               s.id AS sub_id, s.company, s.type AS sub_type, s.status AS sub_status, s.location,
+               s.email, s.license_flags, s.license_checked_at, s.license_expire, s.ins_expires,
+               p.address AS project_address
+        FROM bids b JOIN subcontractors s ON s.id = b.sub_id
+        LEFT JOIN projects p ON p.id = b.project_id
+        WHERE b.status = 'received' ORDER BY b.received_at DESC`);
+      pendingBids = pb;
+      const { rows: bp } = await pool.query('SELECT id, address FROM projects ORDER BY sort_order NULLS LAST, id');
+      bidProjects = bp;
+      // trade average across ALL live bids (for the "is this price sane" line)
+      const { rows: allBids } = await pool.query(`
+        SELECT b.amount, s.type FROM bids b JOIN subcontractors s ON s.id = b.sub_id
+        WHERE b.status <> 'passed' AND b.amount IS NOT NULL`);
+      const tradeSums = {};
+      allBids.forEach(b => {
+        const t = (String(b.type || '').split(',')[0] || '').trim() || 'Other';
+        (tradeSums[t] = tradeSums[t] || []).push(Number(b.amount));
+      });
+      pendingBids.forEach(b => {
+        const t = (String(b.sub_type || '').split(',')[0] || '').trim() || 'Other';
+        const arr = (tradeSums[t] || []).filter(a => a !== Number(b.amount));   // avg of the OTHER bids
+        b.trade_avg = arr.length ? arr.reduce((x, y) => x + y, 0) / arr.length : null;
+      });
+    } catch (e) { /* bids table brand new — queue just shows empty */ }
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, pendingBids, bidProjects, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -4670,7 +4700,8 @@ app.get('/bids', requireAuth, async (req, res) => {
   try {
     await initDb();
     const { rows: bids } = await pool.query(`
-      SELECT b.*, s.company, s.type AS sub_type, s.license_flags
+      SELECT b.*, s.company, s.type AS sub_type, s.license_flags, s.status AS sub_status,
+             s.location, s.email, s.license_checked_at, s.license_expire, s.ins_expires
       FROM bids b JOIN subcontractors s ON s.id = b.sub_id
       ORDER BY b.received_at DESC`);
     const { rows: projects } = await pool.query('SELECT id, address FROM projects ORDER BY sort_order NULLS LAST, id');
@@ -4695,6 +4726,30 @@ app.post('/bids/:id/status', requireAuth, async (req, res) => {
 app.post('/bids/:id/delete', requireAuth, async (req, res) => {
   try { await pool.query('DELETE FROM bids WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+// One-click bid decision from the review queue.
+// approve → bid Awarded + sub moves to Approved (the step before Active); pass → bid passed.
+app.post('/bids/:id/decide', requireAuth, async (req, res) => {
+  try {
+    const action = req.body.action === 'approve' ? 'approve' : 'pass';
+    const { rows: [b] } = await pool.query('SELECT sub_id FROM bids WHERE id=$1', [req.params.id]);
+    if (!b) return res.status(404).json({ ok: false, error: 'Bid not found.' });
+    const { rows: [sub] } = await pool.query('SELECT id, status, category, type FROM subcontractors WHERE id=$1', [b.sub_id]);
+    if (action === 'approve') {
+      await pool.query("UPDATE bids SET status='awarded' WHERE id=$1", [req.params.id]);
+      if (sub && !/^active$/i.test(sub.status || '')) {   // never demote someone already on a job
+        const cat = sub.category === 'gc' || (!sub.category && /general\s*contractor|^\s*gc\b/i.test(sub.type || '')) ? 'gc' : 'sub';
+        await pool.query("UPDATE subcontractors SET status='Approved', bid_status='Awarded', group_label=$1 WHERE id=$2",
+          [bucketForStatus(cat, 'Approved'), sub.id]);
+      } else if (sub) {
+        await pool.query("UPDATE subcontractors SET bid_status='Awarded' WHERE id=$1", [sub.id]);
+      }
+    } else {
+      await pool.query("UPDATE bids SET status='passed' WHERE id=$1", [req.params.id]);
+      if (sub) await pool.query("UPDATE subcontractors SET bid_status='Passed' WHERE id=$1 AND bid_status <> 'Awarded'", [sub.id]);
+    }
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Sub Finder page (lives under /subs so it inherits the Subs access rules — Rick can use it)
