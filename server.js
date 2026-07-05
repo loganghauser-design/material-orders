@@ -4670,17 +4670,18 @@ app.post('/subs/licenses/verify-all', requireAuth, async (req, res) => {   // 3-
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-// 📇 Business-card scan: photo → Cloud Vision OCR → contact fields for the Add form
-app.post('/subs/card/scan', requireAuth, upload.single('card'), async (req, res) => {
+// 📇 Business-card scan: photo(s) — front and back — → Cloud Vision OCR → contact fields for the Add form
+app.post('/subs/card/scan', requireAuth, upload.array('card', 4), async (req, res) => {
   try {
     if (!process.env.GOOGLE_PLACES_API_KEY) return res.status(400).json({ ok: false, error: 'Vision API key not configured.' });
-    if (!req.file || !req.file.buffer) return res.status(400).json({ ok: false, error: 'No image received.' });
+    const files = (req.files || []).filter(f => f && f.buffer);
+    if (!files.length) return res.status(400).json({ ok: false, error: 'No image received.' });
     const r = await fetch('https://vision.googleapis.com/v1/images:annotate?key=' + process.env.GOOGLE_PLACES_API_KEY, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ requests: [{ image: { content: req.file.buffer.toString('base64') }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] }),
+      body: JSON.stringify({ requests: files.map(f => ({ image: { content: f.buffer.toString('base64') }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] })) }),
     });
     const d = await r.json();
-    const text = (((d.responses || [])[0] || {}).fullTextAnnotation || {}).text || '';
+    const text = (d.responses || []).map(x => (x.fullTextAnnotation || {}).text || '').join('\n');
     if (!text.trim()) return res.json({ ok: false, error: 'Could not read any text on that photo — try a sharper, straight-on shot.' });
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     const email = (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [''])[0].toLowerCase();

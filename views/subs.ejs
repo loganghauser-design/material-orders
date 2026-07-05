@@ -293,7 +293,7 @@
       <a href="/subs/finder" class="btn btn-primary" title="Search the state license board (CSLB) by trade + county and add contractors">🔎 Find subs</a>
       <button type="button" class="btn btn-ghost" onclick="verifyAllLic(this)" title="Check every contractor's license against CSLB — flags expired / suspended / disciplinary">🛡 Verify licenses</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
-      <label class="btn btn-ghost" style="cursor:pointer" title="Snap a photo of a business card — I'll read it and prefill the Add form"><span>📇 Scan card</span><input type="file" accept="image/*" capture="environment" style="display:none" onchange="cardScan(this)"></label>
+      <label class="btn btn-ghost" style="cursor:pointer" title="Photo(s) of a business card — front and back together, or scan again to add the back — and I'll read it and prefill the Add form"><span>📇 Scan card</span><input type="file" accept="image/*" multiple style="display:none" onchange="cardScan(this)"></label>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
@@ -1164,31 +1164,44 @@ async function subField(id, obj) {
 }
 const BID_CLASSES = ['bid-received','bid-sent','bid-called','bid-awarded','bid-passed'];
 function bidClassJS(b){ b=(b||'').toLowerCase(); if(/received/.test(b))return 'bid-received'; if(/sent/.test(b))return 'bid-sent'; if(/called/.test(b))return 'bid-called'; if(/awarded/.test(b))return 'bid-awarded'; if(/passed/.test(b))return 'bid-passed'; return ''; }
-// 📇 Business card → OCR → prefilled Add form (the card photo attaches to the new sub too)
+// 📇 Business card → OCR → prefilled Add form. Takes several photos at once (front + back),
+// and scanning AGAIN while the form is open adds to it instead of starting over —
+// so you can shoot the front, then the back, without losing anything.
 async function cardScan(input) {
-  const f = input.files[0]; if (!f) return;
+  const files = Array.prototype.slice.call(input.files, 0, 4);
+  if (!files.length) return;
   const lbl = input.closest('label').querySelector('span');
   const old = lbl.textContent;
   lbl.textContent = '⏳ Reading card…';
   try {
-    const fd = new FormData(); fd.append('card', f);
+    const fd = new FormData();
+    files.forEach(function (f) { fd.append('card', f); });
     const r = await fetch('/subs/card/scan', { method: 'POST', body: fd });
     const d = await r.json();
     if (!d.ok) { alert(d.error || 'Could not read the card'); return; }
-    openAdd();
-    if (d.company) document.getElementById('f_company').value = d.company;
-    if (d.owner) document.getElementById('f_owner').value = d.owner;
-    if (d.email) document.getElementById('f_email').value = d.email;
-    if (d.phone) document.getElementById('f_phone').value = d.phone;
-    if (d.trade && typeof setTradesFromString === 'function') setTradesFromString(d.trade);
+    const modalOpen = document.getElementById('subModal').classList.contains('show') && !document.getElementById('editId').value;
+    if (!modalOpen) openAdd();
+    // Fill blanks only — a second scan (the back of the card) never overwrites the front's info
+    const fill = function (id, v) { const el = document.getElementById(id); if (el && v && !el.value.trim()) el.value = v; };
+    fill('f_company', d.company);
+    fill('f_owner', d.owner);
+    fill('f_email', d.email);
+    fill('f_phone', d.phone);
+    if (d.trade && typeof setTradesFromString === 'function' && !document.getElementById('f_type').value.trim()) setTradesFromString(d.trade);
     if (d.license_number) {
       const n = document.getElementById('f_notes');
       if (n && !n.value.includes(d.license_number)) n.value = ('Lic #' + d.license_number + (n.value ? '\n' + n.value : ''));
     }
-    // Attach the card photo so it saves with the new contractor
+    // Attach every card photo so they save with the new contractor (keeps ones already attached)
     const pi = document.getElementById('modalPhotoInput');
     if (pi) {
-      try { const dt = new DataTransfer(); dt.items.add(f); pi.files = dt.files; if (typeof onPhotoInput === 'function') onPhotoInput(); } catch (e) { /* older browser — photo can be added after saving */ }
+      try {
+        const dt = new DataTransfer();
+        Array.prototype.forEach.call(pi.files || [], function (f) { dt.items.add(f); });
+        files.forEach(function (f) { dt.items.add(f); });
+        pi.files = dt.files;
+        if (typeof onPhotoInput === 'function') onPhotoInput();
+      } catch (e) { /* older browser — photos can be added after saving */ }
     }
   } catch (e) { alert('Could not read the card — try again'); }
   finally { lbl.textContent = old; input.value = ''; }
