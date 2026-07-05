@@ -887,6 +887,10 @@ async function readScheduleCatalog() {
   return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Outgoing email bodies support **bold** (used by the bid-request templates)
+function emailBodyHtml(body) {
+  return escapeHtml(body).replace(/\*\*([^*\n][^*]*?)\*\*/g, '<strong>$1</strong>');
+}
 function escapeHtml(s) {
   return String(s == null ? '' : s)
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
