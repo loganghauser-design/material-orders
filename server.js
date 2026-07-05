@@ -5800,8 +5800,9 @@ async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyTe
       String(subject || '').slice(0, 140),
       [{ filename: a.filename, mime: a.mimeType, aid: a.attachmentId }], gmailMessageId);
     console.log('direct bid ingested: ' + sub.company + ' ' + priceStr + (proj ? ' -> ' + proj.address : ' (no project match)'));
-    return;
+    return true;
   }
+  return false;
 }
 // Post a bid to the Bids chat space — Chat API with the real file attached, webhook links as fallback
 async function postBidToBidsSpace(header, subjectLine, docs, messageId) {
@@ -5839,6 +5840,60 @@ async function postBidToBidsSpace(header, subjectLine, docs, messageId) {
       await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text: [header, subjectLine, ...links].join('\n') }) });
     } catch (e) { console.error('bids webhook:', e.message); }
   }
+}
+
+// ── Platform-bid sweep ──────────────────────────────────────────────────────────
+// Estimating platforms (FieldGroove, JobTread, etc.) send bids from THEIR address in
+// a fresh thread, so neither the reply-checker nor the QuickBooks ingester sees them.
+// This sweeps recent inbox attachments, matches the SUBJECT/SENDER to a contractor
+// already on the list (never creates one), and runs the same bid gauntlet.
+async function sweepPlatformBids() {
+  if (!useGmail) return;
+  try {
+    const { data } = await gmailClient.users.messages.list({
+      userId: 'me', maxResults: 25,
+      q: 'in:inbox has:attachment (filename:pdf OR filename:docx) newer_than:10d -from:intuit.com -from:quickbooks.com -from:buildoly.com',
+    });
+    const msgs = (data.messages || []).slice().reverse();   // oldest first
+    for (const mm of msgs) {
+      const { rows: seen } = await pool.query('SELECT 1 FROM qb_seen WHERE gmail_message_id=$1', [mm.id]);
+      if (seen.length) continue;
+      const { rows: logged } = await pool.query('SELECT 1 FROM sub_emails WHERE gmail_message_id=$1', [mm.id]);
+      if (logged.length) { await pool.query('INSERT INTO qb_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [mm.id]); continue; }
+      const { data: full } = await gmailClient.users.messages.get({ userId: 'me', id: mm.id, format: 'full' });
+      const H = full.payload.headers || [];
+      const hv = n => { const h = H.find(x => x.name.toLowerCase() === n.toLowerCase()); return h ? h.value : ''; };
+      const subject = hv('Subject'), from = hv('From');
+      await pool.query('INSERT INTO qb_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [mm.id]);   // processed either way
+      // Match ONLY against contractors already on the list — by name in the subject or sender
+      const normFull = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const hay = normFull(subject + ' ' + from);
+      const { rows: subsAll } = await pool.query("SELECT id, company FROM subcontractors WHERE status !~* 'reject|black' AND company IS NOT NULL AND TRIM(company) <> ''");
+      const sub = subsAll.find(s => { const k = normFull(s.company); return k.length >= 8 && hay.includes(k); });
+      if (!sub) continue;
+      const atts = [];
+      (function wa(p) { if (!p) return; if (p.filename && p.body && p.body.attachmentId) atts.push({ filename: p.filename, mimeType: p.mimeType, size: p.body.size, attachmentId: p.body.attachmentId }); (p.parts || []).forEach(wa); })(full.payload);
+      const chunks = [];
+      (function walk(p) { if (!p) return; if (p.body && p.body.data && /text\/plain/i.test(p.mimeType || '')) chunks.push(Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); (p.parts || []).forEach(walk); })(full.payload);
+      const bodyText = chunks.join('\n').replace(/\s+/g, ' ').trim().slice(0, 1500);
+      const when = isNaN(new Date(hv('Date')).getTime()) ? new Date() : new Date(hv('Date'));
+      // Gauntlet first — only a genuine bid gets logged under the sub at all
+      const ingested = await maybeIngestDirectBid(sub.id, mm.id, atts, subject, bodyText, when);
+      if (!ingested) continue;
+      const bodyHtml = gmailHtmlFromPayload(full.payload, mm.id) || null;
+      const fromEmail = (from.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || ['unknown'])[0].toLowerCase();
+      const { rows: [em] } = await pool.query(
+        `INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, body_html, sent_by, direction, gmail_thread_id, gmail_message_id, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,'sub','in',$7,$8,$9) RETURNING id`,
+        [sub.id, gmailUser, fromEmail, subject.slice(0, 250), bodyText, bodyHtml, full.threadId, mm.id, when]);
+      for (const a of atts) {
+        await pool.query('INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)',
+          [em.id, a.filename, a.mimeType || null, a.size || null, mm.id, a.attachmentId]);
+      }
+      await pool.query('UPDATE subcontractors SET reply_unread=true WHERE id=$1', [sub.id]);
+      console.log('platform bid swept: ' + sub.company + ' | ' + subject.slice(0, 60));
+    }
+  } catch (e) { console.error('sweepPlatformBids:', e.message); }
 }
 
 // ── Bid → project matching ─────────────────────────────────────────────────────
@@ -6062,6 +6117,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
   cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
   cron.schedule('*/20 * * * *', ingestQuickBooksEmails); // every 20 min — QuickBooks bids from the inbox
+  cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
@@ -6081,4 +6137,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
