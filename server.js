@@ -4244,6 +4244,7 @@ function bucketForStatus(category, status) {
   const s = (status || '').toLowerCase();
   const gc = category === 'gc';
   if (/bid under review/.test(s)) return 'Bid Under Review';   // bid came in — own section at the top of the list
+  if (/bid request/.test(s)) return 'Bid Requested';           // we asked for a bid, waiting on them
   if (/inactive/.test(s)) return gc ? 'Inactive GCs' : 'Inactive Subcontractors';   // must beat /active/ — "inactive" contains it
   if (/active/.test(s)) return gc ? 'Active Buildoly Outside General Contractors' : 'Active Buildoly Subcontractors';
   if (/black/.test(s)) return gc ? 'Blacklisted Buildoly General Contractors' : 'Blacklisted Buildoly Sub Contractors';
@@ -4255,6 +4256,7 @@ function bucketForStatus(category, status) {
 function statusForBucket(grp) {
   const g = (grp || '').toLowerCase();
   if (/bid under review/.test(g)) return 'Bid Under Review';
+  if (/bid request/.test(g)) return 'Bid Requested';
   if (/black/.test(g)) return 'Blacklisted';
   if (/reject/.test(g)) return 'Rejected';
   if (/inactive/.test(g)) return 'Inactive';   // must beat /active/ — "inactive" contains it
@@ -5126,7 +5128,7 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     const { rows: [cur] } = await pool.query('SELECT status FROM subcontractors WHERE id=$1', [sub.id]);
     if (cur && !/active|approv|inactive|reject|black|bid under review|bid request/i.test(cur.status || '')) {
       advanced = 'Bid Requested';
-      await pool.query("UPDATE subcontractors SET status='Bid Requested' WHERE id=$1", [sub.id]);
+      await pool.query("UPDATE subcontractors SET status='Bid Requested', group_label='Bid Requested' WHERE id=$1", [sub.id]);
     }
     res.json({ ok: true, bid_status: 'Bid Sent', status: advanced });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -5180,7 +5182,7 @@ app.post('/subs/:id/reply', requireAuth, async (req, res) => {
     const { rows: [cur] } = await pool.query('SELECT status FROM subcontractors WHERE id=$1', [sub.id]);
     if (cur && !/active|approv|inactive|reject|black|bid under review|bid request/i.test(cur.status || '')) {
       advanced = 'Bid Requested';
-      await pool.query("UPDATE subcontractors SET status='Bid Requested', bid_status='Bid Sent' WHERE id=$1", [sub.id]);
+      await pool.query("UPDATE subcontractors SET status='Bid Requested', group_label='Bid Requested', bid_status='Bid Sent' WHERE id=$1", [sub.id]);
     }
     res.json({ ok: true, subject, status: advanced });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
