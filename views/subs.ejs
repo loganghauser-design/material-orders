@@ -90,6 +90,8 @@
     .pill-active { background:#38761d; color:#fff; }
     .pill-inactive { background:#6b7280; color:#fff; }
     .pill-bid { background:#7c3aed; color:#fff; }
+    .pill-called { background:#dbeafe; color:#1e40af; }
+    .pill-sent { background:#c7d2fe; color:#3730a3; }
     .pill-rejected { background:#e06666; color:#fff; }
     .pill-black { background:#111; color:#fff; }
     .pill-default { background:#e6e6e6; color:#555; }
@@ -397,6 +399,8 @@
     <select id="statusFilter" onchange="filterSubs()" class="trade-select">
       <option value="">All statuses</option>
       <option value="under review">Under Review</option>
+      <option value="called">Called</option>
+      <option value="bid sent">Bid Sent</option>
       <option value="bid under review">Bid Under Review</option>
       <option value="approved">Approved</option>
       <option value="active">Active</option>
@@ -454,17 +458,12 @@
       if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
       if (/active/.test(st)) return 'pill-active';
       if (/approv/.test(st)) return 'pill-approved';
+      if (/bid sent/.test(st)) return 'pill-sent';
+      if (/^called$/.test(st)) return 'pill-called';
       if (/review|vetting|pending/.test(st)) return 'pill-review';
       return 'pill-default'; }
-    const STATUS_OPTS = ['Under Review', 'Bid Under Review', 'Approved', 'Active', 'Inactive', 'Rejected', 'Blacklisted'];
-    const BID_OPTS = ['Called', 'Bid Sent', 'Bid Received', 'Awarded', 'Passed'];
-    function bidClass(b) { b = (b || '').toLowerCase();
-      if (/received/.test(b)) return 'bid-received';
-      if (/sent/.test(b)) return 'bid-sent';
-      if (/called/.test(b)) return 'bid-called';
-      if (/awarded/.test(b)) return 'bid-awarded';
-      if (/passed/.test(b)) return 'bid-passed';
-      return ''; }
+    // One pipeline: the old Bidding stages (Called / Bid Sent / Bid Received) are statuses now.
+    const STATUS_OPTS = ['Under Review', 'Called', 'Bid Sent', 'Bid Under Review', 'Approved', 'Active', 'Inactive', 'Rejected', 'Blacklisted'];
     const LOCATION_OPTS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County', 'The Valley'];
     const sections = [
       { title: 'Outside GCs', key: 'gc', list: subs.filter(s => catOf(s) === 'gc') },
@@ -507,7 +506,7 @@
       <div class="tbl-wrap">
         <table class="subs-table">
           <thead><tr>
-            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status</th><th>Bidding</th><th>License</th><th>Contact</th><th>Email</th><th>Phone</th><th>Ref. By</th><th>Notes</th><th></th>
+            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status / Bid</th><th>License</th><th>Contact</th><th>Email</th><th>Phone</th><th>Ref. By</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody id="tbody_<%= sec.key %>">
             <%
@@ -529,8 +528,8 @@
               }
             %>
             <% groups.forEach(g => { %>
-              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13"><%= g %></td></tr><% } %>
-              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="13" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : /inactive/i.test(g) ? 'Inactive' : 'Rejected' %></td></tr><% } %>
+              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="12"><%= g %></td></tr><% } %>
+              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="12" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : /inactive/i.test(g) ? 'Inactive' : 'Rejected' %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" data-noemail="<%= (s.email || '').trim() ? '' : '1' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
@@ -546,13 +545,8 @@
                     <% STATUS_OPTS.forEach(o => { %><option value="<%= o %>" <%= s.status===o?'selected':'' %>><%= o %></option><% }) %>
                     <% if (s.status && STATUS_OPTS.indexOf(s.status) < 0) { %><option value="<%= s.status %>" selected><%= s.status %></option><% } %>
                   </select>
-                </td>
-                <td data-label="Bidding">
-                  <select class="bid-sel <%= bidClass(s.bid_status) %>" data-id="<%= s.id %>" onchange="saveBid(this,'bid_status')">
-                    <option value="">— bid —</option>
-                    <% BID_OPTS.forEach(o => { %><option value="<%= o %>" <%= s.bid_status===o?'selected':'' %>><%= o %></option><% }) %>
-                  </select>
-                  <input type="text" class="bid-price" data-id="<%= s.id %>" value="<%= s.bid_price || '' %>" placeholder="$ price" onchange="saveBid(this,'bid_price')">
+                  <input type="text" class="bid-price" data-id="<%= s.id %>" value="<%= s.bid_price || '' %>" placeholder="$ bid" onchange="saveBid(this,'bid_price')" title="Their bid price<%= /awarded/i.test(s.bid_status || '') ? ' — 🏆 awarded' : '' %>">
+                  <% if (/awarded/i.test(s.bid_status || '')) { %><span title="Bid awarded" style="font-size:.8rem">🏆</span><% } %>
                 </td>
                 <td data-label="License">
                   <select class="lic-sel" data-id="<%= s.id %>" onchange="saveLicense(this)">
@@ -1088,6 +1082,8 @@ function pillClassJS(st) { st = (st || '').toLowerCase();
   if (/inactive/.test(st)) return 'pill-inactive';   // must beat /active/ — "inactive" contains it
   if (/active/.test(st)) return 'pill-active';
   if (/approv/.test(st)) return 'pill-approved';
+  if (/bid sent/.test(st)) return 'pill-sent';
+  if (/^called$/.test(st)) return 'pill-called';
   if (/review|vetting|pending/.test(st)) return 'pill-review';
   return 'pill-default'; }
 // ── Blacklist / reject banner: add a note + reveal underneath ──
@@ -1555,18 +1551,17 @@ async function sendCompose() {
     const data = await r.json();
     if (data.ok) {
       closeEmail();
-      updateRowAfterSend(id, data.bid_status, subject);   // in-place — NO reload, page stays put
+      updateRowAfterSend(id, data.bid_status, subject, data.status);   // in-place — NO reload, page stays put
       showToast('✓ Email sent');
     } else { alert(data.error || 'Send failed'); sb.disabled = false; sb.textContent = 'Send email'; }
   } catch (e) { alert('Send failed'); sb.disabled = false; sb.textContent = 'Send email'; }
 }
 // Update just the sub's row after a send — keeps scroll position (no full reload).
-function updateRowAfterSend(id, bidStatus, subject) {
-  const sel = document.querySelector('.bid-sel[data-id="' + id + '"]');
-  if (sel && bidStatus) {
-    sel.value = bidStatus;
-    BID_CLASSES.forEach(c => sel.classList.remove(c));
-    const c = bidClassJS(bidStatus); if (c) sel.classList.add(c);
+function updateRowAfterSend(id, bidStatus, subject, status) {
+  const sel = document.querySelector('.spill[data-id="' + id + '"]');
+  if (sel && status) {
+    sel.value = status;
+    sel.className = 'spill ' + pillClassJS(status);   // pipeline advanced (e.g. → Bid Sent)
   }
   const row = sel ? sel.closest('tr') : null;
   if (!row) return;

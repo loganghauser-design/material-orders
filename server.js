@@ -4018,7 +4018,7 @@ app.get('/subs', requireAuth, async (req, res) => {
         noEmail,
         contacted: everContacted.length,
         responded: everContacted.filter(s => respondedIds.has(s.id)).length,
-        bids: everContacted.filter(s => /received|awarded/i.test(s.bid_status || '')).length,
+        bids: everContacted.filter(s => /received|awarded/i.test(s.bid_status || '') || /bid under review/i.test(s.status || '')).length,
         approved: everContacted.filter(s => isApproved(s) || isActive(s) || isInactive(s)).length,   // approved-or-beyond (Inactive = worked with before)
         hired: everContacted.filter(s => isActive(s)).length,
       };
@@ -5108,9 +5108,16 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
       "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
       [sub.id, sub.email, subject, logBody, sessionKey(req), (sent && sent.threadId) || null, (sent && sent.messageId) || null]
     );
-    // Sending an email advances the outreach pipeline to "Bid Sent"
+    // Sending an email advances the pipeline to "Bid Sent" — but only from the early
+    // vetting stages; Actives, Approved, Bid Under Review, and flagged subs stay put.
     await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
-    res.json({ ok: true, bid_status: 'Bid Sent' });
+    let advanced = null;
+    const { rows: [cur] } = await pool.query('SELECT status FROM subcontractors WHERE id=$1', [sub.id]);
+    if (cur && !/active|approv|inactive|reject|black|bid under review|bid sent/i.test(cur.status || '')) {
+      advanced = 'Bid Sent';
+      await pool.query("UPDATE subcontractors SET status='Bid Sent' WHERE id=$1", [sub.id]);
+    }
+    res.json({ ok: true, bid_status: 'Bid Sent', status: advanced });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
