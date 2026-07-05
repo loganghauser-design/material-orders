@@ -39,26 +39,28 @@
     .cs-slot.done { border-style:solid; border-color:#16a34a; }
     .cs-slot.done .cs-lbl { color:#16a34a; }
     .cs-slot.done .cs-empty { display:none; }
-    /* ── Outreach stats: two groups side by side, pipeline reads left → right ── */
-    .of-groups { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:.9rem; margin-top:.8rem; }
-    @media (max-width: 520px) { .of-groups { grid-template-columns:1fr; } }
-    .of-group { background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:.85rem 1rem; }
-    .of-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:.7rem; }
-    .of-title { font-weight:800; font-size:.95rem; }
-    .of-rr { font-size:1.35rem; font-weight:800; }
-    .of-rr .of-rrl { font-size:.68rem; font-weight:600; color:var(--muted); margin-left:.3rem; }
-    .of-steps { display:flex; align-items:stretch; gap:.25rem; }
-    .of-step { flex:1; background:var(--surface); border:1px solid var(--border); border-top:3px solid; border-radius:9px; padding:.4rem .3rem .35rem; text-align:center; min-width:0; }
+    /* ── Outreach stats: one horizontal band per group — who │ pipeline │ pool ── */
+    .of-groups { display:flex; flex-direction:column; gap:.7rem; margin-top:.8rem; }
+    .of-group { display:flex; align-items:center; gap:1.1rem; background:var(--bg); border:1px solid var(--border); border-radius:12px; padding:.7rem 1rem; flex-wrap:wrap; }
+    .of-left { flex:none; width:130px; display:flex; flex-direction:column; gap:.1rem; }
+    .of-title { font-weight:800; font-size:.9rem; white-space:nowrap; }
+    .of-rr { font-size:1.45rem; font-weight:800; line-height:1.1; }
+    .of-rr .of-rrl { display:block; font-size:.66rem; font-weight:600; color:var(--muted); }
+    .of-steps { flex:1; min-width:320px; display:flex; align-items:stretch; gap:.25rem; }
+    .of-step { flex:1; background:var(--surface); border:1px solid var(--border); border-top:3px solid; border-radius:9px; padding:.35rem .3rem .3rem; text-align:center; min-width:0; }
     .of-n { font-size:1.05rem; font-weight:800; line-height:1.1; }
-    .of-l { font-size:.64rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); margin-top:.1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .of-p { font-size:.68rem; color:var(--muted); margin-top:.05rem; }
+    .of-l { font-size:.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); margin-top:.1rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .of-p { font-size:.66rem; color:var(--muted); margin-top:.05rem; }
     .of-arrow { align-self:center; color:var(--muted); font-size:1rem; font-weight:700; flex:none; }
-    .of-poolbar { display:flex; height:14px; border-radius:6px; overflow:hidden; background:var(--surface); border:1px solid var(--border); margin-top:.75rem; }
-    .of-chips { display:flex; gap:.4rem .9rem; flex-wrap:wrap; margin-top:.45rem; font-size:.75rem; color:var(--muted); }
-    .of-chip .dot { display:inline-block; width:9px; height:9px; border-radius:3px; margin-right:.3rem; vertical-align:-1px; }
+    .of-right { flex:none; width:230px; }
+    .of-poolbar { display:flex; height:12px; border-radius:6px; overflow:hidden; background:var(--surface); border:1px solid var(--border); }
+    .of-chips { display:flex; gap:.25rem .7rem; flex-wrap:wrap; margin-top:.4rem; font-size:.72rem; color:var(--muted); }
+    .of-chip { white-space:nowrap; }
+    .of-chip .dot { display:inline-block; width:8px; height:8px; border-radius:3px; margin-right:.25rem; vertical-align:-1px; }
     .of-chip strong { color:var(--text); }
     .of-chip .mut { color:var(--muted); }
-    .of-chip-warn { cursor:pointer; user-select:none; background:#fff7e6; border:1px solid #f0d9a8; border-radius:8px; padding:.1rem .45rem; color:#7a5b00; }
+    .of-chip-warn { cursor:pointer; user-select:none; background:#fff7e6; border:1px solid #f0d9a8; border-radius:8px; padding:.05rem .4rem; color:#7a5b00; }
+    @media (max-width: 800px) { .of-left { width:100%; flex-direction:row; align-items:baseline; gap:.6rem; } .of-right { width:100%; } }
     .c-owner { font-weight:600; font-size:.85rem; }
     .c-phone { font-size:.8rem; margin-top:.15rem; }
     .c-email { margin-top:.1rem; }
@@ -363,12 +365,12 @@
            { label: 'Bids',      n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
            { label: 'Approved',  n: _o.approved,  color: '#7c3aed', pct: _pct(_o.approved, _o.contacted) },
          ]; %>
+      <!-- One horizontal band per group: who │ pipeline flowing left → right │ prospect pool -->
       <div class="of-group">
-        <div class="of-head">
+        <div class="of-left">
           <span class="of-title"><%= g.title %></span>
           <span class="of-rr" style="color:<%= _rr >= 50 ? '#16a34a' : _rr >= 25 ? '#d97706' : '#dc2626' %>"><%= _rr %>%<span class="of-rrl">respond</span></span>
         </div>
-        <!-- Pipeline, left to right: each step shows count + % of everyone contacted -->
         <div class="of-steps">
           <% _funnel.forEach(function(f, i) { %>
             <% if (i) { %><div class="of-arrow">›</div><% } %>
@@ -379,19 +381,20 @@
             </div>
           <% }) %>
         </div>
-        <!-- Prospect pool: one bar, who's left to work -->
-        <div class="of-poolbar" title="Prospect pool: <%= _o.pool %>">
-          <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6" title="Contacted <%= _o.poolContacted %>"></div><% } %>
-          <% if (_o.untouched) { %><div style="width:<%= _pct(_o.untouched, _o.pool) %>%;background:#cbd5e1" title="Untouched <%= _o.untouched %>"></div><% } %>
-          <% if (_o.noEmail) { %><div style="width:<%= _pct(_o.noEmail, _o.pool) %>%;background:#f0d9a8" title="Missing email <%= _o.noEmail %>"></div><% } %>
-        </div>
-        <div class="of-chips">
-          <span class="of-chip"><span class="dot" style="background:#3b82f6"></span>Pool <strong><%= _o.pool %></strong></span>
-          <span class="of-chip"><span class="dot" style="background:#3b82f6"></span>Contacted <strong><%= _o.poolContacted %></strong> <span class="mut">(<%= _pct(_o.poolContacted, _o.pool) %>%)</span></span>
-          <span class="of-chip"><span class="dot" style="background:#cbd5e1"></span>Untouched <strong><%= _o.untouched %></strong></span>
-          <% if (_o.noEmail > 0) { %>
-          <span class="of-chip of-chip-warn" onclick="toggleMissingEmail(this, '<%= g.key %>')" title="Prospects with no email — click to show &amp; fix them in the list"><span class="dot" style="background:#f0d9a8"></span>📭 Missing email <strong><%= _o.noEmail %></strong></span>
-          <% } %>
+        <div class="of-right">
+          <div class="of-poolbar" title="Prospect pool: <%= _o.pool %>">
+            <% if (_o.poolContacted) { %><div style="width:<%= _pct(_o.poolContacted, _o.pool) %>%;background:#3b82f6" title="Contacted <%= _o.poolContacted %>"></div><% } %>
+            <% if (_o.untouched) { %><div style="width:<%= _pct(_o.untouched, _o.pool) %>%;background:#cbd5e1" title="Untouched <%= _o.untouched %>"></div><% } %>
+            <% if (_o.noEmail) { %><div style="width:<%= _pct(_o.noEmail, _o.pool) %>%;background:#f0d9a8" title="Missing email <%= _o.noEmail %>"></div><% } %>
+          </div>
+          <div class="of-chips">
+            <span class="of-chip"><span class="dot" style="background:#3b82f6"></span>Pool <strong><%= _o.pool %></strong></span>
+            <span class="of-chip"><span class="dot" style="background:#3b82f6"></span>Reached <strong><%= _o.poolContacted %></strong> <span class="mut">(<%= _pct(_o.poolContacted, _o.pool) %>%)</span></span>
+            <span class="of-chip"><span class="dot" style="background:#cbd5e1"></span>Untouched <strong><%= _o.untouched %></strong></span>
+            <% if (_o.noEmail > 0) { %>
+            <span class="of-chip of-chip-warn" onclick="toggleMissingEmail(this, '<%= g.key %>')" title="Prospects with no email — click to show &amp; fix them in the list"><span class="dot" style="background:#f0d9a8"></span>📭 <strong><%= _o.noEmail %></strong></span>
+            <% } %>
+          </div>
         </div>
       </div>
     <% }) %>
