@@ -816,7 +816,7 @@ async function verifyLicById(id) {
   try {
     const r = await fetch('/subs/' + id + '/verify-license', { method: 'POST' });
     const d = await r.json();
-    if (d.ok) location.reload(); else alert(d.error || 'Could not verify');
+    if (d.ok) reloadKeepScroll(); else alert(d.error || 'Could not verify');
   } catch (e) { alert('Verify failed — try again'); }
 }
 function verifyLicPrompt(id) {
@@ -1222,7 +1222,7 @@ async function verifyLic(id, btn) {
   try {
     const r = await fetch('/subs/' + id + '/verify-license', { method: 'POST' });
     const d = await r.json();
-    if (d.ok) location.reload();
+    if (d.ok) reloadKeepScroll();
     else { alert(d.error || 'Could not verify'); btn.disabled = false; btn.textContent = orig; }
   } catch (e) { alert('Verify failed — try again'); btn.disabled = false; btn.textContent = orig; }
 }
@@ -1232,7 +1232,7 @@ async function verifyAllLic(btn) {
   try {
     const r = await fetch('/subs/licenses/verify-all', { method: 'POST' });
     const d = await r.json();
-    if (d.ok) { alert('Checked ' + d.checked + ' license(s) — ' + d.flagged + ' flagged. Reloading…'); location.reload(); }
+    if (d.ok) { alert('Checked ' + d.checked + ' license(s) — ' + d.flagged + ' flagged. Reloading…'); reloadKeepScroll(); }
     else { alert(d.error || 'Failed'); btn.disabled = false; btn.textContent = orig; }
   } catch (e) { alert('Failed — try again'); btn.disabled = false; btn.textContent = orig; }
 }
@@ -1274,7 +1274,7 @@ async function onDrop(e) {
 function reloadKeepScroll() {
   try {
     const tw = document.querySelector('.tbl-wrap');
-    sessionStorage.setItem('subsScroll', JSON.stringify({ w: window.scrollY, t: tw ? tw.scrollTop : 0, l: tw ? tw.scrollLeft : 0 }));
+    sessionStorage.setItem('subsScroll', JSON.stringify({ w: window.scrollY, t: tw ? tw.scrollTop : 0, l: tw ? tw.scrollLeft : 0, tab: currentTab }));
   } catch (e) {}
   location.reload();
 }
@@ -1283,6 +1283,7 @@ window.addEventListener('DOMContentLoaded', function () {
     const s = sessionStorage.getItem('subsScroll'); if (!s) return;
     sessionStorage.removeItem('subsScroll');
     const o = JSON.parse(s);
+    if (o.tab && o.tab !== currentTab) switchTab(o.tab);   // back to the tab you were on
     const tw = document.querySelector('.tbl-wrap');
     if (tw) { tw.scrollTop = o.t || 0; tw.scrollLeft = o.l || 0; }
     window.scrollTo(0, o.w || 0);
@@ -1594,7 +1595,7 @@ async function insScanAll() {
   try {
     const r = await fetch('/subs/insurance/scan-all', { method: 'POST' });
     const d = await r.json();
-    if (d.ok) { btn.textContent = '✓ Scanned ' + d.scanned + ' subs — ' + d.found + ' with insurance docs'; setTimeout(function () { location.reload(); }, 1200); }
+    if (d.ok) { btn.textContent = '✓ Scanned ' + d.scanned + ' subs — ' + d.found + ' with insurance docs'; setTimeout(reloadKeepScroll, 1200); }
     else { btn.textContent = '⚠ ' + (d.error || 'Scan failed'); btn.disabled = false; }
   } catch (e) { btn.textContent = '⚠ Scan failed'; btn.disabled = false; }
 }
