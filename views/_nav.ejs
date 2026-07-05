@@ -3,7 +3,6 @@
   var pReq = (typeof pendingRequests !== 'undefined') ? pendingRequests : 0;
   var pIss = (typeof pendingIssues !== 'undefined') ? pendingIssues : 0;
   var pWar = (typeof openWarranty !== 'undefined') ? openWarranty : 0;
-  var pBids = (typeof newBids !== 'undefined') ? newBids : 0;
   var NP = (typeof navPages !== 'undefined') ? navPages : '*';
   function can(k){ return NP === '*' || (Array.isArray(NP) && NP.indexOf(k) >= 0); }
   var iL = (typeof isLogan !== 'undefined') ? isLogan : true;
@@ -51,7 +50,6 @@
     <%- item('deliveries', '/deliveries', 'Deliveries') %>
     <%- item('ordering', '/ordering', 'Order Planner') %>
     <%- item('subs', '/subs', 'Subs') %>
-    <%- item('bids', '/bids', 'Bids', pBids) %>
 
     <% if (can('requests') || can('issues') || can('warranty')) { %><div class="sb-sec">Attention</div><% } %>
     <%- item('requests', '/requests', 'Requests', pReq) %>

@@ -1203,7 +1203,6 @@ const PAGE_META = [
   { key: 'issues', label: 'Issues', path: '/issues' },
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
   { key: 'subs', label: 'Subs', path: '/subs' },
-  { key: 'bids', label: 'Bids', path: '/bids' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
   { key: 'driving', label: 'Driving Log', path: '/driving' },
@@ -1249,7 +1248,6 @@ function pageForPath(p) {
   if (p.startsWith('/warranty-claims')) return 'warranty';
   if (p.startsWith('/suppliers')) return 'suppliers';
   if (p.startsWith('/subs') || p.startsWith('/sub-photo')) return 'subs';
-  if (p.startsWith('/bids')) return 'bids';
   if (p.startsWith('/settings')) return 'settings';
   if (p.startsWith('/team')) return 'team';
   return null;
@@ -1890,8 +1888,6 @@ app.use(async (req, res, next) => {
         res.locals.pendingIssues = await getPendingIssueCount();
         res.locals.pendingRequests = await getPendingRequestCount();
         res.locals.openWarranty = await getOpenWarrantyCount();
-        const { rows: [nb] } = await pool.query('SELECT COUNT(*) c FROM bids WHERE seen = false');
-        res.locals.newBids = Number(nb.c);
       } catch (e) { /* tables may not exist yet */ }
     }
   }
@@ -4683,40 +4679,8 @@ app.post('/subs/insurance/scan-all', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
-// ── Bid board: every QuickBooks estimate, grouped by the project it's for ──
-app.get('/bids', requireAuth, async (req, res) => {
-  try {
-    await initDb();
-    const { rows: bids } = await pool.query(`
-      SELECT b.*, s.company, s.type AS sub_type, s.license_flags, s.status AS sub_status,
-             s.location, s.email, s.license_checked_at, s.license_expire, s.ins_expires
-      FROM bids b JOIN subcontractors s ON s.id = b.sub_id
-      ORDER BY b.received_at DESC`);
-    const { rows: projects } = await pool.query('SELECT id, address FROM projects ORDER BY sort_order NULLS LAST, id');
-    // Opening the page clears the nav badge; the rows keep their pre-visit "seen" for the 🆕 pills
-    pool.query('UPDATE bids SET seen = true WHERE seen = false').catch(() => {});
-    res.render('bids', { bids, projects });
-  } catch (err) { res.status(500).send('Error: ' + err.message); }
-});
-app.post('/bids/:id/assign', requireAuth, async (req, res) => {
-  try {
-    const pid = req.body.project_id ? Number(req.body.project_id) : null;
-    await pool.query('UPDATE bids SET project_id=$1, auto_matched=false WHERE id=$2', [pid, req.params.id]);
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
-app.post('/bids/:id/status', requireAuth, async (req, res) => {
-  try {
-    const st = ['received', 'awarded', 'passed'].includes(req.body.status) ? req.body.status : 'received';
-    const { rows: [b] } = await pool.query('UPDATE bids SET status=$1 WHERE id=$2 RETURNING sub_id', [st, req.params.id]);
-    if (b && st === 'awarded') await pool.query("UPDATE subcontractors SET bid_status='Awarded' WHERE id=$1", [b.sub_id]);
-    res.json({ ok: true });
-  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
-app.post('/bids/:id/delete', requireAuth, async (req, res) => {
-  try { await pool.query('DELETE FROM bids WHERE id=$1', [req.params.id]); res.json({ ok: true }); }
-  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
-});
+// (The standalone Bids page is gone — bids live in the Subs list as the "Bid Under Review"
+// section. The bids table stays: the QB ingester fills it and the 📄 jump-to-bid links use it.)
 
 // Sub Finder page (lives under /subs so it inherits the Subs access rules — Rick can use it)
 app.get('/subs/finder', requireAuth, async (req, res) => {
