@@ -441,7 +441,7 @@
   <div class="cov-panel" id="covPanel">
     <div class="cov-head">
       <strong>Coverage</strong>
-      <span class="cov-legend-inline">Target: <strong>4+ subs per trade in every coverage zone</strong>. Excludes rejected/blacklisted subs and outside GCs. Click a zone tile to highlight its column; click a trade name to filter the list.</span>
+      <span class="cov-legend-inline">Target: <strong>4+ Active subs per trade in every coverage zone</strong>. Only Active subs count (no GCs, no prospects). Click a zone tile to highlight its column; click a trade name to filter the list.</span>
     </div>
     <div class="cov-areas" id="covAreas"></div>
     <div class="cov-matrix-wrap"><table class="cov-matrix" id="covMatrix"></table></div>
@@ -1301,7 +1301,7 @@ function covRender() {
   AREA_LIST.forEach(function (a) { areaTot[a] = 0; areaTrade[a] = {}; });
   let noArea = 0;
   COV_DATA.forEach(function (s) {
-    if (/reject|black/i.test(s.st)) return;                                       // unusable
+    if (!/^\s*active\s*$/i.test(s.st || '')) return;                              // coverage = Active subs only
     const isGc = s.cat === 'gc' || (!s.cat && /general\s*contractor|^\s*gc\b/i.test(s.t));
     if (isGc) return;                                                              // outside GCs aren't trade coverage
     const locs = String(s.l || '').split(',').map(function (x) { return x.trim().toLowerCase(); }).filter(Boolean);

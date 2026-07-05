@@ -5619,7 +5619,8 @@ async function coverageDigest() {
   try {
     const COV_MIN = 4;
     const { rows: subs } = await pool.query('SELECT company, type, status, location, category, license_expire, license_flags, ins_expires FROM subcontractors');
-    const usable = subs.filter(s => !/reject|black/i.test(s.status || '') &&
+    // Coverage counts Active subs only — matching the Coverage matrix on the Subs page
+    const usable = subs.filter(s => /^\s*active\s*$/i.test(s.status || '') &&
       !(s.category === 'gc' || (!s.category && /general\s*contractor|^\s*gc\b/i.test(s.type || ''))));
     const lines = [];
     // Coverage vs the minimum
