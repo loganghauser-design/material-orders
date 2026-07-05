@@ -207,9 +207,18 @@
       .thumbs img { width:64px; height:64px; }
       .modal-card { width:96vw; max-width:96vw; max-height:92vh; overflow-y:auto; }
     }
-    .row-actions { width:150px; }
-    .row-actions button, .row-actions label.upl { font-size:.85rem; padding:.2rem .4rem; border:1px solid var(--border); background:var(--surface); border-radius:6px; cursor:pointer; line-height:1; }
+    .row-actions { width:130px; }
     .moveSel { display:block; width:100%; margin-bottom:.3rem; font-size:.72rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); cursor:pointer; }
+    /* One ⋯ menu instead of a strip of buttons */
+    .rowmenu { display:inline-block; }
+    .rowmenu-btn { font-size:1rem; font-weight:800; padding:.1rem .7rem; border:1px solid var(--border); background:var(--surface); border-radius:8px; cursor:pointer; line-height:1.3; }
+    .rowmenu-btn:hover { background:var(--bg); }
+    .rowmenu-pop { display:none; position:fixed; z-index:700; min-width:172px; background:var(--surface); border:1px solid var(--border); border-radius:11px; box-shadow:0 12px 32px rgba(10,15,25,.2); padding:.3rem; }
+    .rowmenu-pop.show { display:block; }
+    .rowmenu-pop > button, .rowmenu-pop > a, .rowmenu-pop form button, .rowmenu-pop form label.upl { display:block; width:100%; text-align:left; font:inherit; font-size:.86rem; padding:.45rem .65rem; border:none; background:none; border-radius:8px; cursor:pointer; color:var(--text); text-decoration:none; line-height:1.3; }
+    .rowmenu-pop > button:hover, .rowmenu-pop > a:hover, .rowmenu-pop form button:hover, .rowmenu-pop form label.upl:hover { background:var(--bg); }
+    .rowmenu-pop button[disabled] { color:var(--muted); cursor:default; }
+    .rowmenu-pop button.del { color:#c0392b; }
     .drag-h { cursor:grab; color:var(--muted); text-align:center; user-select:none; font-size:1.05rem; width:24px; }
     .drag-h:active { cursor:grabbing; }
     .subs-table tr.drop-hi > td { background:#dbeafe !important; box-shadow:inset 0 2px 0 #4f8ef7; }
@@ -672,13 +681,20 @@
                       <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
                     </optgroup>
                   </select>
-                  <button onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)' title="Edit">✏</button><button class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" data-name="<%= s.company || s.owner || '' %>" data-trade="<%= (s.type || '').split(',')[0].trim() %>" onclick="openCompose(this)" title="Email this sub"<%= s.email ? '' : ' disabled' %>>✉</button>
-                  <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0;display:inline">
-                    <label class="upl" title="Add photos (pick several at once — work, vehicle, job site)">📷<input type="file" name="photos" accept="image/*" multiple style="display:none" onchange="this.form.submit()"></label>
-                  </form>
-                  <form method="POST" action="/subs/<%= s.id %>/delete" style="margin:0;display:inline" onsubmit="return confirm('Delete this subcontractor?')">
-                    <button type="submit" class="del" title="Delete">🗑</button>
-                  </form>
+                  <div class="rowmenu">
+                    <button type="button" class="rowmenu-btn" onclick="rowMenu(this)" title="Actions — edit, email, photos, delete">⋯</button>
+                    <div class="rowmenu-pop">
+                      <button type="button" onclick='openEdit(<%- JSON.stringify(s) %>, <%- JSON.stringify(photosBySub[s.id] || []) %>)'>✏ Edit details</button>
+                      <button type="button" class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" data-name="<%= s.company || s.owner || '' %>" data-trade="<%= (s.type || '').split(',')[0].trim() %>" onclick="openCompose(this)"<%= s.email ? '' : ' disabled' %>>✉ Send email</button>
+                      <a href="/subs/profile/<%= s.id %>">👤 Open profile</a>
+                      <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0">
+                        <label class="upl" title="Pick several at once — work, vehicle, job site">📷 Add photos<input type="file" name="photos" accept="image/*" multiple style="display:none" onchange="this.form.submit()"></label>
+                      </form>
+                      <form method="POST" action="/subs/<%= s.id %>/delete" style="margin:0" onsubmit="return confirm('Delete this subcontractor?')">
+                        <button type="submit" class="del">🗑 Delete</button>
+                      </form>
+                    </div>
+                  </div>
                 </td>
               </tr>
               <% }) %>
@@ -1814,6 +1830,23 @@ async function insScanAll() {
     else { btn.textContent = '⚠ ' + (d.error || 'Scan failed'); btn.disabled = false; }
   } catch (e) { btn.textContent = '⚠ Scan failed'; btn.disabled = false; }
 }
+// ⋯ row menu: fixed-position popover so the table's scroll container can't clip it
+function rowMenu(btn) {
+  const pop = btn.nextElementSibling;
+  const wasOpen = pop.classList.contains('show');
+  document.querySelectorAll('.rowmenu-pop.show').forEach(function (p) { p.classList.remove('show'); });
+  if (wasOpen) return;
+  const r = btn.getBoundingClientRect();
+  pop.style.top = Math.min(r.bottom + 4, window.innerHeight - 230) + 'px';
+  pop.style.left = Math.max(8, r.right - 176) + 'px';
+  pop.classList.add('show');
+}
+document.addEventListener('click', function (e) {
+  if (!e.target.closest('.rowmenu')) document.querySelectorAll('.rowmenu-pop.show').forEach(function (p) { p.classList.remove('show'); });
+});
+document.addEventListener('scroll', function () {
+  document.querySelectorAll('.rowmenu-pop.show').forEach(function (p) { p.classList.remove('show'); });
+}, true);
 function closeEmlogAll() {
   document.querySelectorAll('.emlog-body.show').forEach(function (p) { p.classList.remove('show'); });
   const bd = document.getElementById('emlogBackdrop'); if (bd) bd.classList.remove('show');
