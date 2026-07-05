@@ -31,6 +31,10 @@
     .conote-btn { display:inline-block; font-size:.72rem; font-weight:700; color:#1d4ed8; cursor:pointer; margin-top:.25rem; }
     .conote-body { display:none; font-size:.8rem; font-weight:400; color:var(--text); margin-top:.3rem; white-space:normal; max-width:260px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.45rem .6rem; line-height:1.35; }
     .conote-body.show { display:block; }
+    .c-owner { font-weight:600; font-size:.85rem; }
+    .c-phone { font-size:.8rem; margin-top:.15rem; }
+    .c-email { margin-top:.1rem; }
+    .refby-line { color:var(--muted); font-size:.72rem; margin-bottom:.2rem; }
     .emlog-btn { display:inline-block; font-size:.72rem; font-weight:700; color:#1d4ed8; cursor:pointer; margin-left:.35rem; white-space:nowrap; }
     /* Email history opens as a Gmail-style reading pane: every email rendered inline. */
     .emlog-body { display:none; }
@@ -269,6 +273,7 @@
       <a href="/subs/finder" class="btn btn-primary" title="Search the state license board (CSLB) by trade + county and add contractors">🔎 Find subs</a>
       <button type="button" class="btn btn-ghost" onclick="verifyAllLic(this)" title="Check every contractor's license against CSLB — flags expired / suspended / disciplinary">🛡 Verify licenses</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
+      <label class="btn btn-ghost" style="cursor:pointer" title="Snap a photo of a business card — I'll read it and prefill the Add form"><span>📇 Scan card</span><input type="file" accept="image/*" capture="environment" style="display:none" onchange="cardScan(this)"></label>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
@@ -524,7 +529,7 @@
       <div class="tbl-wrap">
         <table class="subs-table">
           <thead><tr>
-            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status / Bid</th><th>License</th><th>Contact</th><th>Email</th><th>Phone</th><th>Ref. By</th><th>Notes</th><th></th>
+            <th></th><th>Company</th><th>Location</th><th>Type</th><th>Status / Bid</th><th>License</th><th>Contact</th><th>Notes</th><th></th>
           </tr></thead>
           <tbody id="tbody_<%= sec.key %>">
             <%
@@ -548,8 +553,8 @@
               }
             %>
             <% groups.forEach(g => { %>
-              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="12"><%= g %></td></tr><% } %>
-              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="12" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : /inactive/i.test(g) ? 'Inactive' : 'Rejected' %></td></tr><% } %>
+              <% if (g) { %><tr class="subhdr" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="9"><%= g %></td></tr><% } %>
+              <% if (g && !gmap[g].length) { %><tr class="emptybucket" data-cat="<%= sec.key %>" data-grp="<%= g %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)"><td colspan="9" class="emptybucket-cell">⤵ Drag a contractor here to mark them <%= /black/i.test(g) ? 'Blacklisted' : /inactive/i.test(g) ? 'Inactive' : 'Rejected' %></td></tr><% } %>
               <% gmap[g].forEach(s => { var ph = photosBySub[s.id] || []; var flagged = /reject|black/.test((s.status||'').toLowerCase()); %>
               <tr class="<%= flagged ? 'flagged-row' : '' %>" data-cat="<%= catOf(s) %>" data-grp="<%= s.group_label||'' %>" data-status="<%= (s.status||'').toLowerCase() %>" data-trade="<%= (s.type||'').split(',')[0].trim() %>" data-recent="<%= s.recent_add ? '1' : '' %>" data-noemail="<%= (s.email || '').trim() ? '' : '1' %>" ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)" data-search="<%= [s.company,s.owner,s.type,s.phone,s.email,s.location].filter(Boolean).join(' ').toLowerCase() %>" data-type="<%= (s.type||'').toLowerCase() %>">
                 <td class="drag-h" draggable="true" ondragstart="onDragStart(event,'<%= s.id %>')" title="Drag to move">⠿</td>
@@ -610,11 +615,8 @@
                     <span class="insb insb-<%= _insCls %>" title="Insurance (from <%= s.ins_note || 'emailed COI' %> — checked <%= s.ins_checked_at ? new Date(s.ins_checked_at).toLocaleDateString() : '' %>)">🛡 ins <%= _insD < 0 ? 'EXPIRED' : 'exp' %> <%= new Date(s.ins_expires).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) %></span>
                   <% } %>
                 </td>
-                <td data-label="Contact"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></td>
-                <td data-label="Email" data-email="<%= s.email || '' %>"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _em.length %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body"><div class="emlog-head"><strong>✉ <%= s.company || s.owner || 'Emails' %></strong><button type="button" class="emlog-close" onclick="closeEmlogAll()" title="Close">✕</button></div><% _em.forEach(function(e){ var _inb = e.direction === 'in'; %><div class="emlog-item<%= _inb ? ' inbound' : '' %>"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><% if (_inb) { %><span class="emlog-tag">↩ reply</span><% } %><strong><%= e.subject %></strong><% if (e.has_html) { %><a class="emlog-view" href="/subs/emails/<%= e.id %>/html" target="_blank" rel="noopener" title="Open in its own tab">🗖</a><iframe class="emlog-frame" data-src="/subs/emails/<%= e.id %>/html?embed=1" sandbox="allow-same-origin allow-popups" loading="lazy" title="<%= e.subject %>"></iframe><% } else if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %><% var _att = (typeof attByEmail !== 'undefined' && attByEmail[e.id]) || []; if (_att.length) { %><div class="emlog-atts"><% _att.forEach(function(a){ %><% var _isImg = /^image\//i.test(a.mime || '') || /\.(png|jpe?g|gif|webp|heic)$/i.test(a.filename || ''); var _aurl = '/threads/messages/' + a.gmail_message_id + '/attachment/' + a.gmail_attachment_id + '?name=' + encodeURIComponent(a.filename || 'file') + '&mime=' + encodeURIComponent(a.mime || ''); %><% if (_isImg) { %><a class="emlog-att emlog-attimg" href="<%= _aurl %>" target="_blank" rel="noopener" title="<%= a.filename || 'image' %> - click to open full size"><img src="<%= _aurl %>" alt="" loading="lazy"></a><% } else { %><a class="emlog-att" href="<%= _aurl %>" target="_blank" rel="noopener" title="Open / download attachment">&#128206; <%= a.filename || 'attachment' %></a><% } %><% }) %></div><% } %></div><% }) %><% if (canEdit) { %><div class="emlog-reply"><select class="emlog-fu" data-name="<%= s.company || s.owner || '' %>" onchange="applyFollowup(this)"><option value="">Follow-up templates...</option><option value="checkin">Quick check-in</option><option value="docs">Missing docs reminder</option><option value="deadline">Proposal deadline nudge</option><option value="final">Final follow-up</option></select><textarea class="emlog-reply-text" rows="2" placeholder="Reply to this sub…"></textarea><button type="button" class="emlog-reply-btn" onclick="sendSubReply(this, <%= s.id %>)">Send reply</button><span class="emlog-reply-hint">✓ Your email signature is added automatically</span></div><% } %></div><% } %></td>
-                <td data-label="Phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></td>
-                <td class="refby" data-label="Ref. by"><%= s.referenced_by || '' %></td>
-                <td class="notes" data-label="Notes"><% if (flagged && s.reject_reason) { %><div class="reject-reason">⛔ <%= s.status %>: <%= s.reject_reason %></div><% } %><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
+                <td data-label="Contact" data-email="<%= s.email || '' %>"><% if (s.owner) { %><div class="c-owner"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></div><% } %><div class="c-email"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _em.length %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body"><div class="emlog-head"><strong>✉ <%= s.company || s.owner || 'Emails' %></strong><button type="button" class="emlog-close" onclick="closeEmlogAll()" title="Close">✕</button></div><% _em.forEach(function(e){ var _inb = e.direction === 'in'; %><div class="emlog-item<%= _inb ? ' inbound' : '' %>"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><% if (_inb) { %><span class="emlog-tag">↩ reply</span><% } %><strong><%= e.subject %></strong><% if (e.has_html) { %><a class="emlog-view" href="/subs/emails/<%= e.id %>/html" target="_blank" rel="noopener" title="Open in its own tab">🗖</a><iframe class="emlog-frame" data-src="/subs/emails/<%= e.id %>/html?embed=1" sandbox="allow-same-origin allow-popups" loading="lazy" title="<%= e.subject %>"></iframe><% } else if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %><% var _att = (typeof attByEmail !== 'undefined' && attByEmail[e.id]) || []; if (_att.length) { %><div class="emlog-atts"><% _att.forEach(function(a){ %><% var _isImg = /^image\//i.test(a.mime || '') || /\.(png|jpe?g|gif|webp|heic)$/i.test(a.filename || ''); var _aurl = '/threads/messages/' + a.gmail_message_id + '/attachment/' + a.gmail_attachment_id + '?name=' + encodeURIComponent(a.filename || 'file') + '&mime=' + encodeURIComponent(a.mime || ''); %><% if (_isImg) { %><a class="emlog-att emlog-attimg" href="<%= _aurl %>" target="_blank" rel="noopener" title="<%= a.filename || 'image' %> - click to open full size"><img src="<%= _aurl %>" alt="" loading="lazy"></a><% } else { %><a class="emlog-att" href="<%= _aurl %>" target="_blank" rel="noopener" title="Open / download attachment">&#128206; <%= a.filename || 'attachment' %></a><% } %><% }) %></div><% } %></div><% }) %><% if (canEdit) { %><div class="emlog-reply"><select class="emlog-fu" data-name="<%= s.company || s.owner || '' %>" onchange="applyFollowup(this)"><option value="">Follow-up templates...</option><option value="checkin">Quick check-in</option><option value="docs">Missing docs reminder</option><option value="deadline">Proposal deadline nudge</option><option value="final">Final follow-up</option></select><textarea class="emlog-reply-text" rows="2" placeholder="Reply to this sub…"></textarea><button type="button" class="emlog-reply-btn" onclick="sendSubReply(this, <%= s.id %>)">Send reply</button><span class="emlog-reply-hint">✓ Your email signature is added automatically</span></div><% } %></div><% } %></div><% if (s.phone) { %><div class="c-phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></div><% } %></td>
+                <td class="notes" data-label="Notes"><% if (s.referenced_by) { %><div class="refby-line">Ref: <%= s.referenced_by %></div><% } %><% if (flagged && s.reject_reason) { %><div class="reject-reason">⛔ <%= s.status %>: <%= s.reject_reason %></div><% } %><% if (s.notes) { %><div class="note-clip" onclick="this.classList.toggle('open')" title="Click to expand / collapse"><%= s.notes %></div><% } %></td>
                 <td class="row-actions">
                   <select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
                     <option value="">Move…</option>
@@ -1149,6 +1151,35 @@ async function subField(id, obj) {
 }
 const BID_CLASSES = ['bid-received','bid-sent','bid-called','bid-awarded','bid-passed'];
 function bidClassJS(b){ b=(b||'').toLowerCase(); if(/received/.test(b))return 'bid-received'; if(/sent/.test(b))return 'bid-sent'; if(/called/.test(b))return 'bid-called'; if(/awarded/.test(b))return 'bid-awarded'; if(/passed/.test(b))return 'bid-passed'; return ''; }
+// 📇 Business card → OCR → prefilled Add form (the card photo attaches to the new sub too)
+async function cardScan(input) {
+  const f = input.files[0]; if (!f) return;
+  const lbl = input.closest('label').querySelector('span');
+  const old = lbl.textContent;
+  lbl.textContent = '⏳ Reading card…';
+  try {
+    const fd = new FormData(); fd.append('card', f);
+    const r = await fetch('/subs/card/scan', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Could not read the card'); return; }
+    openAdd();
+    if (d.company) document.getElementById('f_company').value = d.company;
+    if (d.owner) document.getElementById('f_owner').value = d.owner;
+    if (d.email) document.getElementById('f_email').value = d.email;
+    if (d.phone) document.getElementById('f_phone').value = d.phone;
+    if (d.trade && typeof setTradesFromString === 'function') setTradesFromString(d.trade);
+    if (d.license_number) {
+      const n = document.getElementById('f_notes');
+      if (n && !n.value.includes(d.license_number)) n.value = ('Lic #' + d.license_number + (n.value ? '\n' + n.value : ''));
+    }
+    // Attach the card photo so it saves with the new contractor
+    const pi = document.getElementById('modalPhotoInput');
+    if (pi) {
+      try { const dt = new DataTransfer(); dt.items.add(f); pi.files = dt.files; if (typeof onPhotoInput === 'function') onPhotoInput(); } catch (e) { /* older browser — photo can be added after saving */ }
+    }
+  } catch (e) { alert('Could not read the card — try again'); }
+  finally { lbl.textContent = old; input.value = ''; }
+}
 async function editBidPrice(id, el) {
   const cur = (el.textContent || '').replace(/[^0-9.]/g, '');
   const v = prompt('Bid amount ($):', cur);
@@ -1624,7 +1655,7 @@ function updateRowAfterSend(id, bidStatus, subject, status) {
     const n = (m ? parseInt(m[0], 10) : 0) + 1;
     if (badge.firstChild && badge.firstChild.nodeType === 3) badge.firstChild.textContent = '✉ ' + n + ' ';
   } else {
-    const cell = row.querySelector('td[data-label="Email"]');
+    const cell = row.querySelector('td[data-label="Contact"]');
     if (cell) {
       const span = document.createElement('span');
       span.className = 'emlog-btn'; span.title = 'Email history with this sub'; span.textContent = '✉ 1 ';

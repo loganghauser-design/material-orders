@@ -4670,6 +4670,35 @@ app.post('/subs/licenses/verify-all', requireAuth, async (req, res) => {   // 3-
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// 📇 Business-card scan: photo → Cloud Vision OCR → contact fields for the Add form
+app.post('/subs/card/scan', requireAuth, upload.single('card'), async (req, res) => {
+  try {
+    if (!process.env.GOOGLE_PLACES_API_KEY) return res.status(400).json({ ok: false, error: 'Vision API key not configured.' });
+    if (!req.file || !req.file.buffer) return res.status(400).json({ ok: false, error: 'No image received.' });
+    const r = await fetch('https://vision.googleapis.com/v1/images:annotate?key=' + process.env.GOOGLE_PLACES_API_KEY, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ requests: [{ image: { content: req.file.buffer.toString('base64') }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }] }),
+    });
+    const d = await r.json();
+    const text = (((d.responses || [])[0] || {}).fullTextAnnotation || {}).text || '';
+    if (!text.trim()) return res.json({ ok: false, error: 'Could not read any text on that photo — try a sharper, straight-on shot.' });
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const email = (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [''])[0].toLowerCase();
+    const phone = (text.match(/\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/) || [''])[0];
+    const lic = (text.match(/(?:lic(?:ense)?\.?\s*#?\s*|csl[b#]?\s*#?\s*)(\d{5,8})/i) || [])[1] || '';
+    const TRADE_WORDS = /construction|electric|plumb|roof|paint|hvac|\bair\b|floor|concrete|fram|drywall|stucco|landscap|cabinet|tile|insulat|iron|glass|window|door|solar|remodel|build/i;
+    // Company: prefer a line with a business suffix, else a trade-word line, else the first line
+    let company = lines.find(l => /\b(LLC|INC|CORP|CO\.?|COMPANY|SERVICES?)\b/i.test(l) && /[a-z]/i.test(l) && !l.includes('@'))
+      || lines.find(l => TRADE_WORDS.test(l) && l.length < 50 && !l.includes('@'))
+      || (lines[0] || '');
+    company = company.replace(/\s{2,}/g, ' ').trim().slice(0, 120);
+    // Owner: a 2-3 word name-looking line that isn't the company and has no digits/trade words
+    const owner = lines.find(l => l !== company && /^[A-Z][a-zA-Z'’.]+(\s+[A-Z][a-zA-Z'’.]+){1,2}$/.test(l) && !TRADE_WORDS.test(l) && !/\d/.test(l)) || '';
+    const trade = qbTradeFromName(company + ' ' + text.slice(0, 300)) || '';
+    res.json({ ok: true, company, owner, email, phone, license_number: lic, trade });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Insurance watchdog: scan every sub's emailed COIs for expiration dates (3-segment path)
 app.post('/subs/insurance/scan-all', requireAuth, async (req, res) => {
   try {
