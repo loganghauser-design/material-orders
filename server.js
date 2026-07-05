@@ -5659,14 +5659,14 @@ async function matchBidToProject(hint) {
   }
   return best;
 }
-// Pull an address-looking string out of estimate text (subject line first, then body)
+// Pull an address-looking string out of estimate text (subject line first, then body).
+// The street suffix is REQUIRED here — otherwise "Estimate 1586 from Mac Electric"
+// reads as house number 1586 on a street called "from Mac Electric".
 function bidJobHint(subject, bodyText) {
+  const re = /\b\d{2,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z][A-Za-z'. ]{2,40}?\s+(?:St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Rd|Road|Ln|Lane|Way|Ct|Court|Pl|Place|Cir|Circle|Ter|Terrace)\.?\b/i;
   for (const src of [subject, String(bodyText || '').slice(0, 3000)]) {
-    const a = parseStreetAddr(src);
-    if (a) {
-      const m = String(src).match(/\b\d{2,6}\s+(?:[NSEW]\.?\s+)?[A-Za-z][A-Za-z'. ]{2,40}(?:\s+(?:St|Street|Ave|Avenue|Blvd|Boulevard|Dr|Drive|Rd|Road|Ln|Lane|Way|Ct|Court|Pl|Place|Cir|Circle|Ter|Terrace)\.?)?/i);
-      return m ? m[0].trim() : null;
-    }
+    const m = String(src || '').match(re);
+    if (m) return m[0].trim();
   }
   return null;
 }
