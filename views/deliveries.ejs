@@ -10,7 +10,22 @@
 <%- include('_nav', { active: 'deliveries' }) %>
 
 <div class="container">
-  <div class="page-header"><h1>Upcoming Deliveries</h1></div>
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
+    <h1>Upcoming Deliveries</h1>
+    <button type="button" class="btn btn-ghost" id="confirmTomBtn" onclick="confirmTomorrow(this)" title="Email every vendor with a delivery due tomorrow, inside their existing thread: 'confirming tomorrow's delivery — please reply to confirm.' Never sends twice for the same delivery.">✉ Confirm tomorrow's deliveries</button>
+  </div>
+  <script>
+  async function confirmTomorrow(btn) {
+    if (!confirm("Email each vendor with a delivery due tomorrow, asking them to confirm it's on track?")) return;
+    btn.disabled = true; btn.textContent = '⏳ Sending…';
+    try {
+      const r = await fetch('/deliveries/confirm-tomorrow', { method: 'POST' });
+      const d = await r.json();
+      if (d.ok) btn.textContent = d.due === 0 ? '✓ Nothing due tomorrow' : '✓ ' + d.sent + ' sent · ' + d.alreadySent + ' already asked · ' + d.noThread + ' no vendor thread';
+      else { alert(d.error || 'Failed'); btn.disabled = false; btn.textContent = "✉ Confirm tomorrow's deliveries"; }
+    } catch (e) { alert('Failed — try again'); btn.disabled = false; btn.textContent = "✉ Confirm tomorrow's deliveries"; }
+  }
+  </script>
 
   <%
     const today = new Date(); today.setHours(0,0,0,0);

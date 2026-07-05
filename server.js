@@ -1564,6 +1564,16 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_expires DATE;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_note TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_checked_at TIMESTAMPTZ;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_chased_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS delivery_confirms (
+      id SERIAL PRIMARY KEY,
+      project_item_id INTEGER,
+      delivery_date DATE,
+      supplier_email TEXT,
+      sent_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (project_item_id, delivery_date)
+    );
 
     CREATE TABLE IF NOT EXISTS bids (
       id SERIAL PRIMARY KEY,
@@ -3771,6 +3781,14 @@ app.get('/projects/:id/status-pdf', requireAuth, async (req, res) => {
 const ITEM_NAME = {};
 ALL_ITEMS.forEach(i => ITEM_NAME[i.code] = i.name);
 
+// One click: email every vendor whose delivery is due tomorrow, inside their RFQ thread
+app.post('/deliveries/confirm-tomorrow', requireAuth, async (req, res) => {
+  try {
+    const out = await sendDeliveryConfirmations();
+    res.json({ ok: true, ...out });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.get('/deliveries', requireAuth, async (req, res) => {
   try {
     await initDb();
@@ -5251,6 +5269,40 @@ app.post('/subs/:id/reply', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// COI chaser: one click sends a templated "send us your updated insurance cert" email —
+// into their existing thread when there is one, fresh otherwise. Tracks when we asked.
+app.post('/subs/:id/chase-coi', requireAuth, async (req, res) => {
+  try {
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
+    const { rows: [sub] } = await pool.query('SELECT id, company, owner, email, ins_expires FROM subcontractors WHERE id=$1', [req.params.id]);
+    if (!sub) return res.status(404).json({ ok: false, error: 'Contractor not found.' });
+    if (!sub.email) return res.status(400).json({ ok: false, error: 'No email on file for this sub.' });
+    const expired = sub.ins_expires && new Date(sub.ins_expires) < new Date();
+    const when = sub.ins_expires ? new Date(sub.ins_expires).toLocaleDateString() : '';
+    const name = (String(sub.owner || '').trim().split(/\s+/)[0]) || sub.company || 'there';
+    const body = 'Hi ' + name + ',\n\n'
+      + (expired
+        ? 'Our records show the insurance certificate we have on file for ' + (sub.company || 'your company') + ' expired on ' + when + '.'
+        : 'Our records show the insurance certificate we have on file for ' + (sub.company || 'your company') + ' expires on ' + when + '.')
+      + ' To keep you eligible for upcoming Buildoly projects, we need a current certificate.\n\n'
+      + '**Please reply directly to THIS email with your updated COI attached (general liability + workers’ comp) so everything stays together in one place.**\n\n'
+      + 'Thank you!';
+    const subject = 'Updated insurance certificate needed — Buildoly';
+    // Prefer replying into their most recent thread so their reply lands where we watch
+    const { rows: [thr] } = await pool.query(
+      "SELECT gmail_thread_id FROM sub_emails WHERE sub_id=$1 AND gmail_thread_id IS NOT NULL ORDER BY created_at DESC LIMIT 1", [sub.id]);
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${emailBodyHtml(body)}</div>`;
+    const sig = await getGmailSignature();
+    if (sig) html += `<br><br>${sig}`;
+    const sent = await sendMail({ to: sub.email, subject, html, threadId: thr ? thr.gmail_thread_id : undefined });
+    await pool.query(
+      "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
+      [sub.id, sub.email, subject, body, sessionKey(req), (sent && sent.threadId) || (thr ? thr.gmail_thread_id : null), (sent && sent.messageId) || null]);
+    await pool.query('UPDATE subcontractors SET ins_chased_at=NOW() WHERE id=$1', [sub.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Upload a photo (business card etc.) for a subcontractor
 app.post('/subs/:id/photo', requireAuth, upload.array('photos', 12), async (req, res) => {
   const ajax = req.headers['x-requested-with'] === 'fetch';
@@ -5616,6 +5668,46 @@ async function sendDeliveryReminder() {
     await sendMail({ to: NOTIFY_TO, subject: `${rows.length} delivery(s) due in the next 3 days`, html });
     console.log('Delivery reminder sent:', rows.length);
   } catch (e) { console.error('sendDeliveryReminder:', e.message); }
+}
+
+// Day-before delivery confirmations: for everything due tomorrow, email the vendor
+// inside the existing RFQ/order thread asking them to confirm. Never sends twice for
+// the same item+date. Runs from the button on Deliveries (and daily if AUTO_DELIVERY_CONFIRM=on).
+async function sendDeliveryConfirmations() {
+  const out = { due: 0, sent: 0, alreadySent: 0, noThread: 0 };
+  if (!useGmail) return out;
+  try {
+    const { rows } = await pool.query(`
+      SELECT pi.id, pi.project_id, pi.item_code, pi.delivery_date, p.address
+      FROM project_items pi JOIN projects p ON p.id = pi.project_id
+      WHERE pi.delivery_date = CURRENT_DATE + 1
+        AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A')`);
+    out.due = rows.length;
+    for (const r of rows) {
+      const { rows: [done] } = await pool.query('SELECT 1 FROM delivery_confirms WHERE project_item_id=$1 AND delivery_date=$2', [r.id, r.delivery_date]);
+      if (done) { out.alreadySent++; continue; }
+      const { rows: [ve] } = await pool.query(
+        `SELECT supplier_name, supplier_email, gmail_thread_id FROM vendor_emails
+         WHERE project_id=$1 AND gmail_thread_id IS NOT NULL
+           AND (item_code=$2 OR (',' || REPLACE(COALESCE(item_codes,''),' ','') || ',') LIKE ('%,' || $2 || ',%'))
+         ORDER BY sent_at DESC LIMIT 1`, [r.project_id, r.item_code]);
+      if (!ve || !ve.supplier_email) { out.noThread++; continue; }
+      const material = (typeof ITEM_NAME !== 'undefined' && ITEM_NAME[r.item_code]) || r.item_code;
+      const dateStr = new Date(r.delivery_date).toLocaleDateString('en-US', { weekday: 'long', month: 'numeric', day: 'numeric' });
+      const body = 'Hi ' + (ve.supplier_name || 'there') + ',\n\n'
+        + 'Just confirming tomorrow’s delivery (' + dateStr + '):\n\n'
+        + '• ' + material + '\n• Deliver to: ' + r.address + '\n\n'
+        + '**Please reply to confirm it’s on track (or flag any changes to the ETA).** Thank you!';
+      let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${emailBodyHtml(body)}</div>`;
+      const sig = await getGmailSignature();
+      if (sig) html += `<br><br>${sig}`;
+      await sendMail({ to: ve.supplier_email, subject: 'Confirming tomorrow’s delivery — ' + material + ' to ' + r.address, html, threadId: ve.gmail_thread_id });
+      await pool.query('INSERT INTO delivery_confirms (project_item_id, delivery_date, supplier_email) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING', [r.id, r.delivery_date, ve.supplier_email]);
+      out.sent++;
+    }
+    console.log('delivery confirmations:', JSON.stringify(out));
+  } catch (e) { console.error('sendDeliveryConfirmations:', e.message); }
+  return out;
 }
 
 async function sendWeeklyDigest() {
@@ -6130,6 +6222,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
+  if (process.env.AUTO_DELIVERY_CONFIRM === 'on') cron.schedule('30 15 * * *', sendDeliveryConfirmations);   // day-before vendor confirmations (opt-in)
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
   cron.schedule('40 15 * * 1', licenseWatchdog);        // Mondays — CSLB license re-check
   cron.schedule('0 14 * * 0', () => insuranceScanAll().then(o => console.log('insurance scan:', JSON.stringify(o))).catch(e => console.error('insurance scan:', e.message)));   // Sundays — re-read COIs

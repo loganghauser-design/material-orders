@@ -435,11 +435,20 @@
     </summary>
     <div style="margin-top:.8rem;display:flex;flex-direction:column;gap:.35rem">
       <% if (!_insAll.length) { %><div style="color:var(--muted);font-size:.85rem">Nothing scanned yet — hit the button below and I'll read every COI/insurance certificate the subs have emailed us and pull the expiration dates.</div><% } %>
+      <%
+        function _insChase(s) {
+          var d = s.ins_chased_at ? Math.floor((Date.now() - new Date(s.ins_chased_at)) / 86400000) : null;
+          if (d != null && d <= 10) return '<span style="color:var(--muted);font-size:.76rem">✉ asked ' + (d === 0 ? 'today' : d + 'd ago') + '</span>';
+          if (!s.email) return '<span style="color:var(--muted);font-size:.76rem">no email on file</span>';
+          if (!canEdit) return '';
+          return '<button type="button" class="btn btn-ghost btn-sm" style="padding:.1rem .55rem;font-size:.74rem" onclick="chaseCoi(' + s.id + ', this)" title="Email them asking for an updated COI — lands in their existing thread">✉ Request new COI</button>';
+        }
+      %>
       <% _insExp.forEach(function(s){ %>
-        <div style="font-size:.86rem"><span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:9px">EXPIRED</span> <strong><%= s.company %></strong> — lapsed <%= new Date(s.ins_expires).toLocaleDateString() %> <span style="color:var(--muted);font-size:.76rem">(<%= s.ins_note %>)</span></div>
+        <div style="font-size:.86rem;display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="background:#dc2626;color:#fff;font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:9px">EXPIRED</span> <strong><%= s.company || s.owner %></strong> — lapsed <%= new Date(s.ins_expires).toLocaleDateString() %> <span style="color:var(--muted);font-size:.76rem">(<%= s.ins_note %>)</span> <%- _insChase(s) %></div>
       <% }) %>
       <% _insSoon.forEach(function(s){ var d = _insDays(s.ins_expires); %>
-        <div style="font-size:.86rem"><span style="background:#fde68a;color:#7a5b00;font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:9px"><%= d %>d</span> <strong><%= s.company %></strong> — expires <%= new Date(s.ins_expires).toLocaleDateString() %> <span style="color:var(--muted);font-size:.76rem">(<%= s.ins_note %>)</span></div>
+        <div style="font-size:.86rem;display:flex;align-items:baseline;gap:.5rem;flex-wrap:wrap"><span style="background:#fde68a;color:#7a5b00;font-size:.7rem;font-weight:800;padding:2px 8px;border-radius:9px"><%= d %>d</span> <strong><%= s.company || s.owner %></strong> — expires <%= new Date(s.ins_expires).toLocaleDateString() %> <span style="color:var(--muted);font-size:.76rem">(<%= s.ins_note %>)</span> <%- _insChase(s) %></div>
       <% }) %>
       <% if (_insAll.length && !_insExp.length && !_insSoon.length) { %><div style="color:#16a34a;font-size:.86rem">✓ Nothing expired or expiring in the next 90 days.</div><% } %>
     </div>
@@ -1783,6 +1792,16 @@ function openEmlog(btn, id) {
     const dot = btn.querySelector('.reply-dot'); if (dot) dot.remove();
     fetch('/subs/' + id + '/replies/seen', { method: 'POST', headers: { 'X-Requested-With': 'fetch' } }).catch(function () {});
   }
+}
+async function chaseCoi(id, btn) {
+  if (!confirm('Email this sub asking for an updated insurance certificate?')) return;
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/subs/' + id + '/chase-coi', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) { btn.outerHTML = '<span style="color:#16a34a;font-size:.76rem">✓ asked just now</span>'; }
+    else { alert(d.error || 'Could not send'); btn.disabled = false; btn.textContent = '✉ Request new COI'; }
+  } catch (e) { alert('Could not send'); btn.disabled = false; btn.textContent = '✉ Request new COI'; }
 }
 async function insScanAll() {
   const btn = document.getElementById('insScanBtn');
