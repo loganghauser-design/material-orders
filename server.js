@@ -5649,6 +5649,29 @@ async function coverageDigest() {
       if (wk.length) lines.push('📥 *Bids this week (' + wk.length + '):* ' + wk.slice(0, 6).map(b =>
         b.company + (b.amount != null ? ' $' + Number(b.amount).toLocaleString() : '')).join(', '));
     } catch (e) { /* bids table may be empty/new */ }
+    // Bid-out tracker: of everyone we've asked for a bid, who has answered — broken out by trade.
+    // "Answered" = their bid came in (Bid Under Review) or they emailed back after our request.
+    try {
+      const { rows: bidOut } = await pool.query(`
+        SELECT s.id, s.company, s.type, s.status,
+          (SELECT MAX(created_at) FROM sub_emails e WHERE e.sub_id = s.id AND e.direction = 'out') AS last_out,
+          (SELECT MAX(created_at) FROM sub_emails e WHERE e.sub_id = s.id AND e.direction = 'in')  AS last_in
+        FROM subcontractors s WHERE s.status IN ('Bid Requested', 'Bid Under Review')`);
+      if (bidOut.length) {
+        const byTrade = {};
+        const waiting = [];
+        bidOut.forEach(s => {
+          const t = (String(s.type || '').split(',')[0] || '').trim() || 'Other';
+          const answered = /bid under review/i.test(s.status || '') || (s.last_in && (!s.last_out || new Date(s.last_in) > new Date(s.last_out)));
+          const b = byTrade[t] = byTrade[t] || { asked: 0, answered: 0 };
+          b.asked++;
+          if (answered) b.answered++; else waiting.push(s.company + ' (' + t + ')');
+        });
+        const parts = Object.keys(byTrade).sort().map(t => t + ' ' + byTrade[t].answered + '/' + byTrade[t].asked);
+        lines.push('🔨 *Bid-outs — responded/asked by trade:* ' + parts.join(' · '));
+        if (waiting.length) lines.push('⏳ Still waiting on: ' + waiting.slice(0, 10).join(', ') + (waiting.length > 10 ? ' +' + (waiting.length - 10) + ' more' : ''));
+      }
+    } catch (e) { /* keep the digest going */ }
     const base = process.env.APP_URL || 'https://buildoly.up.railway.app';
     const text = ['🧭 *Weekly recruiting digest*', ...lines, base + '/subs'].join('\n');
     await fetch(process.env.BIDS_WEBHOOK_URL, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
