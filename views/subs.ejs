@@ -293,7 +293,7 @@
       <a href="/subs/finder" class="btn btn-primary" title="Search the state license board (CSLB) by trade + county and add contractors">🔎 Find subs</a>
       <button type="button" class="btn btn-ghost" onclick="verifyAllLic(this)" title="Check every contractor's license against CSLB — flags expired / suspended / disciplinary">🛡 Verify licenses</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
-      <label class="btn btn-ghost" style="cursor:pointer" title="Photo(s) of a business card — front and back together, or scan again to add the back — and I'll read it and prefill the Add form"><span>📇 Scan card</span><input type="file" accept="image/*" multiple style="display:none" onchange="cardScan(this)"></label>
+      <label class="btn btn-ghost" style="cursor:pointer" title="Photo(s) of a business card — front and back together, or scan again to add the back — and I'll read it and prefill the Add form"><span>📇 Scan card</span><input type="file" id="cardScanInput" accept="image/*" multiple style="display:none" onchange="cardScan(this)"></label>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
@@ -730,6 +730,7 @@
         <label>Photos <span id="photosHint" style="font-weight:400;color:var(--muted)">— work, vehicle, job site.</span></label>
         <div id="modalPhotos" class="thumbs" style="margin-bottom:.55rem"></div>
         <label class="addphotos">📷 Add photos<input type="file" name="photos" id="modalPhotoInput" accept="image/*" multiple style="display:none" onchange="onPhotoInput()"></label>
+        <button type="button" class="btn btn-ghost btn-sm" id="scanOtherSideBtn" style="display:none;margin-left:.5rem" onclick="document.getElementById('cardScanInput').click()" title="Take a photo of the back — its info and photo get added to this form">📇 Scan the other side</button>
         <span id="photoUploading" style="display:none;font-size:.82rem;color:var(--muted);margin-left:.6rem">Uploading…</span>
       </div>
       <input type="hidden" name="group_label" id="f_group">
@@ -1040,6 +1041,7 @@ function openAdd() {
   document.getElementById('photosHint').textContent = '— work, vehicle, job site. They upload when you tap Save.';
   document.getElementById('modalPhotos').innerHTML = '';
   document.getElementById('modalPhotoInput').value = '';
+  var _sob = document.getElementById('scanOtherSideBtn'); if (_sob) _sob.style.display = 'none';   // shows after a card scan
   document.getElementById('subModal').classList.add('show');
 }
 function openEdit(s, photos) {
@@ -1058,6 +1060,7 @@ function openEdit(s, photos) {
   document.getElementById('f_group').value = s.group_label || '';
   document.getElementById('delBtn').style.display = '';   // allow deleting when editing
   document.getElementById('photosField').style.display = '';
+  var _sob2 = document.getElementById('scanOtherSideBtn'); if (_sob2) _sob2.style.display = 'none';   // card-scan flow only
   document.getElementById('photosHint').textContent = '— work, vehicle, job site. Add several at once, or come back and add more anytime.';
   renderModalPhotos(photos || []);
   document.getElementById('modalPhotoInput').value = '';
@@ -1181,6 +1184,8 @@ async function cardScan(input) {
     if (!d.ok) { alert(d.error || 'Could not read the card'); return; }
     const modalOpen = document.getElementById('subModal').classList.contains('show') && !document.getElementById('editId').value;
     if (!modalOpen) openAdd();
+    // Phone cameras hand back one photo per tap — offer a one-tap rescan for the back
+    const sob = document.getElementById('scanOtherSideBtn'); if (sob) sob.style.display = '';
     // Fill blanks only — a second scan (the back of the card) never overwrites the front's info
     const fill = function (id, v) { const el = document.getElementById(id); if (el && v && !el.value.trim()) el.value = v; };
     fill('f_company', d.company);
