@@ -25,6 +25,9 @@
     .sp-doc a { text-decoration:none; }
     .sp-ev { display:flex; gap:.8rem; padding:.55rem 0; border-bottom:1px solid var(--border); font-size:.88rem; align-items:baseline; }
     .sp-ev:last-child { border-bottom:none; }
+    .sp-ev-mail { display:block; }
+    .sp-frame { display:block; width:100%; height:140px; margin:.5rem 0 .2rem; border:1px solid var(--border); border-radius:10px; background:#fff; }
+    .sp-mailtext { color:var(--muted); font-size:.84rem; white-space:pre-wrap; margin:.4rem 0 .2rem; background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:.6rem .8rem; }
     .sp-ev .d { flex:none; width:64px; color:var(--muted); font-size:.78rem; }
     .sp-ev .tag { flex:none; font-size:.68rem; font-weight:800; padding:2px 8px; border-radius:8px; }
     .ev-in { background:#eef6ff; color:#1d4ed8; } .ev-out { background:#eef0f4; color:#555; }
@@ -117,14 +120,27 @@
     <h3>History — emails, bids &amp; checks</h3>
     <% if (!events.length) { %><div style="color:var(--muted);font-size:.85rem">No activity yet.</div><% } %>
     <% events.slice(0, 40).forEach(function (ev) { %>
+      <% if (ev.kind === 'in' || ev.kind === 'out') { %>
+      <div class="sp-ev sp-ev-mail">
+        <div style="display:flex;gap:.8rem;align-items:baseline">
+          <span class="d"><%= new Date(ev.t).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) %></span>
+          <span class="tag <%= ev.kind === 'in' ? 'ev-in' : 'ev-out' %>"><%= ev.kind === 'in' ? '↩ reply' : 'sent' %></span>
+          <span style="font-weight:600"><%= ev.subject %></span>
+        </div>
+        <% if (ev.hasHtml) { %>
+          <iframe class="sp-frame" src="/subs/emails/<%= ev.emailId %>/html?embed=1" sandbox="allow-same-origin allow-popups" loading="lazy" title="<%= ev.subject %>"></iframe>
+        <% } else if (ev.body) { %>
+          <div class="sp-mailtext"><%= ev.body %></div>
+        <% } %>
+      </div>
+      <% } else { %>
       <div class="sp-ev">
         <span class="d"><%= new Date(ev.t).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', year: '2-digit' }) %></span>
-        <% if (ev.kind === 'in') { %><span class="tag ev-in">↩ reply</span><span><%= ev.subject %><% if (ev.hasHtml) { %> <a href="/subs/emails/<%= ev.emailId %>/html" target="_blank" rel="noopener" style="font-size:.78rem">open ↗</a><% } %></span>
-        <% } else if (ev.kind === 'out') { %><span class="tag ev-out">sent</span><span><%= ev.subject %><% if (ev.hasHtml) { %> <a href="/subs/emails/<%= ev.emailId %>/html" target="_blank" rel="noopener" style="font-size:.78rem">open ↗</a><% } %></span>
-        <% } else if (ev.kind === 'bid') { %><span class="tag ev-bid">bid</span><span><strong><%= money(ev.amount) %></strong><%= ev.project ? ' — ' + ev.project : '' %><% if (ev.aid) { %> <a href="<%= docUrl(ev.mid, ev.aid, ev.filename) %>" target="_blank" rel="noopener" style="font-size:.78rem">📄</a><% } %></span>
+        <% if (ev.kind === 'bid') { %><span class="tag ev-bid">bid</span><span><strong><%= money(ev.amount) %></strong><%= ev.project ? ' — ' + ev.project : '' %><% if (ev.aid) { %> <a href="<%= docUrl(ev.mid, ev.aid, ev.filename) %>" target="_blank" rel="noopener" style="font-size:.78rem">📄</a><% } %></span>
         <% } else if (ev.kind === 'lic') { %><span class="tag ev-lic">license</span><span>CSLB checked — <%= ev.status || 'see report' %><%= ev.expire ? ' · exp ' + new Date(ev.expire).toLocaleDateString() : '' %></span>
         <% } else { %><span class="tag ev-ins">insurance</span><span>COI scanned — <%= ev.expires ? 'next lapse ' + new Date(ev.expires).toLocaleDateString() : '' %> <span style="color:var(--muted);font-size:.78rem"><%= ev.note || '' %></span></span><% } %>
       </div>
+      <% } %>
     <% }) %>
     <div class="sp-reply">
       <textarea id="spReply" rows="2" placeholder="Reply to <%= sub.company || 'this sub' %>… (goes into their latest email thread)"></textarea>
@@ -144,6 +160,17 @@
 
 <div id="toast" class="toast"></div>
 <script>
+// Each embedded email grows to fit its content (same-origin, so we can measure it)
+function spSizeFrame(f) {
+  try {
+    const h = f.contentDocument && f.contentDocument.body ? f.contentDocument.body.scrollHeight : 0;
+    if (h) f.style.height = Math.min(Math.max(h + 30, 120), 1200) + 'px';
+  } catch (e) {}
+}
+document.querySelectorAll('.sp-frame').forEach(function (f) {
+  f.addEventListener('load', function () { spSizeFrame(f); });
+  spSizeFrame(f);
+});
 async function spSendReply() {
   const ta = document.getElementById('spReply');
   const body = ta.value.trim();

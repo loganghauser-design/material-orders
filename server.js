@@ -4673,7 +4673,7 @@ app.get('/subs/profile/:id', requireAuth, async (req, res) => {
        WHERE b.sub_id=$1 ORDER BY b.received_at DESC`, [sub.id]);
     // One merged timeline: emails, bids, and compliance checks in date order
     const events = [];
-    emails.forEach(e => events.push({ t: e.created_at, kind: e.direction === 'in' ? 'in' : 'out', subject: e.subject, emailId: e.id, hasHtml: e.has_html }));
+    emails.forEach(e => events.push({ t: e.created_at, kind: e.direction === 'in' ? 'in' : 'out', subject: e.subject, body: e.body, emailId: e.id, hasHtml: e.has_html }));
     bids.forEach(b => events.push({ t: b.received_at, kind: 'bid', amount: b.amount, project: b.project_address, filename: b.filename, mid: b.gmail_message_id, aid: b.gmail_attachment_id }));
     if (sub.license_checked_at) events.push({ t: sub.license_checked_at, kind: 'lic', status: sub.license_status, expire: sub.license_expire });
     if (sub.ins_checked_at) events.push({ t: sub.ins_checked_at, kind: 'ins', expires: sub.ins_expires, note: sub.ins_note });
