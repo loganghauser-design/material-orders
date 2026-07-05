@@ -302,7 +302,16 @@
       <button type="button" class="btn btn-ghost" onclick="verifyAllLic(this)" title="Check every contractor's license against CSLB — flags expired / suspended / disciplinary">🛡 Verify licenses</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
       <button type="button" class="btn btn-ghost" onclick="openCardScan()" title="Guided scan: photo of the front, then the back — I'll read both and prefill the Add form">📇 Scan card</button>
-      <button type="button" class="btn btn-ghost" id="fixitBtn" onclick="openFixit()" title="Walk through subs missing a name, service area, or email — one card at a time" style="display:none">🛠 Needs info <span id="fixitN" style="background:#d97706;color:#fff;font-size:.72rem;font-weight:800;padding:1px 8px;border-radius:9px"></span></button>
+      <%
+        var _fxN = subs.filter(function (s) { return !/reject|black/i.test(s.status || ''); }).reduce(function (n, s) {
+          return n + ((!String(s.company || '').trim() && !String(s.owner || '').trim()) ? 1 : 0)
+                   + (String(s.location || '').trim() ? 0 : 1)
+                   + (String(s.email || '').trim() ? 0 : 1);
+        }, 0);
+      %>
+      <% if (!isSuper && canEdit && _fxN > 0) { %>
+      <button type="button" class="btn btn-ghost" id="fixitBtn" onclick="openFixit()" title="Walk through subs missing a name, service area, or email — one card at a time">🛠 Needs info <span id="fixitN" style="background:#d97706;color:#fff;font-size:.72rem;font-weight:800;padding:1px 8px;border-radius:9px"><%= _fxN %></span></button>
+      <% } %>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
@@ -1216,21 +1225,18 @@ async function subField(id, obj) {
 }
 const BID_CLASSES = ['bid-received','bid-sent','bid-called','bid-awarded','bid-passed'];
 function bidClassJS(b){ b=(b||'').toLowerCase(); if(/received/.test(b))return 'bid-received'; if(/sent/.test(b))return 'bid-sent'; if(/called/.test(b))return 'bid-called'; if(/awarded/.test(b))return 'bid-awarded'; if(/passed/.test(b))return 'bid-passed'; return ''; }
-// 🛠 Fix-it deck: one card per missing field, saves through the normal inline-field endpoint
+// 🛠 Fix-it deck: one card per missing field, saves through the normal inline-field endpoint.
+// The button + count render server-side (no flicker); the card list loads when you open it.
 let fxCards = [], fxDone = 0, fxTotal = 0;
-async function fixitLoad() {
-  try {
-    const r = await fetch('/subs/fixit/list');
-    const d = await r.json();
-    if (!d.ok) return;
-    fxCards = d.cards; fxTotal = fxCards.length; fxDone = 0;
-    const btn = document.getElementById('fixitBtn');
-    if (btn && fxTotal) { btn.style.display = ''; document.getElementById('fixitN').textContent = fxTotal; }
-    else if (btn) btn.style.display = 'none';
-  } catch (e) {}
-}
-function openFixit() {
-  if (!fxCards.length) return;
+async function openFixit() {
+  if (!fxCards.length) {
+    try {
+      const r = await fetch('/subs/fixit/list');
+      const d = await r.json();
+      if (!d.ok) return alert(d.error || 'Could not load the list');
+      fxCards = d.cards; fxTotal = fxCards.length; fxDone = 0;
+    } catch (e) { return alert('Could not load the list'); }
+  }
   fixitRender();
   document.getElementById('fixitModal').classList.add('show');
 }
@@ -1294,7 +1300,6 @@ function fixitSkip() {
   fxCards.push(fxCards.shift());   // to the back of the deck
   fixitRender();
 }
-document.addEventListener('DOMContentLoaded', function () { <% if (canEdit && !isSuper) { %>fixitLoad();<% } %> });
 
 // 📇 Guided business-card scan: step 1 FRONT photo, step 2 BACK photo, then both
 // get OCR'd together and the Add form opens prefilled with both photos attached.
