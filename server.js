@@ -3211,8 +3211,10 @@ app.get('/threads/messages/:messageId/attachment/:attachmentId', requireAuth, as
     const buf = Buffer.from(data.data.replace(/-/g, '+').replace(/_/g, '/'), 'base64');
     const name = String(req.query.name || 'attachment').replace(/[^\w.\- ]/g, '_');
     const mime = /^[\w.+-]+\/[\w.+-]+$/.test(String(req.query.mime || '')) ? req.query.mime : 'application/octet-stream';
+    // Browsers can render PDFs/images/text inline; everything else (Word, Excel…) must download
+    const viewable = /^(application\/pdf|image\/|text\/)/i.test(mime);
     res.setHeader('Content-Type', mime);
-    res.setHeader('Content-Disposition', `inline; filename="${name}"`); // inline → PDFs open in the browser
+    res.setHeader('Content-Disposition', `${viewable ? 'inline' : 'attachment'}; filename="${name}"`);
     res.send(buf);
   } catch (err) {
     console.error('Attachment fetch error:', err.message);
