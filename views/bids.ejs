@@ -6,10 +6,17 @@
   <title>Bids — Buildoly Office</title>
   <link rel="stylesheet" href="/css/app.css">
   <style>
+    .bid-wrap { overflow-x:auto; }
     .bid-table { width:100%; border-collapse:collapse; font-size:.88rem; }
     .bid-table th { text-align:left; padding:.45rem .7rem; font-size:.7rem; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); }
-    .bid-table td { padding:.5rem .7rem; border-bottom:1px solid var(--border); vertical-align:middle; }
-    .bid-amt { font-weight:800; white-space:nowrap; }
+    .bid-table td { padding:.55rem .7rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+    .bid-table tr:last-child td { border-bottom:none; }
+    .bid-table th:first-child, .bid-table td:first-child { min-width:190px; }
+    .bid-actions { white-space:nowrap; }
+    .bid-sub2 { color:var(--muted); font-size:.76rem; margin-top:.15rem; }
+    .bid-newpill { background:#16a34a; color:#fff; font-size:.62rem; font-weight:800; padding:1px 6px; border-radius:8px; margin-right:.35rem; vertical-align:1px; }
+    tr.bid-fresh { background:rgba(22,163,74,.06); }
+    .bid-amt { font-weight:800; white-space:nowrap; font-size:.98rem; }
     .bid-low { color:#16a34a; }
     .bidst { font-size:.7rem; font-weight:800; padding:2px 9px; border-radius:9px; white-space:nowrap; }
     .bidst-received { background:#e0e7ff; color:#3730a3; }
@@ -17,7 +24,8 @@
     .bidst-passed { background:#e6e6e6; color:#666; }
     .bid-actions button { background:none; border:1px solid var(--border); border-radius:8px; padding:.15rem .5rem; font-size:.74rem; cursor:pointer; margin-right:.25rem; }
     .bid-actions button:hover { background:var(--bg); }
-    .bid-assign { font-size:.78rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:8px; max-width:190px; }
+    .bid-assign { font-size:.78rem; padding:.2rem .3rem; border:1px solid var(--border); border-radius:8px; max-width:170px; }
+    .bid-actions button { padding:.12rem .4rem; }
     .bid-auto { font-size:.66rem; color:#b45309; font-weight:700; }
     .proj-card { margin-top:1.2rem; }
     .proj-head { display:flex; align-items:baseline; gap:.6rem; flex-wrap:wrap; margin-bottom:.4rem; }
@@ -76,33 +84,33 @@
   <% } %>
 
   <% function bidRows(list, showProject) { %>
+    <div class="bid-wrap">
     <table class="bid-table">
-      <thead><tr><th>Sub</th><th>Trade</th><th>Amount</th><th>Est #</th><th>Job on estimate</th><% if (showProject) { %><th>Project</th><% } %><th>Received</th><th>PDF</th><th>Status</th><th></th></tr></thead>
+      <thead><tr><th>Sub</th><th>Amount</th><% if (showProject) { %><th>Project</th><% } %><th>Status</th><th></th></tr></thead>
       <tbody>
       <%
         var lowest = null;
         list.forEach(function (b) { if (b.amount != null && b.status !== 'passed' && (lowest == null || Number(b.amount) < lowest)) lowest = Number(b.amount); });
         list.forEach(function (b) { var u = pdfUrl(b);
       %>
-        <tr id="bid_<%= b.id %>" <%= isFresh(b) ? 'style="background:rgba(22,163,74,.06)"' : '' %>>
-          <td><% if (isFresh(b)) { %><span style="background:#16a34a;color:#fff;font-size:.62rem;font-weight:800;padding:1px 6px;border-radius:8px;margin-right:.35rem;vertical-align:1px">NEW</span><% } %><strong><%= b.company %></strong></td>
-          <td><%= firstTrade(b) %></td>
+        <tr id="bid_<%= b.id %>" <%- isFresh(b) ? 'class="bid-fresh"' : '' %>>
+          <td>
+            <div><% if (isFresh(b)) { %><span class="bid-newpill">NEW</span><% } %><strong><%= b.company %></strong></div>
+            <div class="bid-sub2"><%= firstTrade(b) %> · est <%= b.estimate_no || '—' %> · <%= new Date(b.received_at).toLocaleDateString() %><% if (u) { %> · <a href="<%= u %>" target="_blank" rel="noopener" title="Open the estimate PDF">📄 PDF</a><% } %></div>
+          </td>
           <td class="bid-amt <%= (b.amount != null && Number(b.amount) === lowest && list.length > 1) ? 'bid-low' : '' %>"><%= money(b.amount) %><%= (b.amount != null && Number(b.amount) === lowest && list.length > 1) ? ' ▼' : '' %></td>
-          <td><%= b.estimate_no || '' %></td>
-          <td style="font-size:.8rem;color:var(--muted)"><%= b.job_hint || '' %></td>
           <% if (showProject) { %>
           <td>
             <select class="bid-assign" onchange="bidAssign(<%= b.id %>, this.value)">
               <option value="">— unassigned —</option>
               <% projects.forEach(function (p) { %><option value="<%= p.id %>" <%= b.project_id === p.id ? 'selected' : '' %>><%= p.address %></option><% }) %>
             </select>
-            <% if (b.auto_matched) { %><div class="bid-auto" title="Matched by address similarity — double-check me">≈ auto</div><% } %>
+            <% if (b.auto_matched && b.project_id) { %><div class="bid-auto" title="Matched by address similarity — the estimate says “<%= b.job_hint || '' %>”. Double-check me.">≈ auto<%= b.job_hint ? ' from “' + b.job_hint + '”' : '' %></div>
+            <% } else if (!b.project_id && b.job_hint) { %><div class="bid-auto">estimate says “<%= b.job_hint %>”</div><% } %>
           </td>
           <% } %>
-          <td style="white-space:nowrap;font-size:.8rem"><%= new Date(b.received_at).toLocaleDateString() %></td>
-          <td><% if (u) { %><a href="<%= u %>" target="_blank" rel="noopener" title="Open the estimate PDF">📄</a><% } %></td>
           <td><span class="bidst bidst-<%= b.status %>"><%= b.status %></span></td>
-          <td class="bid-actions" style="white-space:nowrap">
+          <td class="bid-actions">
             <% if (b.status !== 'awarded') { %><button type="button" onclick="bidStatus(<%= b.id %>, 'awarded')" title="Award this bid">🏆</button><% } %>
             <% if (b.status !== 'passed') { %><button type="button" onclick="bidStatus(<%= b.id %>, 'passed')" title="Pass on this bid">✋</button><% } %>
             <% if (b.status !== 'received') { %><button type="button" onclick="bidStatus(<%= b.id %>, 'received')" title="Back to received">↩</button><% } %>
@@ -112,6 +120,7 @@
       <% }) %>
       </tbody>
     </table>
+    </div>
   <% } %>
 
   <% if (!bids.length) { %>
