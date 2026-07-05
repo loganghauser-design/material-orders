@@ -261,9 +261,10 @@
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Subcontractor added.</div>
   <% } %>
 
-  <!-- Tabs: the page's main navigation. Flagged/Inactive live in their own tab so the working lists stay clean. -->
+  <!-- Tabs: the page's main navigation. Rejected/Blacklisted live in their own tab;
+       Inactive stays on the main tabs as its own section (dormant ≠ banned). -->
   <%
-    var _flagRe = /reject|black|inactive/i;
+    var _flagRe = /reject|black/i;
     var _catQ = function (s) { return s.category || (/general\s*contractor|^\s*gc\b/i.test(s.type || '') ? 'gc' : 'sub'); };
     var _cntSub = subs.filter(function (s) { return _catQ(s) !== 'gc' && !_flagRe.test(s.status || ''); }).length;
     var _cntGc = subs.filter(function (s) { return _catQ(s) === 'gc' && !_flagRe.test(s.status || ''); }).length;
@@ -272,7 +273,7 @@
   <div class="subtabs" id="subTabs">
     <button type="button" class="subtab on" data-tab="sub" onclick="switchTab('sub')">🔧 Subcontractors <span class="tabn"><%= _cntSub %></span></button>
     <button type="button" class="subtab" data-tab="gc" onclick="switchTab('gc')">🏗 Outside GCs <span class="tabn"><%= _cntGc %></span></button>
-    <button type="button" class="subtab" data-tab="flagged" onclick="switchTab('flagged')">🚩 Flagged &amp; Inactive <span class="tabn"><%= _cntFlag %></span></button>
+    <button type="button" class="subtab" data-tab="flagged" onclick="switchTab('flagged')">🚩 Flagged <span class="tabn"><%= _cntFlag %></span></button>
   </div>
 
   <div id="mainPanel">
@@ -515,8 +516,12 @@
               const groups = []; const gmap = {};
               sec.list.forEach(x => { const g = keyOf(x); if (!(g in gmap)) { gmap[g] = []; groups.push(g); } gmap[g].push(x); });
               if (byTrade) groups.sort((a, b) => a.localeCompare(b));
-              // Fresh bids always float to the top of the section
-              if (!byTrade) { const bi = groups.indexOf('Bid Under Review'); if (bi > 0) { groups.splice(bi, 1); groups.unshift('Bid Under Review'); } }
+              // Fresh bids always float to the top of the section; Inactive sinks to the bottom
+              if (!byTrade) {
+                const bi = groups.indexOf('Bid Under Review'); if (bi > 0) { groups.splice(bi, 1); groups.unshift('Bid Under Review'); }
+                const ig = sec.key === 'gc' ? 'Inactive GCs' : 'Inactive Subcontractors';
+                const ii = groups.indexOf(ig); if (ii >= 0) { groups.splice(ii, 1); groups.push(ig); }
+              }
               // Always show a Rejected (and Blacklisted) drop zone for this section, even if empty
               if (!byTrade) {
                 (sec.key === 'gc' ? ['Rejected GCs', 'Blacklisted Buildoly General Contractors'] : ['Rejected Subcontractors', 'Blacklisted Buildoly Sub Contractors'])
@@ -807,7 +812,7 @@ function toggleMissingEmail(chip, cat) {
   if (missingEmailOnly) document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 let currentTab = 'sub';
-const TAB_FLAG_RE = /reject|black|inactive/i;
+const TAB_FLAG_RE = /reject|black/i;   // Inactive stays on the main tabs (own section), only banned subs go to Flagged
 function switchTab(t) {
   currentTab = t;
   document.querySelectorAll('.subtab').forEach(function (b) { b.classList.toggle('on', b.dataset.tab === t); });
