@@ -52,7 +52,28 @@
     var byAmt = function (a, b) { return (a.amount == null) - (b.amount == null) || Number(a.amount) - Number(b.amount); };
     Object.keys(byProject).forEach(function (k) { byProject[k].sort(byAmt); });
     unassigned.sort(byAmt);
+    // Fresh arrivals: unseen ones (nav badge) or anything from the last 7 days
+    var isFresh = function (b) { return b.seen === false || (Date.now() - new Date(b.received_at)) / 86400000 <= 7; };
+    var fresh = bids.filter(isFresh);
   %>
+
+  <% if (fresh.length) { %>
+  <div class="card" style="border-left:4px solid #16a34a;margin-top:.2rem">
+    <div class="proj-head"><h2>🆕 Just came in</h2><span style="color:var(--muted);font-size:.82rem">last 7 days — they're also filed under their projects below</span></div>
+    <div style="display:flex;flex-direction:column;gap:.4rem">
+      <% fresh.forEach(function (b) { var proj = b.project_id ? projById[b.project_id] : null; %>
+      <div style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;font-size:.92rem">
+        <span style="background:#16a34a;color:#fff;font-size:.68rem;font-weight:800;padding:2px 8px;border-radius:9px">NEW</span>
+        <strong><%= b.company %></strong>
+        <span class="bid-amt"><%= money(b.amount) %></span>
+        <span style="color:var(--muted);font-size:.8rem"><%= firstTrade(b) %> · <%= new Date(b.received_at).toLocaleDateString() %></span>
+        <% if (proj) { %><a href="#proj_<%= proj.id %>" style="font-size:.82rem">🏠 <%= proj.address %> ↓</a><% } else { %><a href="#unassigned" style="font-size:.82rem;color:#b45309">needs a project ↓</a><% } %>
+        <% var u = pdfUrl(b); if (u) { %><a href="<%= u %>" target="_blank" rel="noopener" title="Open the estimate PDF">📄</a><% } %>
+      </div>
+      <% }) %>
+    </div>
+  </div>
+  <% } %>
 
   <% function bidRows(list, showProject) { %>
     <table class="bid-table">
@@ -63,8 +84,8 @@
         list.forEach(function (b) { if (b.amount != null && b.status !== 'passed' && (lowest == null || Number(b.amount) < lowest)) lowest = Number(b.amount); });
         list.forEach(function (b) { var u = pdfUrl(b);
       %>
-        <tr id="bid_<%= b.id %>">
-          <td><strong><%= b.company %></strong></td>
+        <tr id="bid_<%= b.id %>" <%= isFresh(b) ? 'style="background:rgba(22,163,74,.06)"' : '' %>>
+          <td><% if (isFresh(b)) { %><span style="background:#16a34a;color:#fff;font-size:.62rem;font-weight:800;padding:1px 6px;border-radius:8px;margin-right:.35rem;vertical-align:1px">NEW</span><% } %><strong><%= b.company %></strong></td>
           <td><%= firstTrade(b) %></td>
           <td class="bid-amt <%= (b.amount != null && Number(b.amount) === lowest && list.length > 1) ? 'bid-low' : '' %>"><%= money(b.amount) %><%= (b.amount != null && Number(b.amount) === lowest && list.length > 1) ? ' ▼' : '' %></td>
           <td><%= b.estimate_no || '' %></td>
@@ -98,14 +119,14 @@
   <% } %>
 
   <% if (unassigned.length) { %>
-  <div class="card proj-card" style="border-left:4px solid #d97706">
+  <div class="card proj-card" id="unassigned" style="border-left:4px solid #d97706">
     <div class="proj-head"><h2>📥 Needs a project (<%= unassigned.length %>)</h2><span style="color:var(--muted);font-size:.82rem">No job address recognized — pick the project by hand.</span></div>
     <% bidRows(unassigned, true) %>
   </div>
   <% } %>
 
   <% Object.keys(byProject).forEach(function (pid) { var list = byProject[pid]; var proj = projById[pid]; %>
-  <div class="card proj-card">
+  <div class="card proj-card" id="proj_<%= pid %>">
     <div class="proj-head">
       <h2>🏠 <%= proj ? proj.address : ('Project #' + pid) %></h2>
       <span style="color:var(--muted);font-size:.82rem"><%= list.length %> bid<%= list.length === 1 ? '' : 's' %></span>

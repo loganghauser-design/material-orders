@@ -1578,6 +1578,7 @@ async function initDb() {
       auto_matched BOOLEAN DEFAULT FALSE,
       received_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE bids ADD COLUMN IF NOT EXISTS seen BOOLEAN DEFAULT FALSE;
     -- Files a sub attaches to a reply (license PDF, COI, insurance, photos). We store
     -- metadata + the Gmail ids and stream the bytes on demand via the attachment route.
     CREATE TABLE IF NOT EXISTS sub_email_attachments (
@@ -1889,6 +1890,8 @@ app.use(async (req, res, next) => {
         res.locals.pendingIssues = await getPendingIssueCount();
         res.locals.pendingRequests = await getPendingRequestCount();
         res.locals.openWarranty = await getOpenWarrantyCount();
+        const { rows: [nb] } = await pool.query('SELECT COUNT(*) c FROM bids WHERE seen = false');
+        res.locals.newBids = Number(nb.c);
       } catch (e) { /* tables may not exist yet */ }
     }
   }
@@ -4675,6 +4678,8 @@ app.get('/bids', requireAuth, async (req, res) => {
       FROM bids b JOIN subcontractors s ON s.id = b.sub_id
       ORDER BY b.received_at DESC`);
     const { rows: projects } = await pool.query('SELECT id, address FROM projects ORDER BY sort_order NULLS LAST, id');
+    // Opening the page clears the nav badge; the rows keep their pre-visit "seen" for the 🆕 pills
+    pool.query('UPDATE bids SET seen = true WHERE seen = false').catch(() => {});
     res.render('bids', { bids, projects });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
