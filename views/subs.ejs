@@ -344,7 +344,6 @@
            { label: 'Responded', n: _o.responded, color: '#16a34a', pct: _pct(_o.responded, _o.contacted) },
            { label: 'Bids',      n: _o.bids,      color: '#d97706', pct: _pct(_o.bids, _o.contacted) },
            { label: 'Approved',  n: _o.approved,  color: '#7c3aed', pct: _pct(_o.approved, _o.contacted) },
-           { label: 'Hired',     n: _o.hired,     color: '#111827', pct: _pct(_o.hired, _o.contacted) },
          ]; %>
       <div class="of-group">
         <div class="of-head">
@@ -396,7 +395,7 @@
       </div>
     </div>
     <% } %>
-    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem"><strong>Untouched</strong> = has an email but never contacted (ready to reach out); prospects <strong>missing an email</strong> move to untouched once you add one. <strong>Approved</strong> = vetted &amp; we want to work with them (a win — no longer a prospect); <strong>Hired</strong> = Approved subs who are Active on a job. Phone-only contact isn't counted (yet).</div>
+    <div style="font-size:.74rem;color:var(--muted);margin-top:.6rem"><strong>Untouched</strong> = has an email but never contacted (ready to reach out); prospects <strong>missing an email</strong> move to untouched once you add one. <strong>Approved</strong> = the recruiting win — vetted &amp; we want to work with them (includes anyone who's gone on to Active). Phone-only contact isn't counted (yet).</div>
   </details>
   <% } %>
 
