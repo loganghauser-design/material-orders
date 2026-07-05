@@ -50,7 +50,11 @@
 
   <%
     function money(a) { return a == null ? '—' : '$' + Number(a).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
-    function pdfUrl(b) { return b.gmail_attachment_id ? '/threads/messages/' + b.gmail_message_id + '/attachment/' + b.gmail_attachment_id + '?name=' + encodeURIComponent(b.filename || 'estimate.pdf') + '&mime=application%2Fpdf' : null; }
+    function pdfUrl(b) {
+      if (!b.gmail_attachment_id) return null;
+      var mime = /\.docx?$/i.test(b.filename || '') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf';
+      return '/threads/messages/' + b.gmail_message_id + '/attachment/' + b.gmail_attachment_id + '?name=' + encodeURIComponent(b.filename || 'estimate.pdf') + '&mime=' + encodeURIComponent(mime);
+    }
     var byProject = {};
     var unassigned = [];
     bids.forEach(function (b) { if (b.project_id) (byProject[b.project_id] = byProject[b.project_id] || []).push(b); else unassigned.push(b); });

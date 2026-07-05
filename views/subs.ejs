@@ -563,8 +563,9 @@
                     <% } else { %>
                       <span class="bidadd" onclick="editBidPrice(<%= s.id %>, this)" title="Add a bid price">+ $ bid</span>
                     <% } %>
-                    <% if (_bd && _bd.gmail_attachment_id) { %>
-                      <a class="biddoc" href="/threads/messages/<%= _bd.gmail_message_id %>/attachment/<%= _bd.gmail_attachment_id %>?name=<%= encodeURIComponent(_bd.filename || 'estimate.pdf') %>&mime=application%2Fpdf" target="_blank" rel="noopener" title="Open the bid: <%= _bd.filename || 'estimate PDF' %>">📄</a>
+                    <% if (_bd && _bd.gmail_attachment_id) {
+                         var _bmime = /\.docx?$/i.test(_bd.filename || '') ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf'; %>
+                      <a class="biddoc" href="/threads/messages/<%= _bd.gmail_message_id %>/attachment/<%= _bd.gmail_attachment_id %>?name=<%= encodeURIComponent(_bd.filename || 'estimate.pdf') %>&mime=<%= encodeURIComponent(_bmime) %>" target="_blank" rel="noopener" title="Open the bid: <%= _bd.filename || 'estimate PDF' %>">📄</a>
                     <% } else if (_bd && _bd.email_id) { %>
                       <a class="biddoc" href="/subs/emails/<%= _bd.email_id %>/html" target="_blank" rel="noopener" title="Open the bid email">✉</a>
                     <% } %>
