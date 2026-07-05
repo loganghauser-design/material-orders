@@ -31,6 +31,14 @@
     .conote-btn { display:inline-block; font-size:.72rem; font-weight:700; color:#1d4ed8; cursor:pointer; margin-top:.25rem; }
     .conote-body { display:none; font-size:.8rem; font-weight:400; color:var(--text); margin-top:.3rem; white-space:normal; max-width:260px; background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:.45rem .6rem; line-height:1.35; }
     .conote-body.show { display:block; }
+    /* ── Guided card scan: front/back photo slots ── */
+    .cs-slot { flex:1; border:2px dashed var(--border); border-radius:10px; min-height:110px; position:relative; display:flex; align-items:center; justify-content:center; overflow:hidden; background:var(--bg); }
+    .cs-slot .cs-lbl { position:absolute; top:6px; left:8px; font-size:.66rem; font-weight:800; color:var(--muted); letter-spacing:.04em; background:rgba(255,255,255,.85); padding:1px 6px; border-radius:6px; z-index:2; }
+    .cs-slot img { width:100%; height:110px; object-fit:cover; }
+    .cs-slot .cs-empty { color:var(--border); font-size:1.6rem; font-weight:800; }
+    .cs-slot.done { border-style:solid; border-color:#16a34a; }
+    .cs-slot.done .cs-lbl { color:#16a34a; }
+    .cs-slot.done .cs-empty { display:none; }
     /* ── Outreach stats: two groups side by side, pipeline reads left → right ── */
     .of-groups { display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:.9rem; margin-top:.8rem; }
     @media (max-width: 520px) { .of-groups { grid-template-columns:1fr; } }
@@ -293,7 +301,7 @@
       <a href="/subs/finder" class="btn btn-primary" title="Search the state license board (CSLB) by trade + county and add contractors">🔎 Find subs</a>
       <button type="button" class="btn btn-ghost" onclick="verifyAllLic(this)" title="Check every contractor's license against CSLB — flags expired / suspended / disciplinary">🛡 Verify licenses</button>
       <button class="btn btn-primary" onclick="openAdd()">+ Add</button>
-      <label class="btn btn-ghost" style="cursor:pointer" title="Photo(s) of a business card — front and back together, or scan again to add the back — and I'll read it and prefill the Add form"><span>📇 Scan card</span><input type="file" id="cardScanInput" accept="image/*" multiple style="display:none" onchange="cardScan(this)"></label>
+      <button type="button" class="btn btn-ghost" onclick="openCardScan()" title="Guided scan: photo of the front, then the back — I'll read both and prefill the Add form">📇 Scan card</button>
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
@@ -730,7 +738,6 @@
         <label>Photos <span id="photosHint" style="font-weight:400;color:var(--muted)">— work, vehicle, job site.</span></label>
         <div id="modalPhotos" class="thumbs" style="margin-bottom:.55rem"></div>
         <label class="addphotos">📷 Add photos<input type="file" name="photos" id="modalPhotoInput" accept="image/*" multiple style="display:none" onchange="onPhotoInput()"></label>
-        <button type="button" class="btn btn-ghost btn-sm" id="scanOtherSideBtn" style="display:none;margin-left:.5rem" onclick="document.getElementById('cardScanInput').click()" title="Take a photo of the back — its info and photo get added to this form">📇 Scan the other side</button>
         <span id="photoUploading" style="display:none;font-size:.82rem;color:var(--muted);margin-left:.6rem">Uploading…</span>
       </div>
       <input type="hidden" name="group_label" id="f_group">
@@ -752,6 +759,23 @@
   <option>Tile</option><option>Stone</option><option>Countertops</option><option>Cabinets</option><option>Solar</option><option>Stucco</option>
   <option>Insulation</option><option>Fire Sprinklers</option><option>Decking</option><option>Finishes</option><option>Tree Removal</option><option>Methane</option>
 </datalist>
+
+<!-- Guided business-card scan: forces two photos — front, then back -->
+<div class="modal-bk" id="cardModal">
+  <div class="modal-card" style="max-width:430px">
+    <h2 id="csTitle">📇 Scan card — step 1 of 2</h2>
+    <p id="csHint" style="color:var(--muted);font-size:.88rem;margin:.2rem 0 1rem">Take a photo of the <strong>FRONT</strong> of the card.</p>
+    <div style="display:flex;gap:.7rem;margin-bottom:1rem">
+      <div class="cs-slot" id="csSlotFront"><div class="cs-lbl">FRONT</div><img id="csImgFront" alt=""><span class="cs-empty">1</span></div>
+      <div class="cs-slot" id="csSlotBack"><div class="cs-lbl">BACK</div><img id="csImgBack" alt=""><span class="cs-empty">2</span></div>
+    </div>
+    <label class="btn btn-primary" style="cursor:pointer;display:block;text-align:center" id="csTakeBtn"><span id="csTakeTxt">📸 Take photo of the FRONT</span><input type="file" accept="image/*" capture="environment" style="display:none" onchange="csTook(this)"></label>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.9rem">
+      <button type="button" class="btn btn-ghost btn-sm" onclick="closeCardScan()">Cancel</button>
+      <button type="button" class="btn btn-ghost btn-sm" id="csSkipBtn" style="display:none" onclick="csProcess()">Back is blank — skip →</button>
+    </div>
+  </div>
+</div>
 
 <!-- License report modal (click any license badge) -->
 <div class="modal-bk" id="licModal">
@@ -1041,7 +1065,6 @@ function openAdd() {
   document.getElementById('photosHint').textContent = '— work, vehicle, job site. They upload when you tap Save.';
   document.getElementById('modalPhotos').innerHTML = '';
   document.getElementById('modalPhotoInput').value = '';
-  var _sob = document.getElementById('scanOtherSideBtn'); if (_sob) _sob.style.display = 'none';   // shows after a card scan
   document.getElementById('subModal').classList.add('show');
 }
 function openEdit(s, photos) {
@@ -1060,7 +1083,6 @@ function openEdit(s, photos) {
   document.getElementById('f_group').value = s.group_label || '';
   document.getElementById('delBtn').style.display = '';   // allow deleting when editing
   document.getElementById('photosField').style.display = '';
-  var _sob2 = document.getElementById('scanOtherSideBtn'); if (_sob2) _sob2.style.display = 'none';   // card-scan flow only
   document.getElementById('photosHint').textContent = '— work, vehicle, job site. Add several at once, or come back and add more anytime.';
   renderModalPhotos(photos || []);
   document.getElementById('modalPhotoInput').value = '';
@@ -1167,26 +1189,48 @@ async function subField(id, obj) {
 }
 const BID_CLASSES = ['bid-received','bid-sent','bid-called','bid-awarded','bid-passed'];
 function bidClassJS(b){ b=(b||'').toLowerCase(); if(/received/.test(b))return 'bid-received'; if(/sent/.test(b))return 'bid-sent'; if(/called/.test(b))return 'bid-called'; if(/awarded/.test(b))return 'bid-awarded'; if(/passed/.test(b))return 'bid-passed'; return ''; }
-// 📇 Business card → OCR → prefilled Add form. Takes several photos at once (front + back),
-// and scanning AGAIN while the form is open adds to it instead of starting over —
-// so you can shoot the front, then the back, without losing anything.
-async function cardScan(input) {
-  const files = Array.prototype.slice.call(input.files, 0, 4);
+// 📇 Guided business-card scan: step 1 FRONT photo, step 2 BACK photo, then both
+// get OCR'd together and the Add form opens prefilled with both photos attached.
+let csFiles = { front: null, back: null };
+function openCardScan() {
+  csFiles = { front: null, back: null };
+  csRender();
+  document.getElementById('cardModal').classList.add('show');
+}
+function closeCardScan() { document.getElementById('cardModal').classList.remove('show'); }
+function csRender() {
+  const onBack = !!csFiles.front;
+  document.getElementById('csTitle').textContent = '📇 Scan card — step ' + (onBack ? '2' : '1') + ' of 2';
+  document.getElementById('csHint').innerHTML = onBack ? 'Now flip it over — photo of the <strong>BACK</strong>.' : 'Take a photo of the <strong>FRONT</strong> of the card.';
+  document.getElementById('csTakeTxt').textContent = onBack ? '📸 Take photo of the BACK' : '📸 Take photo of the FRONT';
+  ['Front', 'Back'].forEach(function (side) {
+    const f = csFiles[side.toLowerCase()];
+    const img = document.getElementById('csImg' + side);
+    const slot = document.getElementById('csSlot' + side);
+    if (f) { img.src = URL.createObjectURL(f); img.style.display = 'block'; slot.classList.add('done'); }
+    else { img.style.display = 'none'; slot.classList.remove('done'); }
+  });
+  document.getElementById('csSkipBtn').style.display = onBack ? '' : 'none';
+}
+function csTook(input) {
+  const f = input.files && input.files[0];
+  input.value = '';
+  if (!f) return;
+  if (!csFiles.front) { csFiles.front = f; csRender(); }
+  else { csFiles.back = f; csRender(); csProcess(); }   // both sides in → read the card
+}
+async function csProcess() {
+  const files = [csFiles.front, csFiles.back].filter(Boolean);
   if (!files.length) return;
-  const lbl = input.closest('label').querySelector('span');
-  const old = lbl.textContent;
-  lbl.textContent = '⏳ Reading card…';
+  document.getElementById('csTakeTxt').textContent = '⏳ Reading card…';
   try {
     const fd = new FormData();
     files.forEach(function (f) { fd.append('card', f); });
     const r = await fetch('/subs/card/scan', { method: 'POST', body: fd });
     const d = await r.json();
-    if (!d.ok) { alert(d.error || 'Could not read the card'); return; }
-    const modalOpen = document.getElementById('subModal').classList.contains('show') && !document.getElementById('editId').value;
-    if (!modalOpen) openAdd();
-    // Phone cameras hand back one photo per tap — offer a one-tap rescan for the back
-    const sob = document.getElementById('scanOtherSideBtn'); if (sob) sob.style.display = '';
-    // Fill blanks only — a second scan (the back of the card) never overwrites the front's info
+    if (!d.ok) { alert(d.error || 'Could not read the card'); csRender(); return; }
+    closeCardScan();
+    openAdd();
     const fill = function (id, v) { const el = document.getElementById(id); if (el && v && !el.value.trim()) el.value = v; };
     fill('f_company', d.company);
     fill('f_owner', d.owner);
@@ -1197,19 +1241,17 @@ async function cardScan(input) {
       const n = document.getElementById('f_notes');
       if (n && !n.value.includes(d.license_number)) n.value = ('Lic #' + d.license_number + (n.value ? '\n' + n.value : ''));
     }
-    // Attach every card photo so they save with the new contractor (keeps ones already attached)
+    // Both card photos ride along with the form and save onto the new contractor
     const pi = document.getElementById('modalPhotoInput');
     if (pi) {
       try {
         const dt = new DataTransfer();
-        Array.prototype.forEach.call(pi.files || [], function (f) { dt.items.add(f); });
         files.forEach(function (f) { dt.items.add(f); });
         pi.files = dt.files;
         if (typeof onPhotoInput === 'function') onPhotoInput();
       } catch (e) { /* older browser — photos can be added after saving */ }
     }
-  } catch (e) { alert('Could not read the card — try again'); }
-  finally { lbl.textContent = old; input.value = ''; }
+  } catch (e) { alert('Could not read the card — try again'); csRender(); }
 }
 async function editBidPrice(id, el) {
   const cur = (el.textContent || '').replace(/[^0-9.]/g, '');

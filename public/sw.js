@@ -1,5 +1,5 @@
 // Minimal service worker — enables install + offline shell for static assets
-const CACHE = 'bd-v2';
+const CACHE = 'bd-v3';
 self.addEventListener('install', e => self.skipWaiting());
 self.addEventListener('activate', e => e.waitUntil(
   caches.keys().then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim())
