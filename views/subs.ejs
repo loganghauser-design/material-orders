@@ -229,14 +229,12 @@
     .subtab.pulse .tabn.hot { animation:bqpulse 2s ease-in-out infinite; }
     @keyframes bqpulse { 0%,100% { transform:scale(1); } 50% { transform:scale(1.15); } }
     /* ── Visual refresh ── */
-    .subs-toolbar { position:sticky; top:0; z-index:40; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.6rem .8rem; box-shadow:0 2px 8px rgba(0,0,0,.05); }
+    .subs-toolbar { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.6rem .8rem; box-shadow:0 2px 8px rgba(0,0,0,.05); }
     .subs-table tr.subhdr td { background:var(--bg); color:var(--muted); font-size:.78rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:.55rem .8rem; border-top:none; }
     .subs-table tr.subhdr:hover td { background:var(--bg); }
-    .subs-table thead th { position:sticky; top:56px; z-index:5; background:var(--surface); }
     .subs-table tbody tr:not(.subhdr):not(.emptybucket):nth-child(even) { background:rgba(0,0,0,.014); }
     .subs-table tbody tr:not(.subhdr):not(.emptybucket):hover { background:rgba(29,78,216,.045); }
     .sub-section { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1rem 1.2rem 1.2rem; margin-bottom:1.3rem; box-shadow:0 1px 4px rgba(0,0,0,.04); }
-    @media (max-width: 900px) { .subs-toolbar { position:static; } .subs-table thead th { position:static; } }
   </style>
 </head>
 <body class="<%= (isSuper && !(typeof canEdit !== 'undefined' && canEdit)) ? 'super-view' : '' %>">
