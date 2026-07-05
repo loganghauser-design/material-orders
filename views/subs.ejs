@@ -64,9 +64,8 @@
     .co-ref { color:var(--muted); font-size:.72rem; font-style:italic; margin-top:.15rem; }
     .subs-table td.co { min-width:150px; }
     .subs-table td.areas { max-width:150px; }
-    .trade-chips { display:flex; flex-wrap:wrap; gap:.2rem; }
-    .trade-chip { display:inline-block; background:#e0e7ff; color:#3730a3; font-size:.72rem; font-weight:700; padding:2px 9px; border-radius:9px; white-space:nowrap; }
-    .areas-line { color:var(--muted); font-size:.74rem; margin-top:.25rem; }
+    .trade-line { font-size:.84rem; font-weight:600; }
+    .areas-line { color:var(--muted); font-size:.74rem; margin-top:.2rem; }
     .lic-num { width:92px; }
     @media (min-width: 901px) { .subs-table tbody td, .subs-table thead th { padding-left:.5rem !important; padding-right:.5rem !important; } }
     .c-owner { font-weight:600; font-size:.85rem; }
@@ -627,7 +626,7 @@
                 <td class="areas" data-label="Trade &amp; areas" title="<%= [s.type, s.location].filter(Boolean).join(' — ') %>"><%
                   var _trades = String(s.type || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
                   var _areasShort = String(s.location || '').split(',').map(function (x) { return x.trim().replace(/\s*County$/i, ''); }).filter(Boolean).join(', ');
-                %><% if (_trades.length) { %><div class="trade-chips"><% _trades.forEach(function (t) { %><span class="trade-chip"><%= t %></span><% }) %></div><% } %><% if (_areasShort) { %><div class="areas-line"><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= _areasShort %></span><% } else { %><%= _areasShort %><% } %></div><% } %></td>
+                %><% if (_trades.length) { %><div class="trade-line"><%= _trades.join(', ') %></div><% } %><% if (_areasShort) { %><div class="areas-line"><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= _areasShort %></span><% } else { %><%= _areasShort %><% } %></div><% } %></td>
                 <td data-label="Status">
                   <select class="spill <%= pillClass(s.status) %>" data-id="<%= s.id %>" onchange="changeStatus(this)">
                     <option value="">—</option>
