@@ -770,9 +770,9 @@
       <div class="cs-slot" id="csSlotBack"><div class="cs-lbl">BACK</div><img id="csImgBack" alt=""><span class="cs-empty">2</span></div>
     </div>
     <label class="btn btn-primary" style="cursor:pointer;display:block;text-align:center" id="csTakeBtn"><span id="csTakeTxt">📸 Take photo of the FRONT</span><input type="file" accept="image/*" capture="environment" style="display:none" onchange="csTook(this)"></label>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:.9rem">
+    <button type="button" class="btn btn-ghost" id="csSkipBtn" style="display:none;width:100%;margin-top:.5rem" onclick="csProcess()">✓ Use front only — read the card now</button>
+    <div style="margin-top:.9rem">
       <button type="button" class="btn btn-ghost btn-sm" onclick="closeCardScan()">Cancel</button>
-      <button type="button" class="btn btn-ghost btn-sm" id="csSkipBtn" style="display:none" onclick="csProcess()">Back is blank — skip →</button>
     </div>
   </div>
 </div>
@@ -1201,7 +1201,7 @@ function closeCardScan() { document.getElementById('cardModal').classList.remove
 function csRender() {
   const onBack = !!csFiles.front;
   document.getElementById('csTitle').textContent = '📇 Scan card — step ' + (onBack ? '2' : '1') + ' of 2';
-  document.getElementById('csHint').innerHTML = onBack ? 'Now flip it over — photo of the <strong>BACK</strong>.' : 'Take a photo of the <strong>FRONT</strong> of the card.';
+  document.getElementById('csHint').innerHTML = onBack ? 'Now flip it over — photo of the <strong>BACK</strong>. Or read the card with just the front.' : 'Take a photo of the <strong>FRONT</strong> of the card.';
   document.getElementById('csTakeTxt').textContent = onBack ? '📸 Take photo of the BACK' : '📸 Take photo of the FRONT';
   ['Front', 'Back'].forEach(function (side) {
     const f = csFiles[side.toLowerCase()];
