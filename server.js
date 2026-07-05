@@ -5175,7 +5175,14 @@ app.post('/subs/:id/reply', requireAuth, async (req, res) => {
     await pool.query(
       "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
       [sub.id, sub.email, subject, body, sessionKey(req), (sent && sent.threadId) || row.gmail_thread_id, (sent && sent.messageId) || null]);
-    res.json({ ok: true, subject });
+    // Replies advance the pipeline the same way the composer does: Under Review → Bid Requested
+    let advanced = null;
+    const { rows: [cur] } = await pool.query('SELECT status FROM subcontractors WHERE id=$1', [sub.id]);
+    if (cur && !/active|approv|inactive|reject|black|bid under review|bid request/i.test(cur.status || '')) {
+      advanced = 'Bid Requested';
+      await pool.query("UPDATE subcontractors SET status='Bid Requested', bid_status='Bid Sent' WHERE id=$1", [sub.id]);
+    }
+    res.json({ ok: true, subject, status: advanced });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

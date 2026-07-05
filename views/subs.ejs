@@ -1683,6 +1683,11 @@ async function sendSubReply(btn, id) {
       ta.rows = 2;
       const fu = btn.closest('.emlog-reply').querySelector('.emlog-fu');
       if (fu) fu.value = '';
+      // Pipeline advanced (e.g. → Bid Requested)? Update the row's status pill in place.
+      if (data.status) {
+        const sp = document.querySelector('.spill[data-id="' + id + '"]');
+        if (sp) { sp.value = data.status; sp.className = 'spill ' + pillClassJS(data.status); }
+      }
       // Show the sent reply at the top of the log (newest-first), no reload.
       const item = document.createElement('div'); item.className = 'emlog-item';
       const d = document.createElement('span'); d.className = 'emlog-date'; d.textContent = new Date().toLocaleDateString();
