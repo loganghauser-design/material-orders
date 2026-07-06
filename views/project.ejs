@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title><%= project.address %></title>
-  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/app.css?v=3">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#4f8ef7">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -25,19 +25,19 @@
     <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost btn-sm" title="Edit address, client name/email, status, notes">✎ Edit project</a>
     <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
     <% const _assigned = (project.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean); %>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;background:var(--bg);border:1px solid var(--border);border-radius:9px;padding:.4rem .65rem">
-      <span style="font-size:.85rem;font-weight:600">👷 Supers:</span>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap" title="Assigned supers get tagged on this project's delivery alerts">
+      <span style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:.2rem">Supers</span>
       <% supers.forEach(s => { const on = _assigned.includes(s.email.toLowerCase()); %>
         <button type="button" class="super-chip<%= on ? ' on' : '' %>" data-email="<%= s.email %>" onclick="toggleSuper(this)"><%= on ? '✓ ' : '' %><%= s.name %></button>
       <% }) %>
-      <span style="font-size:.72rem;color:var(--muted)">click any working this job — they get tagged on delivery alerts</span>
     </div>
   </div>
 
   <style>
-    .tabs{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;margin:.25rem 0 1.1rem;border-bottom:1px solid var(--border);padding-bottom:.55rem}
-    .tab-btn{background:none;border:1px solid var(--border);border-radius:7px;padding:.45rem 1rem;cursor:pointer;font-size:.92rem;color:var(--muted)}
-    .tab-btn.active{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
+    .tabs{display:flex;align-items:flex-end;gap:.2rem;flex-wrap:wrap;margin:.25rem 0 1.15rem;border-bottom:2px solid var(--border)}
+    .tab-btn{background:none;border:none;border-bottom:2px solid transparent;margin-bottom:-2px;border-radius:0;padding:.5rem .95rem .55rem;cursor:pointer;font-size:.9rem;font-weight:600;color:var(--muted);letter-spacing:.01em}
+    .tab-btn:hover{color:var(--text)}
+    .tab-btn.active{color:#2563eb;border-bottom-color:#2563eb;background:none}
     .super-chip{font-size:.82rem;padding:.25rem .7rem;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text);cursor:pointer}
     .super-chip:hover{border-color:#4f8ef7}
     .super-chip.on{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
@@ -64,8 +64,6 @@
     .iss-flag:hover{background:#fecaca}
     .item-date,.item-date-end{width:122px;font-size:.8rem}
     .item-date-end{opacity:.9}
-    .notify-btn{border:1px solid var(--border);background:var(--surface);border-radius:6px;padding:2px 7px;cursor:pointer;font-size:.85rem;margin-left:3px;vertical-align:middle}
-    .notify-btn:hover{background:#4f8ef7;border-color:#4f8ef7}
     .notify-btn:disabled{opacity:.6;cursor:default}
     .tab-panel{display:none}
     .cat-thread{padding:.32rem .15rem;border-bottom:1px solid var(--border);cursor:pointer;font-size:.85rem}
@@ -77,11 +75,11 @@
     .modal-overlay{padding:2vh 0}
   </style>
   <div class="tabs">
-    <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">🧱 Materials</button>
-    <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">📦 Orders</button>
-    <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">✉️ Emails</button>
-    <button type="button" class="tab-btn" data-tab="schedule" onclick="showTab('schedule')">📋 Finish Schedule</button>
-    <a class="tab-btn" href="/projects/<%= project.id %>/checklist" style="text-decoration:none" title="Every item this project's finish schedule expects, with delivered checkmarks per bucket">✅ Item Checklist</a>
+    <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">Materials</button>
+    <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">Orders</button>
+    <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">Emails</button>
+    <button type="button" class="tab-btn" data-tab="schedule" onclick="showTab('schedule')">Finish Schedule</button>
+    <a class="tab-btn" href="/projects/<%= project.id %>/checklist" style="text-decoration:none" title="Every item this project's finish schedule expects, with delivery status per item">Item Checklist</a>
   </div>
 
   <div class="tab-panel" data-tab="schedule">
@@ -234,7 +232,7 @@
       <span style="display:inline-flex;align-items:center;gap:.8rem"><%= stage.name %><%
         var _sT = 0, _sD = 0, _sS = 0, _sO = 0;
         stage.items.forEach(function (it2) { var a2 = (typeof itemsAgg !== 'undefined') && itemsAgg[it2.code]; if (a2) { _sT += a2.total; _sD += a2.delivered; _sS += a2.scheduled; _sO += a2.ordered; } });
-      %><% if (_sT) { %><span class="stage-roll"><span class="ck-mini-bar"><i class="d" style="width:<%= Math.round(_sD/_sT*100) %>%"></i><i class="s" style="width:<%= Math.round(_sS/_sT*100) %>%"></i><i class="o" style="width:<%= Math.round(_sO/_sT*100) %>%"></i></span><%= _sD %> of <%= _sT %> items delivered<%= _sS ? ' · ' + _sS + ' on a truck' : '' %><%= _sO ? ' · ' + _sO + ' ordered' : '' %></span><% } %></span>
+      %><% if (_sT) { %><span class="stage-roll"><span class="ck-mini-bar"><i class="d" style="width:<%= Math.round(_sD/_sT*100) %>%"></i><i class="s" style="width:<%= Math.round(_sS/_sT*100) %>%"></i><i class="o" style="width:<%= Math.round(_sO/_sT*100) %>%"></i></span><%= _sD %> of <%= _sT %> items delivered<%= _sS ? ' · ' + _sS + ' scheduled' : '' %><%= _sO ? ' · ' + _sO + ' ordered' : '' %></span><% } %></span>
       <span style="font-size:.74rem;font-weight:400;color:var(--muted);display:inline-flex;align-items:center;gap:.4rem">
         Set whole stage →
         <select onchange="setStageStatus(this)" title="Set every item in this stage to one status at once" style="font-size:.76rem;padding:.2rem .45rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-weight:600;color:var(--text)">
@@ -257,7 +255,7 @@
             <% if (_ia && _ia.total) { %>
             <a href="/projects/<%= project.id %>/checklist" class="ck-mini mat-prog" title="Item checklist: <%= _ia.delivered %> delivered · <%= _ia.scheduled %> scheduled · <%= _ia.ordered %> ordered · of <%= _ia.total %> expected">
               <span class="ck-mini-bar" id="bar_<%= item.code %>"><i class="d" style="width:<%= Math.round(_ia.delivered/_ia.total*100) %>%"></i><i class="s" style="width:<%= Math.round(_ia.scheduled/_ia.total*100) %>%"></i><i class="o" style="width:<%= Math.round(_ia.ordered/_ia.total*100) %>%"></i></span>
-              <span class="ck-mini-txt" id="chip_<%= item.code %>"<%= _ia.delivered === _ia.total ? ' style=color:#176b3a' : '' %>><%= _ia.delivered %>✅<%= _ia.scheduled ? ' ' + _ia.scheduled + '🚚' : '' %><%= _ia.ordered ? ' ' + _ia.ordered + '📦' : '' %> / <%= _ia.total %></span>
+              <span class="ck-mini-txt" id="chip_<%= item.code %>"<%= _ia.delivered === _ia.total ? ' style=color:#176b3a' : '' %>><%= _ia.delivered %>/<%= _ia.total %> delivered<%= _ia.scheduled ? ' · ' + _ia.scheduled + ' scheduled' : '' %><%= _ia.ordered ? ' · ' + _ia.ordered + ' ordered' : '' %></span>
             </a>
             <% } %>
           </td>
@@ -267,16 +265,16 @@
               var _parts = [];
               if (row.order_date) _parts.push('Ordered ' + _fmt(row.order_date));
               var _de = row.delivery_date_end && _fmt(row.delivery_date_end) !== _fmt(row.delivery_date) ? _fmt(row.delivery_date_end) : '';
-              if (row.delivery_date) _parts.push('🚚 ' + _fmt(row.delivery_date) + (_de ? ' – ' + _de : ''));
-            %><%= _parts.join(' · ') %><% if (row.notes) { %> <span title="<%= row.notes %>" style="cursor:default">🗒</span><% } %></span>
+              if (row.delivery_date) _parts.push('Delivery ' + _fmt(row.delivery_date) + (_de ? ' – ' + _de : ''));
+            %><%= _parts.join(' · ') %><% if (row.notes) { %> <span title="<%= row.notes %>" style="cursor:default;border-bottom:1px dotted var(--muted)">note</span><% } %></span>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
                 <option value="<%= s %>" <%- st===s?'selected':'' %>><%= s %></option>
               <% }) %>
             </select>
             <span class="mat-actions">
-              <button type="button" class="notify-btn" onclick="notifyDelivery(this)" title="Send the delivery alert to chat">📢</button>
-              <button type="button" class="edit-btn" onclick="toggleEditor('<%= item.code %>')" title="Edit order date, delivery window &amp; notes">✎</button>
+              <button type="button" class="notify-btn" onclick="notifyDelivery(this)" title="Send the delivery alert to chat">Notify</button>
+              <button type="button" class="edit-btn" onclick="toggleEditor('<%= item.code %>')" title="Edit order date, delivery window &amp; notes">Edit</button>
             </span>
           </td>
         </tr>
@@ -674,7 +672,7 @@ function updateBucketBar(code, c) {
   seg[0].style.width = Math.round(c.delivered / c.total * 100) + '%';
   seg[1].style.width = Math.round(c.scheduled / c.total * 100) + '%';
   seg[2].style.width = Math.round(c.ordered / c.total * 100) + '%';
-  chip.textContent = c.delivered + '✅' + (c.scheduled ? ' ' + c.scheduled + '🚚' : '') + (c.ordered ? ' ' + c.ordered + '📦' : '') + ' / ' + c.total;
+  chip.textContent = c.delivered + '/' + c.total + ' delivered' + (c.scheduled ? ' · ' + c.scheduled + ' scheduled' : '') + (c.ordered ? ' · ' + c.ordered + ' ordered' : '');
   chip.style.color = c.delivered === c.total ? '#176b3a' : '';
 }
 
@@ -1404,9 +1402,9 @@ function updateSchedSummary(code) {
   const parts = [];
   if (od) parts.push('Ordered ' + fmt(od));
   const deTxt = de && fmt(de) !== fmt(dd) ? fmt(de) : '';
-  if (dd) parts.push('🚚 ' + fmt(dd) + (deTxt ? ' – ' + deTxt : ''));
+  if (dd) parts.push('Delivery ' + fmt(dd) + (deTxt ? ' – ' + deTxt : ''));
   sum.textContent = parts.join(' · ');
-  if (notes) { const n = document.createElement('span'); n.title = notes; n.textContent = ' 🗒'; sum.appendChild(n); }
+  if (notes) { const n = document.createElement('span'); n.title = notes; n.textContent = ' note'; n.style.cssText = 'border-bottom:1px dotted var(--muted);cursor:default'; sum.appendChild(n); }
 }
 async function saveItem(el) {
   // Status lives on the main row; dates + notes live on the hidden editor row.

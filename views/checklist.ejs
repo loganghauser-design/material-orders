@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Item Checklist — <%= proj.address %></title>
-  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/app.css?v=3">
   <style>
     .ck-bucket { background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:1rem 1.2rem; margin-bottom:1rem; max-width:none; }
     .ck-head { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin-bottom:.6rem; }
@@ -25,7 +25,7 @@
 
 <div class="container">
   <p style="margin:0 0 .7rem"><a href="/projects/<%= proj.id %>" style="font-size:.86rem;color:var(--muted);text-decoration:none">← <%= proj.address %></a></p>
-  <div class="page-header"><h1>📋 Item Checklist <span style="color:var(--muted);font-weight:400;font-size:1rem">— what this project's finish schedule expects</span></h1></div>
+  <div class="page-header"><h1>Item Checklist <span style="color:var(--muted);font-weight:400;font-size:1rem">— what this project's finish schedule expects</span></h1></div>
 
   <% if (syncErr) { %>
     <div class="card" style="background:#fff7e6;border-color:#f0d9a8;color:#7a5b00;margin-bottom:1rem;max-width:none">⚠ Couldn't refresh from the finish schedule: <%= syncErr %><%= expected.length ? ' — showing the last synced list.' : '' %></div>

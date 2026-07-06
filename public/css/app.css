@@ -161,7 +161,7 @@ textarea { resize: vertical; min-height: 80px; }
 .stage-group { border-left: 2px solid #cfd3e0; }
 
 /* Editable overall-status dropdown (pill style) */
-.status-select { border: none; border-radius: 20px; padding: .3rem .7rem; font-size: .75rem; font-weight: 600; cursor: pointer; appearance: none; -webkit-appearance: none; max-width: 100%; }
+.status-select { border: none; border-radius: 20px; padding: .3rem .7rem; font-size: .75rem; font-weight: 600; cursor: pointer; appearance: none; -webkit-appearance: none; max-width: 100%; box-shadow: inset 0 0 0 1px rgba(15,23,42,.07); }
 .status-select:focus { outline: 2px solid var(--accent); }
 .status-select option { background: #fff; color: var(--text); font-weight: 500; }
 
@@ -171,15 +171,15 @@ textarea { resize: vertical; min-height: 80px; }
 .grid-select option { background: #fff; color: var(--text); font-weight: 500; }
 
 /* Item status colors — matching legend (apply to cells and dropdowns) */
-.cell-not_yet_placed { background: #f3f4f6; color: #9ca3af; }
-.cell-delivery_requested { background: #fde68a; color: #92400e; }
-.cell-rfq_sent { background: #cfe2f3; color: #1e3a5f; }
-.cell-order_placed { background: #b6d7a8; color: #274e13; }
-.cell-in_inventory { background: #d9c2f0; color: #4a235a; }
-.cell-delivered { background: #6aa84f; color: #ffffff; }
-.cell-delivered_from_inv { background: #8e44ad; color: #ffffff; }
-.cell-n_a { background: #5a5a5a; color: #e5e5e5; }
-.cell-issue { background: #cc0000; color: #ffffff; }
+.cell-not_yet_placed { background: #f3f4f6; color: #6b7280; }
+.cell-delivery_requested { background: #fef3c7; color: #92400e; }
+.cell-rfq_sent { background: #e0eafc; color: #1d4ed8; }
+.cell-order_placed { background: #dbeafe; color: #1e40af; }
+.cell-in_inventory { background: #ede9fe; color: #5b21b6; }
+.cell-delivered { background: #dcfce7; color: #15803d; }
+.cell-delivered_from_inv { background: #dcfce7; color: #047857; }
+.cell-n_a { background: #f3f4f6; color: #9ca3af; }
+.cell-issue { background: #fee2e2; color: #b91c1c; }
 
 /* Stage cards */
 .stage-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1.25rem; overflow: hidden; box-shadow: 0 1px 3px rgba(20,25,40,.05); }
