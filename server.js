@@ -6260,7 +6260,7 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
     <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:10px"><strong style="color:#374151">Please inspect all materials at the time of delivery.</strong> Any damage or shortages must be reported to Buildoly within 24&ndash;48 hours of receipt. Damage reported after this window cannot be verified as delivery-related, and responsibility for that damage will rest with the receiving party.</div>
   </td></tr>
   <tr><td style="padding:16px 32px 4px" align="center"><span style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af">Questions about this delivery? Just reply to this email.</span></td></tr>
-  <tr><td style="padding:12px 32px 26px"><p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;margin:0">Thanks,<br><strong>The Buildoly Team</strong></p><p style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af;margin:4px 0 0">hello@buildoly.com</p></td></tr>
+  <tr><td style="padding:12px 32px 26px"><p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;margin:0">Thanks,<br><strong>The Buildoly Team</strong></p><p style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af;margin:4px 0 0">logan@buildoly.com</p></td></tr>
   <tr><td style="background:#f9fafb;border-top:1px solid #eeeeee;padding:14px 32px" align="center"><span style="font-family:Arial,sans-serif;font-size:11px;color:#9ca3af">Buildoly &middot; 915 Wilshire Blvd #700, Los Angeles, CA 90017</span></td></tr>
 </table></td></tr></table></div>`;
   return { subject, html };
