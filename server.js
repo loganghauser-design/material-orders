@@ -5811,14 +5811,8 @@ async function pollFergusonEmails() {
         `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (gmail_message_id) DO NOTHING`,
         [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null]);
-      const projLabel = proj ? proj.address : (address || 'unmatched address');
-      const line = kind === 'delivered'
-        ? '✅ *Ferguson DELIVERED* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
-        : kind === 'out'
-        ? '🚚 *Ferguson out for delivery TODAY* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
-        : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '');
-      postToChat(line, orderNo ? 'ferguson-' + orderNo : undefined);
-      console.log('ferguson update: ' + kind + ' → ' + projLabel);
+      // No chat posts — the tracker card on the Deliveries page is the home for these.
+      console.log('ferguson update: ' + kind + ' → ' + (proj ? proj.address : (address || 'unmatched')));
     }
   } catch (e) { console.error('pollFergusonEmails:', e.message); }
 }
