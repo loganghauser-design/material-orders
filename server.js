@@ -6195,6 +6195,86 @@ async function sweepFergusonOrders() {
   } catch (e) { console.error('sweepFergusonOrders:', e.message); }
 }
 
+// ── Branded delivery-notice email to the on-site party ──────────────────────────
+// Strip manufacturer/brand tokens out of a description so the GC/super sees the item
+// type without our proprietary sourcing (brand + model stay internal).
+const BRAND_TOKENS = ['GE', 'Café', 'Cafe', 'LG', 'Kohler', 'Milgard', 'Nest', 'Google', 'Badger', 'InSinkErator', 'Kwikset', 'Moen', 'Delta', 'Panasonic', 'Broan', 'Samsung', 'Whirlpool', 'Bosch', 'Frigidaire', 'Amerfit', 'Elkay', 'Milwaukee', 'Rite-Temp', 'Purist', 'Trinsic', 'Elate', 'Crue'];
+function stripBrands(s) {
+  let t = String(s || '').replace(/[®™©]/g, '');
+  BRAND_TOKENS.forEach(b => { t = t.replace(new RegExp('\\b' + b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'gi'), ''); });
+  return t.replace(/\s{2,}/g, ' ').replace(/^[\s,\-–—]+/, '').trim();
+}
+function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window }) {
+  const subject = `Delivery Update — ${jobName}`;
+  const itemRow = it => {
+    const bits = [it.desc, it.color, 'Qty ' + it.qty].filter(Boolean).join(' &middot; ');
+    return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111827;line-height:1.5;padding:7px 0;border-top:1px solid #f0f1f4"><strong>${escapeHtml(it.name)}</strong><div style="font-size:12.5px;color:#6b7280;margin-top:2px">${escapeHtml(bits)}</div></div>`;
+  };
+  const groupBlock = g => `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.5px;color:#2563eb;text-transform:uppercase;margin:14px 0 2px">${escapeHtml(g.label)}</div>${g.items.map(itemRow).join('')}`;
+  const html =
+`<div style="margin:0;padding:0;background:#f3f4f6">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0"><tr><td align="center">
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
+  <tr><td style="background:#000000;padding:20px 32px"><img src="https://buildoly.up.railway.app/logo-white.png" alt="buildoly" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0"></td></tr>
+  <tr><td style="padding:30px 32px 4px">
+    <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Update <span style="color:#111827">(${escapeHtml(jobName)})</span></div>
+    <p style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
+    <p style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;line-height:1.6;margin:14px 0 0">A material delivery for your project at <strong>${escapeHtml(jobName)}</strong> is on its way. <strong>Please have someone on site to receive the delivery</strong> during the window below.</p>
+  </td></tr>
+  <tr><td style="padding:18px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eff4ff;border:1px solid #d3e0fd;border-radius:10px"><tr><td style="padding:16px 18px">
+    <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Window</div>
+    <div style="font-family:Arial,sans-serif;font-size:17px;font-weight:700;color:#111827;margin-top:5px">${escapeHtml(window)}</div>
+  </td></tr></table></td></tr>
+  <tr><td style="padding:12px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px;font-family:Arial,sans-serif;font-size:13.5px;color:#374151;line-height:1.55">
+    <strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the on-site contact</strong> for this delivery. The driver will call you <strong>30&ndash;60 minutes before arrival</strong>, so please keep your phone available.
+  </td></tr></table></td></tr>
+  <tr><td style="padding:16px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px 16px">
+    <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#111827">Items being delivered</div>
+    <div style="font-family:Arial,sans-serif;font-size:12px;color:#6b7280;margin-bottom:2px">${escapeHtml(stage)}${supplier ? ` &middot; from ${escapeHtml(supplier)}` : ''}</div>
+    ${groups.map(groupBlock).join('')}
+  </td></tr></table></td></tr>
+  <tr><td style="padding:20px 32px 6px">
+    <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#9ca3af;text-transform:uppercase;border-top:1px solid #eeeeee;padding-top:16px">Please note</div>
+    <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:8px"><strong style="color:#374151">Someone must be on site to accept the delivery.</strong> If no one is available to receive it, a redelivery fee may apply. Deliveries must be rescheduled or cancelled at least <strong style="color:#374151">24 hours in advance</strong>.</div>
+    <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:10px"><strong style="color:#374151">Please inspect all materials at the time of delivery.</strong> Any damage or shortages must be reported to Buildoly within 24&ndash;48 hours of receipt. Damage reported after this window cannot be verified as delivery-related, and responsibility for that damage will rest with the receiving party.</div>
+  </td></tr>
+  <tr><td style="padding:16px 32px 4px" align="center"><span style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af">Questions about this delivery? Just reply to this email.</span></td></tr>
+  <tr><td style="padding:12px 32px 26px"><p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;margin:0">Thanks,<br><strong>The Buildoly Team</strong></p><p style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af;margin:4px 0 0">hello@buildoly.com</p></td></tr>
+  <tr><td style="background:#f9fafb;border-top:1px solid #eeeeee;padding:14px 32px" align="center"><span style="font-family:Arial,sans-serif;font-size:11px;color:#9ca3af">Buildoly &middot; 915 Wilshire Blvd #700, Los Angeles, CA 90017</span></td></tr>
+</table></td></tr></table></div>`;
+  return { subject, html };
+}
+// Assemble + send the branded notice for a project's delivery of one or more buckets.
+// Recipient = the project's assigned super(s) (the on-site party), or toOverride for tests.
+// Items are pulled live from the finish schedule at the safe altitude (no brand/model).
+async function sendDeliveryNotice({ projectId, codes, window, toOverride }) {
+  const { rows: [proj] } = await pool.query(
+    'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
+  if (!proj) return { ok: false, reason: 'no project' };
+  const sups = parseSuperEmails(proj.super_email);
+  const recipients = toOverride ? [toOverride] : sups.map(s => s.email).filter(Boolean);
+  if (!recipients.length) return { ok: false, reason: 'no on-site contact assigned (add a super with an email)' };
+  if (!proj.finish_schedule_url) return { ok: false, reason: 'no finish schedule linked' };
+  let byCode;
+  try {
+    byCode = await readScheduleByCategory(proj.finish_schedule_url, { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source });
+  } catch (e) { return { ok: false, reason: 'schedule unreadable: ' + e.message }; }
+  const groups = []; let supplierName = '';
+  for (const code of codes) {
+    const raw = byCode[code] || [];
+    const items = raw.filter(it => !/contractor to proc|not in scope|^n\/a$/i.test(it.supplier || '')).map(it => ({ name: it.name, desc: stripBrands(it.product), color: it.finishColor, qty: it.qty }));
+    if (!items.length) continue;
+    if (!supplierName && raw[0]) supplierName = raw[0].supplier || '';
+    groups.push({ label: CODE_NAME[code] || code.toUpperCase(), items });
+  }
+  if (!groups.length) return { ok: false, reason: 'no schedule items for ' + codes.join(', ') };
+  const contactName = (sups[0] && sups[0].name) || 'there';
+  const jobName = shortAddress(proj.full_address || proj.address);
+  const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || 'To be confirmed' });
+  await sendMail({ to: recipients.join(', '), subject, html });
+  return { ok: true, to: recipients, jobName, window, groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
+}
+
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
 // Ferguson's shipping alerts (project44/Convey for UPS parcels, DispatchTrack for
 // appliance deliveries) carry the job address, PO (material stage), and schedule.
@@ -6298,6 +6378,17 @@ async function pollFergusonEmails() {
         : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '') + (applied ? '\n📌 ' + applied + ' on the board' : '');
       postBidsText(line, orderBase ? 'ferguson-' + orderBase : undefined);   // whole order lifecycle = one chat thread
       console.log('ferguson update: ' + kind + ' → ' + projLabel);
+      // A newly scheduled delivery on a matched project → auto-email the on-site party
+      // the branded notice (window + items). Skips if no super/contact is assigned.
+      if (kind === 'scheduled' && proj) {
+        const nCodes = fergusonPoCodes(po);
+        if (nCodes.length) {
+          try {
+            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor });
+            console.log('delivery notice: ' + JSON.stringify(dn));
+          } catch (e) { console.error('delivery notice:', e.message); }
+        }
+      }
     }
   } catch (e) { console.error('pollFergusonEmails:', e.message); }
 }
@@ -7043,7 +7134,17 @@ app.get('/_test/run', async (req, res) => {
     },
   };
   const job = String(req.query.job || '');
-  if (job === 'list' || !job) return res.json({ ok: true, isolation: MAIL_REDIRECT_ALL, jobs: Object.keys(JOBS) });
+  // Parameterized: fire the branded delivery notice for a project + bucket(s) + window.
+  // e.g. /_test/run?key=…&job=delivery-notice&project=1&code=3b&window=Monday, July 6th 2026 between 07:30 AM - 10:30 AM
+  if (job === 'delivery-notice') {
+    const projectId = parseInt(req.query.project || '1', 10);
+    const codes = String(req.query.code || '1b').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+    const window = req.query.window || 'To be confirmed';
+    const toOverride = req.query.to || undefined;
+    try { return res.json({ ok: true, job, result: await sendDeliveryNotice({ projectId, codes, window, toOverride }) }); }
+    catch (e) { return res.json({ ok: false, job, error: e.message }); }
+  }
+  if (job === 'list' || !job) return res.json({ ok: true, isolation: MAIL_REDIRECT_ALL, jobs: [...Object.keys(JOBS), 'delivery-notice (params: project,code,window,to)'] });
   const fn = JOBS[job];
   if (!fn) return res.status(400).json({ ok: false, error: 'unknown job: ' + job, jobs: Object.keys(JOBS) });
   const t0 = Date.now();
