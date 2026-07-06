@@ -1580,6 +1580,8 @@ async function initDb() {
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
     ALTER TABLE ferguson_updates ADD COLUMN IF NOT EXISTS applied VARCHAR(200);
+    ALTER TABLE ferguson_updates ADD COLUMN IF NOT EXISTS order_base VARCHAR(40);
+    UPDATE ferguson_updates SET order_base = SPLIT_PART(order_no, '_', 1) WHERE order_base IS NULL AND order_no IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS delivery_confirms (
       id SERIAL PRIMARY KEY,
@@ -5834,7 +5836,21 @@ async function pollFergusonEmails() {
         po = (text.match(/PO Number:\s*(.+?)\s+Job Name/i) || [])[1] || '';
         address = (text.match(/Shipping Address:\s*(.+?)(?:\s*,\s*US\b|\s+Delivery Window)/i) || [])[1] || '';
       }
-      const proj = address ? await matchBidToProject(address) : null;
+      // The appliance emails use "6488286_571_26", the UPS ones plain "6488304" — the base
+      // ties one order's whole lifecycle together (scheduled → out → delivered).
+      const orderBase = orderNo.split('_')[0];
+      let proj = address ? await matchBidToProject(address) : null;
+      // Same order seen before? Inherit its project/PO when this email is missing them, and vice versa.
+      if (orderBase) {
+        const { rows: [sib] } = await pool.query(
+          'SELECT project_id, po FROM ferguson_updates WHERE order_base=$1 AND project_id IS NOT NULL ORDER BY created_at DESC LIMIT 1', [orderBase]);
+        if (!proj && sib) {
+          const { rows: [sp] } = await pool.query('SELECT id, address FROM projects WHERE id=$1', [sib.project_id]);
+          if (sp) proj = sp;
+        }
+        if (!po && sib && sib.po) po = sib.po;
+        if (proj) await pool.query('UPDATE ferguson_updates SET project_id=$1 WHERE order_base=$2 AND project_id IS NULL', [proj.id, orderBase]);
+      }
       const emailDate = isNaN(new Date(hv('Date')).getTime()) ? new Date() : new Date(hv('Date'));
       // DELIVERED + matched project → push the matching material(s) to Delivered on the board
       let applied = '';
@@ -5849,9 +5865,9 @@ async function pollFergusonEmails() {
         }
       }
       await pool.query(
-        `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items, created_at, applied)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (gmail_message_id) DO NOTHING`,
-        [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null, emailDate, applied || null]);
+        `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, order_base, po, tracking, address, project_id, scheduled_for, items, created_at, applied)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (gmail_message_id) DO NOTHING`,
+        [mm.id, kind, orderNo.slice(0, 60), orderBase.slice(0, 40) || null, po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null, emailDate, applied || null]);
       // Testing phase: notifications go to the BIDS space (per Logan), threaded per order
       const projLabel = proj ? proj.address : (address || 'unmatched address');
       const line = kind === 'delivered'
@@ -5859,7 +5875,7 @@ async function pollFergusonEmails() {
         : kind === 'out'
         ? '🚚 *Ferguson out for delivery TODAY* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
         : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '');
-      postBidsText(line, orderNo ? 'ferguson-' + orderNo : undefined);
+      postBidsText(line, orderBase ? 'ferguson-' + orderBase : undefined);   // whole order lifecycle = one chat thread
       console.log('ferguson update: ' + kind + ' → ' + projLabel);
     }
   } catch (e) { console.error('pollFergusonEmails:', e.message); }

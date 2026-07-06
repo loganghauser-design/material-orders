@@ -38,8 +38,26 @@
       return m ? new Date(Number(m[3]), MONTHS[m[1].toLowerCase()], Number(m[2])) : null;
     }
     var _today = new Date(); _today.setHours(0, 0, 0, 0);
+    // One row per ORDER: scheduled → out → delivered collapse together (matched by order number)
+    var byOrder = {};
+    _fu.forEach(function (f) { var k = f.order_base || ('row-' + f.id); (byOrder[k] = byOrder[k] || []).push(f); });
+    var RANK = { delivered: 3, out: 2, scheduled: 1 };
+    var merged = Object.keys(byOrder).map(function (k) {
+      var g = byOrder[k].slice().sort(function (a, b) { return (RANK[b.kind] || 0) - (RANK[a.kind] || 0); });
+      var main = g[0];
+      main._journey = g.slice(1).map(function (x) {
+        var label = x.kind === 'out' ? 'out for delivery' : x.kind === 'scheduled' ? 'scheduled' : 'delivered';
+        return label + ' ' + new Date(x.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+      });
+      g.forEach(function (x) {   // borrow richer fields from siblings (the scheduled email carries the item list)
+        if (!main.items && x.items) main.items = x.items;
+        if (!main.applied && x.applied) main.applied = x.applied;
+        if (!main.po && x.po) main.po = x.po;
+      });
+      return main;
+    });
     var upcoming = [], history = [];
-    _fu.forEach(function (f) {
+    merged.forEach(function (f) {
       f._sched = f.kind === 'scheduled' ? schedDate(f.scheduled_for) : null;
       if (f.kind === 'scheduled' && f._sched && f._sched >= _today) upcoming.push(f); else history.push(f);
     });
@@ -53,9 +71,11 @@
         <% if (f.kind === 'scheduled' && f.scheduled_for) { %><span style="color:<%= dim ? 'var(--muted)' : '#3730a3' %>;font-size:.82rem;font-weight:600">🗓 <%= f.scheduled_for %></span><% } %>
         <% if (f.tracking) { %><a href="https://www.ups.com/track?tracknum=<%= f.tracking %>" target="_blank" rel="noopener" style="font-size:.78rem" title="Track on UPS">UPS ↗</a><% } %>
         <% if (f.applied) { %><span style="color:#16a34a;font-size:.76rem;font-weight:700">✔ <%= f.applied %></span><% } %>
+        <% if (f.order_base) { %><span style="color:var(--muted);font-size:.72rem" title="Ferguson order number — links all updates for this shipment">#<%= f.order_base %></span><% } %>
         <span style="color:var(--muted);font-size:.74rem;margin-left:auto" title="When Ferguson's email arrived">✉ <%= new Date(f.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) %></span>
       </div>
-      <% if (f.kind === 'scheduled' && f.items) { %><div style="color:var(--muted);font-size:.74rem;margin:-.1rem 0 .15rem 4.2rem;<%= dim ? 'opacity:.65' : '' %>"><%= f.items.slice(0, 150) %><%= f.items.length > 150 ? '…' : '' %></div><% } %>
+      <% if (f._journey && f._journey.length) { %><div style="color:var(--muted);font-size:.72rem;margin:-.1rem 0 .1rem 4.2rem;<%= dim ? 'opacity:.65' : '' %>">↳ <%= f._journey.join(' · ') %></div><% } %>
+      <% if (f.items) { %><div style="color:var(--muted);font-size:.74rem;margin:-.1rem 0 .15rem 4.2rem;<%= dim ? 'opacity:.65' : '' %>"><%= f.items.slice(0, 150) %><%= f.items.length > 150 ? '…' : '' %></div><% } %>
     <% } %>
   <% if (_fu.length) { %>
   <div class="card" style="max-width:none;margin-bottom:1.3rem;padding:1rem 1.3rem">
