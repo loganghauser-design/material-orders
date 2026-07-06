@@ -1607,6 +1607,16 @@ async function initDb() {
       seen_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS project_item_marks (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      item_key TEXT,
+      state VARCHAR(12),
+      sched_when TEXT,
+      marked_at TIMESTAMPTZ DEFAULT NOW(),
+      UNIQUE (project_id, item_key)
+    );
+
     CREATE TABLE IF NOT EXISTS project_order_lines (
       id SERIAL PRIMARY KEY,
       project_id INTEGER,
@@ -2740,10 +2750,15 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       st.expected.forEach(e => {
         const v = e.delivered ? { st: 'd' } : e.scheduled ? { st: 's', when: e.schedWhen || '' } : e.onOrder ? { st: 'o' } : null;
         if (!v) return;
+        if (e.manual) v.m = 1;
         if (e.model_norm && e.model_norm.length >= 5) itemStates[e.model_norm] = v;
-        // Prod-code key so accessories without a model # still get a Delivery badge
-        if (e.prod_code) itemStates['PC:' + e.prod_code.toUpperCase()] = v;
+        // Keyed by the stable item key (PC:/MN:/NM:) so accessories without a model #
+        // still get a Delivery badge and manual marks land on the right row.
+        if (e.key) itemStates[e.key] = v;
       });
+      // Manual marks on items not currently in the expected list (custom/out-of-catalog)
+      const { rows: strayMarks } = await pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [project.id]);
+      strayMarks.forEach(m => { if (m.state && !itemStates[m.item_key]) itemStates[m.item_key] = { st: m.state[0], when: m.sched_when || '', m: 1 }; });
     } catch (e) { /* fine — chips just don't show */ }
     res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS, itemsAgg, itemStates });
   } catch (err) {
@@ -5875,6 +5890,15 @@ async function postBidsText(text, threadKey) {
 // join between all three. Read-only: we never write to the sheet.
 const MASTER_CATALOG_SHEET_ID = '1wSZb3PVq1rrE3PTyraBSUHVp-tYtOHpMaeAOO2l0_40';
 function normModel(m) { return String(m || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+// Stable per-item key for manual delivery marks — must match the client's itemKeyFor().
+// Prefer the prod code (survives model/name edits on the sheet), then model #, then name.
+function itemKeyFor(prodCode, model, name) {
+  const pc = String(prodCode || '').trim().toUpperCase();
+  if (pc && pc !== 'CUSTOM') return 'PC:' + pc;
+  const mn = normModel(model);
+  if (mn.length >= 5) return 'MN:' + mn;
+  return 'NM:' + String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 60);
+}
 async function syncMasterCatalog() {
   if (!sheetsClient) throw new Error('Sheets access not configured.');
   const { data } = await sheetsClient.spreadsheets.values.get({
@@ -5980,7 +6004,11 @@ async function projectItemStates(projectId) {
   const { rows: al } = await pool.query("SELECT prod_code, alt_models FROM item_catalog WHERE alt_models IS NOT NULL AND alt_models <> ''");
   const aliasBy = {};
   al.forEach(r => { aliasBy[r.prod_code.toUpperCase()] = r.alt_models.split(',').map(normModel).filter(x => x.length >= 5); });
+  const { rows: mk } = await pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [projectId]);
+  const marks = {};
+  mk.forEach(m => marks[m.item_key] = m);
   expected.forEach(e => {
+    e.key = itemKeyFor(e.prod_code, e.model_no, e.name);
     const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
     const norms = mn ? [mn] : [];
     (aliasBy[(e.prod_code || '').toUpperCase()] || []).forEach(n => { if (!norms.includes(n)) norms.push(n); });
@@ -5993,6 +6021,16 @@ async function projectItemStates(projectId) {
     e.scheduled = !e.delivered && (explicitlyScheduled || (onOrder && e.category_code && (e.category_code in schedInfo)));
     e.schedWhen = e.scheduled ? (schedInfo[e.category_code] || '') : '';
     e.onOrder = !e.delivered && !e.scheduled && onOrder;
+    // A manual mark (clicked in the UI) beats automatic evidence — vendors other than
+    // Ferguson don't self-confirm, so this is how those items get tracked.
+    const m = marks[e.key];
+    if (m && m.state) {
+      e.manual = true;
+      e.delivered = m.state === 'delivered';
+      e.scheduled = m.state === 'scheduled';
+      e.onOrder = m.state === 'ordered';
+      e.schedWhen = e.scheduled ? (m.sched_when || e.schedWhen || '') : '';
+    }
     const k = e.category_code || '—';
     const a = agg[k] = agg[k] || { total: 0, delivered: 0, scheduled: 0, ordered: 0 };
     a.total++;
@@ -6000,6 +6038,29 @@ async function projectItemStates(projectId) {
   });
   return { expected, agg };
 }
+// Set/clear a manual per-item delivery mark, then return that item's recomputed state
+// plus the fresh per-bucket aggregate so the page can update without a reload.
+app.post('/projects/:id/item-mark', requireAuth, async (req, res) => {
+  try {
+    const { key, state, when } = req.body || {};
+    if (!key) return res.status(400).json({ ok: false, error: 'Missing item key.' });
+    if (state && !['ordered', 'scheduled', 'delivered'].includes(state)) return res.status(400).json({ ok: false, error: 'Bad state.' });
+    if (!state) {
+      await pool.query('DELETE FROM project_item_marks WHERE project_id=$1 AND item_key=$2', [req.params.id, key]);
+    } else {
+      await pool.query(
+        `INSERT INTO project_item_marks (project_id, item_key, state, sched_when) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (project_id, item_key) DO UPDATE SET state=$3, sched_when=$4, marked_at=NOW()`,
+        [req.params.id, key, state, when || null]);
+    }
+    const { expected, agg } = await projectItemStates(req.params.id);
+    const e = expected.find(x => x.key === key);
+    const st = e
+      ? (e.delivered ? { st: 'd', m: e.manual ? 1 : 0 } : e.scheduled ? { st: 's', when: e.schedWhen || '', m: e.manual ? 1 : 0 } : e.onOrder ? { st: 'o', m: e.manual ? 1 : 0 } : null)
+      : (state ? { st: state[0], when: when || '', m: 1 } : null);
+    res.json({ ok: true, st, agg: e && e.category_code ? { code: e.category_code, counts: agg[e.category_code] } : null });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
   try {
     await initDb();

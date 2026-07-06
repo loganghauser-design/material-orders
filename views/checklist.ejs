@@ -57,7 +57,7 @@
     </div>
     <% list.forEach(function (e) { %>
     <div class="ck-row <%= e.delivered ? 'ck-done' : '' %>">
-      <span class="ck-check" title="<%= e.delivered ? 'Delivered' : e.scheduled ? ('Delivery scheduled' + (e.schedWhen ? ': ' + e.schedWhen : '')) : e.onOrder ? 'On a confirmed Ferguson order — not scheduled yet' : 'Not yet seen on an order or delivery' %>"><%= e.delivered ? '✅' : e.scheduled ? '🚚' : e.onOrder ? '📦' : '⬜' %></span>
+      <span class="ck-check" data-key="<%= e.key %>" data-cur="<%= e.delivered ? 'd' : e.scheduled ? 's' : e.onOrder ? 'o' : '' %>" onclick="cycleMark(this)" style="cursor:pointer<%= e.manual ? ';outline:1px dashed #9aa3b2;outline-offset:1px;border-radius:4px' : '' %>" title="<%= e.delivered ? 'Delivered' : e.scheduled ? ('Delivery scheduled' + (e.schedWhen ? ': ' + e.schedWhen : '')) : e.onOrder ? 'On a confirmed Ferguson order — not scheduled yet' : 'Not yet seen on an order or delivery' %><%= e.manual ? ' (set by hand)' : '' %> — click to change: ⬜→📦→🚚→✅→auto"><%= e.delivered ? '✅' : e.scheduled ? '🚚' : e.onOrder ? '📦' : '⬜' %></span>
       <span class="ck-code"><%= e.prod_code || '—' %></span>
       <span><%= e.name %></span>
       <% if (e.qty > 1) { %><span style="font-size:.78rem;font-weight:700">×<%= e.qty %></span><% } %>
@@ -69,7 +69,24 @@
   </div>
   <% }) %>
 
-  <p style="color:var(--muted);font-size:.78rem;max-width:760px">✅ delivered · 🚚 delivery scheduled (date shown) · 📦 on a confirmed Ferguson order, not scheduled yet · ⬜ not yet seen on an order or delivery. Other vendors don't self-confirm yet. The list re-syncs from the finish schedule each time you open this page.</p>
+  <p style="color:var(--muted);font-size:.78rem;max-width:760px">✅ delivered · 🚚 delivery scheduled (date shown) · 📦 on a confirmed order, not scheduled yet · ⬜ not yet seen. Ferguson fills these in automatically; for any other vendor, <strong>click the icon</strong> to set it by hand (⬜→📦→🚚→✅, one more click reverts to automatic — dashed outline = set by hand). The list re-syncs from the finish schedule each time you open this page.</p>
 </div>
+<script>
+async function cycleMark(el) {
+  const cur = el.dataset.cur || '';
+  const next = cur === '' ? 'ordered' : cur === 'o' ? 'scheduled' : cur === 's' ? 'delivered' : '';
+  let when = '';
+  if (next === 'scheduled') when = prompt('Scheduled for (optional — e.g. "Jul 12"):') || '';
+  try {
+    const r = await fetch('/projects/<%= proj.id %>/item-mark', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: el.dataset.key, state: next, when }),
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'save failed');
+    location.reload();
+  } catch (e) { alert('Not saved — please try again'); }
+}
+</script>
 </body>
 </html>

@@ -243,12 +243,10 @@
     <table class="stage-table">
       <thead>
         <tr>
-          <th style="width:40px"></th>
           <th>Item</th>
-          <th>Status</th>
-          <th>Order Date</th>
-          <th>Delivery Date</th>
-          <th>Notes</th>
+          <th style="width:200px">Per-item delivery</th>
+          <th style="width:150px">Status</th>
+          <th style="width:260px">Schedule</th>
         </tr>
       </thead>
       <tbody>
@@ -258,9 +256,17 @@
           const stCls = 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
           const sup = suppliers[item.code] || {};
         %>
-        <tr data-project="<%= project.id %>" data-code="<%= item.code %>">
-          <td style="color:var(--muted);font-size:.8rem"><%= item.code %></td>
-          <td><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span><% var _ia = (typeof itemsAgg !== 'undefined') && itemsAgg[item.code]; if (_ia && _ia.total) { %> <a href="/projects/<%= project.id %>/checklist" style="text-decoration:none;font-size:.72rem;font-weight:700;background:<%= _ia.delivered === _ia.total ? '#e7f6ec' : 'var(--bg)' %>;border:1px solid <%= _ia.delivered === _ia.total ? '#b9e4c8' : 'var(--border)' %>;border-radius:8px;padding:1px 7px;white-space:nowrap;color:<%= _ia.delivered === _ia.total ? '#176b3a' : 'var(--text)' %>" title="Item checklist: <%= _ia.delivered %> delivered · <%= _ia.scheduled %> scheduled · <%= _ia.ordered %> ordered · of <%= _ia.total %> expected"><%= _ia.delivered %>✅<%= _ia.scheduled ? ' ' + _ia.scheduled + '🚚' : '' %><%= _ia.ordered ? ' ' + _ia.ordered + '📦' : '' %>/<%= _ia.total %></a><% } %><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="#fieldRequests" class="req-flag" title="Requested from the field — jump to the request">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %><% var _iss = (typeof issueByCode !== 'undefined') && issueByCode[item.code]; if (_iss) { %> <a href="/issues" class="iss-flag" title="Reported by <%= _iss.sup %><%= _iss.label ? ' (' + _iss.label + ')' : '' %><%= _iss.note ? ': ' + _iss.note : '' %>">⚠ <%= _iss.label || 'Issue' %><% if (_iss.note) { %>: <%= _iss.note.length > 30 ? _iss.note.slice(0,30) + '…' : _iss.note %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1a') { %><br><label style="font-size:.7rem;color:var(--muted)">3-Panel Bifold: <select onchange="setBifoldSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="buildoly" <%= project.bifold_source==='vendor'?'':'selected' %>>Buildoly Stock</option><option value="vendor" <%= project.bifold_source==='vendor'?'selected':'' %>>Order from vendor</option></select></label> <label style="font-size:.7rem;color:var(--muted)">Sliding Glass Door: <select onchange="setSlidingSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Order from vendor</option><option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option></select></label><% } %><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
+        <tr class="mat-row" data-project="<%= project.id %>" data-code="<%= item.code %>">
+          <td><span class="mat-code"><%= item.code %></span> <span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <strong><%= item.name %></strong></span><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="#fieldRequests" class="req-flag" title="Requested from the field — jump to the request">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %><% var _iss = (typeof issueByCode !== 'undefined') && issueByCode[item.code]; if (_iss) { %> <a href="/issues" class="iss-flag" title="Reported by <%= _iss.sup %><%= _iss.label ? ' (' + _iss.label + ')' : '' %><%= _iss.note ? ': ' + _iss.note : '' %>">⚠ <%= _iss.label || 'Issue' %><% if (_iss.note) { %>: <%= _iss.note.length > 30 ? _iss.note.slice(0,30) + '…' : _iss.note %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span><% if (item.code === '1a') { %><br><label style="font-size:.7rem;color:var(--muted)">3-Panel Bifold: <select onchange="setBifoldSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="buildoly" <%= project.bifold_source==='vendor'?'':'selected' %>>Buildoly Stock</option><option value="vendor" <%= project.bifold_source==='vendor'?'selected':'' %>>Order from vendor</option></select></label> <label style="font-size:.7rem;color:var(--muted)">Sliding Glass Door: <select onchange="setSlidingSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Order from vendor</option><option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option></select></label><% } %><% if (item.code === '1e') { %><br><label style="font-size:.7rem;color:var(--muted)">Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label><% } %></td>
+          <td>
+            <% var _ia = (typeof itemsAgg !== 'undefined') && itemsAgg[item.code]; %>
+            <% if (_ia && _ia.total) { %>
+            <a href="/projects/<%= project.id %>/checklist" class="ck-mini" title="Item checklist: <%= _ia.delivered %> delivered · <%= _ia.scheduled %> scheduled · <%= _ia.ordered %> ordered · of <%= _ia.total %> expected">
+              <span class="ck-mini-bar" id="bar_<%= item.code %>"><i class="d" style="width:<%= Math.round(_ia.delivered/_ia.total*100) %>%"></i><i class="s" style="width:<%= Math.round(_ia.scheduled/_ia.total*100) %>%"></i><i class="o" style="width:<%= Math.round(_ia.ordered/_ia.total*100) %>%"></i></span>
+              <span class="ck-mini-txt" id="chip_<%= item.code %>"<%= _ia.delivered === _ia.total ? ' style=color:#176b3a' : '' %>><%= _ia.delivered %>✅<%= _ia.scheduled ? ' ' + _ia.scheduled + '🚚' : '' %><%= _ia.ordered ? ' ' + _ia.ordered + '📦' : '' %> / <%= _ia.total %></span>
+            </a>
+            <% } else { %><span style="color:var(--muted);font-size:.78rem" title="Nothing from this bucket matched the finish schedule yet — expand the row to mark items by hand">—</span><% } %>
+          </td>
           <td>
             <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
               <% ITEM_STATUSES.forEach(s => { %>
@@ -268,21 +274,30 @@
               <% }) %>
             </select>
           </td>
-          <td>
-            <input type="date" class="item-order-date" value="<%= row.order_date ? new Date(row.order_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)">
+          <td class="sched-cell">
+            <span class="sched-sum" id="sum_<%= item.code %>"><%
+              var _fmt = function (d) { return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; };
+              var _parts = [];
+              if (row.order_date) _parts.push('Ordered ' + _fmt(row.order_date));
+              if (row.delivery_date) _parts.push('🚚 ' + _fmt(row.delivery_date) + (row.delivery_date_end ? ' – ' + _fmt(row.delivery_date_end) : ''));
+            %><%= _parts.join(' · ') %><% if (row.notes) { %> <span title="<%= row.notes %>" style="cursor:default">🗒</span><% } %></span>
+            <span style="white-space:nowrap;float:right">
+              <button type="button" class="notify-btn" onclick="notifyDelivery(this)" title="Send the delivery alert to chat">📢</button>
+              <button type="button" class="edit-btn" onclick="toggleEditor('<%= item.code %>')" title="Edit order date, delivery window &amp; notes">✎</button>
+            </span>
           </td>
-          <td style="white-space:nowrap">
-            <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Delivery date — leave the 'to' box blank for a single day">
-            <span style="color:var(--muted);font-size:.72rem">to</span>
-            <input type="date" class="item-date-end" value="<%= row.delivery_date_end ? new Date(row.delivery_date_end).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Optional window end (for an estimated delivery window)">
-            <button type="button" class="notify-btn" onclick="notifyDelivery(this)" title="Send the delivery alert to chat">📢</button>
-          </td>
-          <td>
-            <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)">
+        </tr>
+        <tr class="edit-row" id="edit_<%= item.code %>" data-project="<%= project.id %>" data-code="<%= item.code %>" style="display:none">
+          <td colspan="4">
+            <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
+              <label class="edit-lbl">Ordered <input type="date" class="item-order-date" value="<%= row.order_date ? new Date(row.order_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)"></label>
+              <label class="edit-lbl">Delivery <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Delivery date — leave the 'to' box blank for a single day"> <span style="color:var(--muted)">to</span> <input type="date" class="item-date-end" value="<%= row.delivery_date_end ? new Date(row.delivery_date_end).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Optional window end (for an estimated delivery window)"></label>
+              <label class="edit-lbl" style="flex:1;min-width:230px">Notes <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)" style="flex:1"></label>
+            </div>
           </td>
         </tr>
         <tr class="sched-sub" id="sub_<%= item.code %>" style="display:none">
-          <td colspan="6" style="padding:0">
+          <td colspan="4" style="padding:0">
             <div class="cat-emails" style="padding:.55rem .9rem;background:var(--bg);border-bottom:1px dashed var(--border)">
               <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
                 <button type="button" class="btn btn-primary btn-sm" data-code="<%= item.code %>" data-name="<%= item.name %>" data-supname="<%= sup.supplier_name || '' %>" data-supemail="<%= sup.supplier_email || '' %>" onclick="catEmail(this)">✉ Email vendor</button>
@@ -628,19 +643,64 @@ async function loadMaterialsSchedule() {
       const cls = cur >= max ? 'qty-done' : (cur > 0 ? 'qty-partial' : 'qty-none');
       return `<td style="padding:3px 6px;white-space:nowrap"><input type="number" class="held-qty ${cls}" min="0" max="${max}" value="${cur}" data-itemkey="${escapeHtmlJs(it.itemKey)}" data-max="${max}" data-prev="${cur}" data-loc="${loc}" onchange="saveHeldQty(this)" title="How many delivered (of ${max})" style="width:46px;text-align:center;font-size:.8rem;padding:2px 3px;border:1px solid var(--border);border-radius:5px"> <span style="color:var(--muted);font-size:.74rem">/ ${max} delivered</span></td>`;
     }
-    // Per-item delivery state, keyed by normalized model # (from orders + Ferguson emails)
+    // Per-item delivery state, keyed by item key (PC:/MN:/NM:) and normalized model #
+    // (states come from Ferguson orders/emails; manual clicks override — st.m === 1).
     const ITEM_STATES = <%- JSON.stringify(typeof itemStates !== 'undefined' ? itemStates : {}) %>;
+    function itemKeyForJs(prodCode, model, name) {
+      const pc = String(prodCode || '').trim().toUpperCase();
+      if (pc && pc !== 'CUSTOM') return 'PC:' + pc;
+      const mn = String(model || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (mn.length >= 5) return 'MN:' + mn;
+      return 'NM:' + String(name || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 60);
+    }
+    function deliveryBadge(key, mn) {
+      const st = ITEM_STATES[key] || ((mn && mn.length >= 5) ? ITEM_STATES[mn] : null);
+      const cur = st ? st.st : '';
+      const man = st && st.m ? '1' : '';
+      const attrs = `class="dlv-badge${man ? ' dlv-manual' : ''}" data-key="${escapeHtmlJs(key)}" data-cur="${cur}" data-m="${man}" onclick="cycleMark(this)"`;
+      const hint = man ? ' Set by hand — click to change (✅ then reverts to auto).' : ' Click to set by hand.';
+      if (cur === 'd') return `<span ${attrs} style="background:#e7f6ec;color:#176b3a" title="Delivered.${hint}">✅ Delivered</span>`;
+      if (cur === 's') {
+        const when = String(st.when || '').split(' between')[0].replace(/,?\s*\d{4}\s*$/, '');
+        return `<span ${attrs} style="background:#e0e7ff;color:#3730a3" title="${escapeHtmlJs(st.when || 'Delivery scheduled')}.${hint}">🚚 ${escapeHtmlJs(when || 'Scheduled')}</span>`;
+      }
+      if (cur === 'o') return `<span ${attrs} style="background:#fff4dd;color:#8a6100" title="On a confirmed order — delivery not scheduled yet.${hint}">📦 Ordered</span>`;
+      return `<span ${attrs} style="background:var(--bg);color:var(--muted)" title="No order or delivery seen yet. Click to mark 📦 ordered by hand.">—</span>`;
+    }
     function deliveryCell(it) {
       const mn = String(it.model || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const pc = String(it.prodCode || '').toUpperCase();
-      const st = ((mn && mn.length >= 5) ? ITEM_STATES[mn] : null) || (pc ? ITEM_STATES['PC:' + pc] : null);
-      if (!st) return '<td style="padding:3px 6px;color:var(--muted)">—</td>';
-      if (st.st === 'd') return '<td style="padding:3px 6px;white-space:nowrap"><span style="background:#e7f6ec;color:#176b3a;font-weight:700;font-size:.72rem;padding:2px 8px;border-radius:8px">✅ Delivered</span></td>';
-      if (st.st === 's') {
-        const when = String(st.when || '').split(' between')[0].replace(/,?\s*\d{4}\s*$/, '');
-        return '<td style="padding:3px 6px;white-space:nowrap"><span style="background:#e0e7ff;color:#3730a3;font-weight:700;font-size:.72rem;padding:2px 8px;border-radius:8px" title="' + escapeHtmlJs(st.when || 'Delivery scheduled') + '">🚚 ' + escapeHtmlJs(when || 'Scheduled') + '</span></td>';
-      }
-      return '<td style="padding:3px 6px;white-space:nowrap"><span style="background:#fff4dd;color:#8a6100;font-weight:700;font-size:.72rem;padding:2px 8px;border-radius:8px" title="On a confirmed Ferguson order — delivery not scheduled yet">📦 Ordered</span></td>';
+      return '<td style="padding:3px 6px;white-space:nowrap">' + deliveryBadge(itemKeyForJs(it.prodCode, it.model, it.name), mn) + '</td>';
+    }
+    // Click a badge to cycle — → 📦 → 🚚 → ✅ → back to automatic.
+    async function cycleMark(el) {
+      const cur = el.dataset.cur || '';
+      const next = cur === '' ? 'ordered' : cur === 'o' ? 'scheduled' : cur === 's' ? 'delivered' : '';
+      let when = '';
+      if (next === 'scheduled') when = prompt('Scheduled for (optional — e.g. "Jul 12"):') || '';
+      const key = el.dataset.key;
+      try {
+        const r = await fetch(`/projects/<%= project.id %>/item-mark`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key, state: next, when }),
+        });
+        const data = await r.json();
+        if (!data.ok) throw new Error(data.error || 'save failed');
+        if (data.st) ITEM_STATES[key] = data.st; else delete ITEM_STATES[key];
+        el.outerHTML = deliveryBadge(key, '');
+        if (data.agg && data.agg.counts) updateBucketBar(data.agg.code, data.agg.counts);
+        showToast(next ? 'Marked ' + (next === 'delivered' ? '✅ delivered' : next === 'scheduled' ? '🚚 scheduled' : '📦 ordered') : '↩ Back to automatic');
+      } catch (e) { showToast('Not saved — please try again', true); }
+    }
+    // Keep the bucket row's progress bar + counts in sync after a manual mark.
+    function updateBucketBar(code, c) {
+      const bar = document.getElementById('bar_' + code), chip = document.getElementById('chip_' + code);
+      if (!bar || !chip || !c.total) return;
+      const seg = bar.querySelectorAll('i');
+      seg[0].style.width = Math.round(c.delivered / c.total * 100) + '%';
+      seg[1].style.width = Math.round(c.scheduled / c.total * 100) + '%';
+      seg[2].style.width = Math.round(c.ordered / c.total * 100) + '%';
+      chip.textContent = c.delivered + '✅' + (c.scheduled ? ' ' + c.scheduled + '🚚' : '') + (c.ordered ? ' ' + c.ordered + '📦' : '') + ' / ' + c.total;
+      chip.style.color = c.delivered === c.total ? '#176b3a' : '';
     }
     Object.keys(data.byCode).forEach(code => {
       const items = data.byCode[code] || [];
@@ -654,7 +714,7 @@ async function loadMaterialsSchedule() {
           ? `<div style="margin:0 0 .5rem"><button type="button" class="btn btn-ghost btn-sm" onclick="markCategoryStock('${code}', '${allDelivered ? 'none' : 'all'}')">${allDelivered ? '↩ Mark all stock back to in stock' : '✓ Mark all ' + held.length + ' stock item' + (held.length > 1 ? 's' : '') + ' delivered'}</button></div>`
           : '';
         sub.querySelector('.sched-items').innerHTML = items.length
-          ? bulkBtn + '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Finish/Color</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Stock status</th><th style="padding:3px 6px;font-weight:600">Delivery</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)${issueForItem(code, it.name, it.room) ? ';background:#fef2f2' : ''}"><td style="padding:3px 6px">${it.room ? '<span style="color:var(--muted);font-weight:600">'+escapeHtmlJs(it.room)+' · </span>' : ''}${escapeHtmlJs(it.name)}${issueBadge(code, it.name, it.room)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.finishColor || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}${deliveryCell(it)}</tr>`).join('') + '</table>'
+          ? bulkBtn + '<table style="width:100%;border-collapse:collapse;font-size:.8rem"><tr style="border-bottom:2px solid var(--border);color:var(--muted);text-align:left"><th style="padding:3px 6px;font-weight:600">Item</th><th style="padding:3px 6px;font-weight:600">Product</th><th style="padding:3px 6px;font-weight:600">Brand</th><th style="padding:3px 6px;font-weight:600">Model #</th><th style="padding:3px 6px;font-weight:600">Finish/Color</th><th style="padding:3px 6px;font-weight:600">Qty</th><th style="padding:3px 6px;font-weight:600">Supplier</th><th style="padding:3px 6px;font-weight:600">Stock status</th><th style="padding:3px 6px;font-weight:600" title="Ferguson fills this automatically — for other vendors, click a badge to set it by hand (—→📦→🚚→✅→auto)">Delivery ✎</th></tr>' + items.map(it => `<tr style="border-bottom:1px solid var(--border)${issueForItem(code, it.name, it.room) ? ';background:#fef2f2' : ''}"><td style="padding:3px 6px">${it.room ? '<span style="color:var(--muted);font-weight:600">'+escapeHtmlJs(it.room)+' · </span>' : ''}${escapeHtmlJs(it.name)}${issueBadge(code, it.name, it.room)}</td><td style="padding:3px 6px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.model || '')}</td><td style="padding:3px 6px">${escapeHtmlJs(it.finishColor || '')}</td><td style="padding:3px 6px">×${escapeHtmlJs(it.qty || '1')}</td>${supplierCell(it)}${officeCell(it)}${deliveryCell(it)}</tr>`).join('') + '</table>'
           : '<div style="color:var(--muted);font-size:.8rem">No schedule items in this category.</div>';
       }
     });
@@ -1037,17 +1097,16 @@ async function applyConfirmUpdates() {
     const payload = {};
     if (status) payload.status = status; else payload.statusOnly = false;
     // Send current values: include status (or keep) and date
-    const row = document.querySelector(`tr[data-code="${code}"]`);
+    const row = document.querySelector(`tr.mat-row[data-code="${code}"]`);
+    const ed = document.querySelector(`tr.edit-row[data-code="${code}"]`);
     const curStatus = row ? row.querySelector('.item-status').value : '';
     await fetch(`/projects/${confirmCtx.projectId}/items/${code}`, {
       method: 'POST', headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ status: status || curStatus, delivery_date: date || (row ? row.querySelector('.item-date').value : '') }),
+      body: JSON.stringify({ status: status || curStatus, delivery_date: date || (ed ? ed.querySelector('.item-date').value : '') }),
     });
     // reflect in UI
-    if (row) {
-      if (status) { const ss = row.querySelector('.item-status'); ss.value = status; STATUS_CLASSES.forEach(c => ss.classList.remove(c)); ss.classList.add(statusToClass(status)); }
-      if (date) row.querySelector('.item-date').value = date;
-    }
+    if (row && status) { const ss = row.querySelector('.item-status'); ss.value = status; STATUS_CLASSES.forEach(c => ss.classList.remove(c)); ss.classList.add(statusToClass(status)); }
+    if (ed && date) { ed.querySelector('.item-date').value = date; updateSchedSummary(code); }
     done++;
   }
   document.getElementById('confirmUpdateModal').classList.remove('show');
@@ -1326,20 +1385,40 @@ async function toggleSuper(btn) {
   finally { chips.forEach(c => c.disabled = false); }
 }
 
+function toggleEditor(code) {
+  const ed = document.getElementById('edit_' + code);
+  if (ed) ed.style.display = ed.style.display === 'none' ? '' : 'none';
+}
+// Rebuild the compact "Ordered Jul 1 · 🚚 Jul 6" summary from the editor inputs.
+function updateSchedSummary(code) {
+  const ed = document.querySelector(`tr.edit-row[data-code="${code}"]`);
+  const sum = document.getElementById('sum_' + code);
+  if (!ed || !sum) return;
+  const fmt = v => { if (!v) return ''; const [y, m, d] = v.split('-'); return new Date(+y, +m - 1, +d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }); };
+  const od = ed.querySelector('.item-order-date').value, dd = ed.querySelector('.item-date').value, de = ed.querySelector('.item-date-end').value, notes = ed.querySelector('.item-notes').value;
+  const parts = [];
+  if (od) parts.push('Ordered ' + fmt(od));
+  if (dd) parts.push('🚚 ' + fmt(dd) + (de ? ' – ' + fmt(de) : ''));
+  sum.textContent = parts.join(' · ');
+  if (notes) { const n = document.createElement('span'); n.title = notes; n.textContent = ' 🗒'; sum.appendChild(n); }
+}
 async function saveItem(el) {
-  const row = el.closest('tr');
-  const projectId = row.dataset.project;
-  const code = row.dataset.code;
-  const statusSel = row.querySelector('.item-status');
+  // Status lives on the main row; dates + notes live on the hidden editor row.
+  const tr = el.closest('tr');
+  const projectId = tr.dataset.project;
+  const code = tr.dataset.code;
+  const main = document.querySelector(`tr.mat-row[data-code="${code}"]`);
+  const ed = document.querySelector(`tr.edit-row[data-code="${code}"]`);
+  const statusSel = main.querySelector('.item-status');
   const status = statusSel.value;
   // recolor the status pill like the main grid
   STATUS_CLASSES.forEach(c => statusSel.classList.remove(c));
   statusSel.classList.add(statusToClass(status));
-  const delivery_date = row.querySelector('.item-date').value;
-  const endEl = row.querySelector('.item-date-end');
-  const delivery_date_end = endEl ? endEl.value : '';
-  const order_date = row.querySelector('.item-order-date').value;
-  const notes = row.querySelector('.item-notes').value;
+  const delivery_date = ed.querySelector('.item-date').value;
+  const delivery_date_end = ed.querySelector('.item-date-end').value;
+  const order_date = ed.querySelector('.item-order-date').value;
+  const notes = ed.querySelector('.item-notes').value;
+  updateSchedSummary(code);
   try {
     const r = await fetch(`/projects/${projectId}/items/${code}`, {
       method: 'POST',
@@ -1369,7 +1448,7 @@ async function setStageStatus(sel) {
   const status = sel.value;
   if (!status) return;
   const card = sel.closest('.stage-card');
-  const rows = Array.from(card.querySelectorAll('tbody tr[data-code]'));
+  const rows = Array.from(card.querySelectorAll('tbody tr.mat-row[data-code]'));
   sel.selectedIndex = 0;
   if (!rows.length) return;
   const stageName = ((card.querySelector('.stage-header span') || {}).textContent || 'this stage').trim();
@@ -1396,9 +1475,14 @@ async function setStageStatus(sel) {
 // Send the delivery alert for this item to chat (single date or window).
 async function notifyDelivery(btn) {
   const row = btn.closest('tr');
-  const dateEl = row.querySelector('.item-date');
-  if (!dateEl.value) { showToast('Set a delivery date first', true); return; }
   const projectId = row.dataset.project, code = row.dataset.code;
+  const dateEl = document.querySelector(`tr.edit-row[data-code="${code}"] .item-date`);
+  if (!dateEl.value) {
+    showToast('Set a delivery date first (✎)', true);
+    const ed = document.getElementById('edit_' + code);
+    if (ed) ed.style.display = '';
+    return;
+  }
   const orig = btn.textContent;
   btn.disabled = true; btn.textContent = '…';
   try {

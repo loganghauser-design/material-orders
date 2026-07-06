@@ -193,6 +193,28 @@ textarea { resize: vertical; min-height: 80px; }
 .item-notes { border: 1px solid var(--border); border-radius: 5px; padding: .35rem .6rem; font-size: .85rem; background: var(--surface); color: var(--text); width: 100%; min-width: 120px; }
 .item-select:focus, .item-date:focus, .item-notes:focus { outline: 2px solid var(--accent); }
 
+/* Materials tab — per-item delivery redesign */
+.mat-code { display: inline-block; min-width: 26px; text-align: center; font-size: .7rem; font-weight: 700; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1px 5px; }
+.ck-mini { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; color: var(--text); max-width: 100%; }
+.ck-mini:hover .ck-mini-txt { text-decoration: underline; }
+.ck-mini-bar { flex: none; width: 74px; height: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; display: inline-flex; }
+.ck-mini-bar i { display: block; height: 100%; }
+.ck-mini-bar i.d { background: #16a34a; }
+.ck-mini-bar i.s { background: #6366f1; }
+.ck-mini-bar i.o { background: #f0b429; }
+.ck-mini-txt { font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.sched-cell { white-space: nowrap; }
+.sched-sum { font-size: .78rem; color: var(--text); }
+.sched-sum:empty::before { content: '\2014'; color: var(--muted); }
+.edit-btn { border: 1px solid var(--border); background: var(--surface); border-radius: 7px; padding: .18rem .45rem; cursor: pointer; font-size: .78rem; color: var(--muted); }
+.edit-btn:hover { border-color: #4f8ef7; color: var(--text); }
+.stage-table tr.edit-row td { background: #f8f9fb; border-top: 1px dashed var(--border); padding: .5rem 1rem; }
+.stage-table tr.edit-row:hover td { background: #f8f9fb; }
+.edit-lbl { display: inline-flex; align-items: center; gap: .4rem; font-size: .74rem; font-weight: 600; color: var(--muted); }
+.dlv-badge { font-weight: 700; font-size: .72rem; padding: 2px 8px; border-radius: 8px; cursor: pointer; user-select: none; white-space: nowrap; }
+.dlv-badge:hover { filter: brightness(.96); box-shadow: 0 0 0 1px var(--border) inset; }
+.dlv-manual { outline: 1px dashed #9aa3b2; outline-offset: 1px; }
+
 /* Completed projects section */
 /* Lifecycle section headers on the projects page (Under Construction / Pre-Con / …) */
 .phase-divider { display: flex; align-items: center; margin: 2rem 0 .8rem; }
@@ -295,8 +317,9 @@ textarea { resize: vertical; min-height: 80px; }
   .form-grid { grid-template-columns: 1fr; }
   .container { padding: 1rem; }
   .stats { grid-template-columns: 1fr 1fr; }
-  .stage-table th:nth-child(4), .stage-table td:nth-child(4),
-  .stage-table th:nth-child(5), .stage-table td:nth-child(5) { display: none; }
+  .stage-table th:nth-child(4), .stage-table td:nth-child(4) { display: none; }
+  .stage-table tr.edit-row td, .stage-table tr.sched-sub td { display: table-cell; }
+  .ck-mini-bar { width: 46px; }
 }
 
 /* Home-grid super chips (assign supers inline from the project list) */
