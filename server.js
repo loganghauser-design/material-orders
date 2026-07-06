@@ -1579,6 +1579,7 @@ async function initDb() {
       items TEXT,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE ferguson_updates ADD COLUMN IF NOT EXISTS applied VARCHAR(200);
 
     CREATE TABLE IF NOT EXISTS delivery_confirms (
       id SERIAL PRIMARY KEY,
@@ -5768,6 +5769,18 @@ async function sendDeliveryReminder() {
   } catch (e) { console.error('sendDeliveryReminder:', e.message); }
 }
 
+// Ferguson labels orders with the material stage as the PO — map it to our item codes
+function fergusonPoCodes(po) {
+  const p = String(po || '').toLowerCase();
+  if (/water\s*heater/.test(p)) return ['2e'];
+  if (/appliance/.test(p)) return ['3b'];
+  if (/rough/.test(p)) return ['1b'];
+  if (/finish|fs\.?\s*plumb/.test(p)) return ['2d'];
+  if (/plumb/.test(p)) return ['1b'];
+  if (/hood|light/.test(p)) return ['2d'];
+  return [];
+}
+
 // Plain-text post to the Bids space — the testing ground for all notifications for now.
 // (The material delivery chat stays quiet unless Logan explicitly asks for something there.)
 async function postBidsText(text, threadKey) {
@@ -5823,14 +5836,26 @@ async function pollFergusonEmails() {
       }
       const proj = address ? await matchBidToProject(address) : null;
       const emailDate = isNaN(new Date(hv('Date')).getTime()) ? new Date() : new Date(hv('Date'));
+      // DELIVERED + matched project → push the matching material(s) to Delivered on the board
+      let applied = '';
+      if (kind === 'delivered' && proj) {
+        const codes = fergusonPoCodes(po);
+        if (codes.length) {
+          const { rows: upd } = await pool.query(
+            `UPDATE project_items SET status='Delivered'
+             WHERE project_id=$1 AND item_code = ANY($2) AND status NOT IN ('Delivered','Delivered from Inv.','N/A')
+             RETURNING item_code`, [proj.id, codes]);
+          if (upd.length) applied = upd.map(u => (CODE_NAME[u.item_code] || u.item_code)).join(', ') + ' → Delivered';
+        }
+      }
       await pool.query(
-        `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (gmail_message_id) DO NOTHING`,
-        [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null, emailDate]);
+        `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items, created_at, applied)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT (gmail_message_id) DO NOTHING`,
+        [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null, emailDate, applied || null]);
       // Testing phase: notifications go to the BIDS space (per Logan), threaded per order
       const projLabel = proj ? proj.address : (address || 'unmatched address');
       const line = kind === 'delivered'
-        ? '✅ *Ferguson DELIVERED* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
+        ? '✅ *Ferguson DELIVERED* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '') + (applied ? '\n✔ ' + applied + ' on the board' : '')
         : kind === 'out'
         ? '🚚 *Ferguson out for delivery TODAY* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
         : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '');

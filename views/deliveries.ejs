@@ -52,6 +52,7 @@
         <% if (f.po) { %><span style="color:var(--muted);font-size:.8rem"><%= f.po %></span><% } %>
         <% if (f.kind === 'scheduled' && f.scheduled_for) { %><span style="color:<%= dim ? 'var(--muted)' : '#3730a3' %>;font-size:.82rem;font-weight:600">🗓 <%= f.scheduled_for %></span><% } %>
         <% if (f.tracking) { %><a href="https://www.ups.com/track?tracknum=<%= f.tracking %>" target="_blank" rel="noopener" style="font-size:.78rem" title="Track on UPS">UPS ↗</a><% } %>
+        <% if (f.applied) { %><span style="color:#16a34a;font-size:.76rem;font-weight:700">✔ <%= f.applied %></span><% } %>
         <span style="color:var(--muted);font-size:.74rem;margin-left:auto" title="When Ferguson's email arrived">✉ <%= new Date(f.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) %></span>
       </div>
       <% if (f.kind === 'scheduled' && f.items) { %><div style="color:var(--muted);font-size:.74rem;margin:-.1rem 0 .15rem 4.2rem;<%= dim ? 'opacity:.65' : '' %>"><%= f.items.slice(0, 150) %><%= f.items.length > 150 ? '…' : '' %></div><% } %>
