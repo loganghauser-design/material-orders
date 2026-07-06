@@ -1586,6 +1586,7 @@ async function initDb() {
     ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS section VARCHAR(80);
     ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS subsection VARCHAR(80);
     ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS sheet_row INTEGER;
+    ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS item_url TEXT;
 
     CREATE TABLE IF NOT EXISTS project_expected_items (
       id SERIAL PRIMARY KEY,
@@ -5845,7 +5846,7 @@ function normModel(m) { return String(m || '').toUpperCase().replace(/[^A-Z0-9]/
 async function syncMasterCatalog() {
   if (!sheetsClient) throw new Error('Sheets access not configured.');
   const { data } = await sheetsClient.spreadsheets.values.get({
-    spreadsheetId: MASTER_CATALOG_SHEET_ID, range: "'Master Finish Catalog'!A1:S963",
+    spreadsheetId: MASTER_CATALOG_SHEET_ID, range: "'Master Finish Catalog'!A1:X963",
   });
   const rows = data.values || [];
   const out = { seen: 0, upserted: 0, skippedNoCat: 0 };
@@ -5872,15 +5873,17 @@ async function syncMasterCatalog() {
     const model = String(r[5] || '').trim();
     const cost = Number(String(r[12] || '').replace(/[^0-9.]/g, '')) || null;
     const qty = parseInt(r[7], 10) || 1;
+    const rawUrl = String(r[23] || '').trim();   // column X: product link
+    const itemUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl.slice(0, 500) : (rawUrl && /^[\w-]+\.[a-z]{2,}/i.test(rawUrl) ? ('https://' + rawUrl).slice(0, 500) : null);
     await pool.query(
-      `INSERT INTO item_catalog (prod_code, item_role, category_code, brand, product_name, model_no, model_norm, finish, qty_default, supplier, cost, section, subsection, sheet_row, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
+      `INSERT INTO item_catalog (prod_code, item_role, category_code, brand, product_name, model_no, model_norm, finish, qty_default, supplier, cost, section, subsection, sheet_row, item_url, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,NOW())
        ON CONFLICT (prod_code) DO UPDATE SET item_role=$2, category_code=$3, brand=$4, product_name=$5,
-         model_no=$6, model_norm=$7, finish=$8, qty_default=$9, supplier=$10, cost=$11, section=$12, subsection=$13, sheet_row=$14, updated_at=NOW()`,
+         model_no=$6, model_norm=$7, finish=$8, qty_default=$9, supplier=$10, cost=$11, section=$12, subsection=$13, sheet_row=$14, item_url=$15, updated_at=NOW()`,
       [prod.slice(0, 40), String(r[0] || '').trim().slice(0, 120), code, String(r[3] || '').trim().slice(0, 120),
        String(r[4] || '').trim(), model.slice(0, 120), normModel(model).slice(0, 120) || null,
        String(r[6] || '').trim().slice(0, 120), qty, normalizeSupplier(String(r[14] || '').trim()).slice(0, 120), cost,
-       section || null, subsection || null, ri + 1]);
+       section || null, subsection || null, ri + 1, itemUrl]);
     out.upserted++;
   }
   console.log('catalog sync:', JSON.stringify(out));

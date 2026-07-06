@@ -51,7 +51,7 @@
           <tr data-s="<%= [it.prod_code, it.item_role, it.brand, it.product_name, it.model_no, it.supplier, it.category_code, it.section, it.subsection].filter(Boolean).join(' ').toLowerCase() %>">
             <td class="cat-code"><%= it.prod_code %></td>
             <td><span class="cat-bucket"><%= it.category_code %></span></td>
-            <td><strong><%= it.item_role %></strong><div style="color:var(--muted);font-size:.76rem"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
+            <td><strong><%= it.item_role %></strong><% if (it.item_url) { %> <a href="<%= it.item_url %>" target="_blank" rel="noopener" title="Open product page" style="text-decoration:none;font-size:.82rem">🔗</a><% } %><div style="color:var(--muted);font-size:.76rem"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
             <td class="cat-model"><%= it.model_no || '—' %></td>
             <td style="font-size:.78rem;color:var(--muted)"><%= it.finish || '' %></td>
             <td style="font-size:.8rem"><%= it.supplier || '—' %></td>
