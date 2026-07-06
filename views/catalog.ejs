@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Item Catalog — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .cat-table { width:100%; border-collapse:collapse; font-size:.85rem; }
+    .cat-table th { text-align:left; padding:.45rem .6rem; font-size:.68rem; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--border); position:sticky; top:0; background:var(--surface); }
+    .cat-table td { padding:.42rem .6rem; border-bottom:1px solid var(--border); }
+    .cat-code { font-weight:700; white-space:nowrap; }
+    .cat-bucket { background:#eef0f4; color:#555; font-size:.7rem; font-weight:700; padding:2px 8px; border-radius:8px; white-space:nowrap; }
+    .cat-model { font-family:monospace; font-size:.8rem; white-space:nowrap; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'ordering' }) %>
+
+<div class="container">
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
+    <h1>Item Catalog <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= items.length %>)</span></h1>
+    <button type="button" class="btn btn-ghost" id="catSync" onclick="catSync(this)" title="Re-read the Buildoly Master Finish Schedule sheet (read-only)">↻ Sync from master sheet</button>
+  </div>
+  <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem;max-width:760px">
+    Every item from the <strong>Master Finish Schedule</strong>: prod code → model #, stage bucket, supplier, cost.
+    Finish schedules reference these prod codes per project; Ferguson's delivery emails reference the model #s — this catalog joins them.
+  </p>
+
+  <div class="card" style="max-width:none;padding:0;overflow:hidden">
+    <div style="padding:.8rem 1rem">
+      <input type="search" id="catSearch" placeholder="Search prod code, model #, name, brand, supplier…" style="width:100%;max-width:460px;font:inherit;font-size:.9rem;padding:.45rem .7rem;border:1px solid var(--border);border-radius:9px" oninput="catFilter()">
+    </div>
+    <div style="max-height:74vh;overflow:auto">
+      <table class="cat-table">
+        <thead><tr><th>Prod code</th><th>Bucket</th><th>Item</th><th>Model #</th><th>Finish</th><th>Supplier</th><th>Cost</th></tr></thead>
+        <tbody>
+          <% items.forEach(function (it) { %>
+          <tr data-s="<%= [it.prod_code, it.item_role, it.brand, it.product_name, it.model_no, it.supplier, it.category_code].filter(Boolean).join(' ').toLowerCase() %>">
+            <td class="cat-code"><%= it.prod_code %></td>
+            <td><span class="cat-bucket"><%= it.category_code %></span></td>
+            <td><strong><%= it.item_role %></strong><div style="color:var(--muted);font-size:.76rem"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
+            <td class="cat-model"><%= it.model_no || '—' %></td>
+            <td style="font-size:.78rem;color:var(--muted)"><%= it.finish || '' %></td>
+            <td style="font-size:.8rem"><%= it.supplier || '—' %></td>
+            <td style="white-space:nowrap"><%= it.cost != null ? '$' + Number(it.cost).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '' %></td>
+          </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+function catFilter() {
+  const q = document.getElementById('catSearch').value.toLowerCase().trim();
+  document.querySelectorAll('tr[data-s]').forEach(function (r) { r.style.display = !q || r.dataset.s.includes(q) ? '' : 'none'; });
+}
+async function catSync(btn) {
+  btn.disabled = true; btn.textContent = '⏳ Reading the sheet…';
+  try {
+    const r = await fetch('/catalog/sync', { method: 'POST' });
+    const d = await r.json();
+    if (d.ok) { btn.textContent = '✓ ' + d.upserted + ' items synced'; setTimeout(function () { location.reload(); }, 900); }
+    else { alert(d.error || 'Sync failed'); btn.disabled = false; btn.textContent = '↻ Sync from master sheet'; }
+  } catch (e) { alert('Sync failed'); btn.disabled = false; btn.textContent = '↻ Sync from master sheet'; }
+}
+</script>
+</body>
+</html>

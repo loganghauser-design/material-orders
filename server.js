@@ -1244,7 +1244,7 @@ function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
   if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
-  if (p.startsWith('/ordering')) return 'ordering';
+  if (p.startsWith('/ordering') || p.startsWith('/catalog')) return 'ordering';
   if (p.startsWith('/driving')) return 'driving';
   if (p.startsWith('/inventory') || p === '/stock-status') return 'inventory';
   if (p.startsWith('/requests')) return 'requests';
@@ -1565,6 +1565,22 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_note TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_checked_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_chased_at TIMESTAMPTZ;
+
+    CREATE TABLE IF NOT EXISTS item_catalog (
+      id SERIAL PRIMARY KEY,
+      prod_code VARCHAR(40) UNIQUE,
+      item_role VARCHAR(120),
+      category_code VARCHAR(4),
+      brand VARCHAR(120),
+      product_name TEXT,
+      model_no VARCHAR(120),
+      model_norm VARCHAR(120),
+      finish VARCHAR(120),
+      qty_default INTEGER DEFAULT 1,
+      supplier VARCHAR(120),
+      cost NUMERIC(12,2),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS ferguson_updates (
       id SERIAL PRIMARY KEY,
@@ -5800,6 +5816,54 @@ async function postBidsText(text, threadKey) {
     await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify(body) });
   } catch (e) { console.error('postBidsText:', e.message); }
 }
+
+// ── Master item catalog ─────────────────────────────────────────────────────────
+// The Buildoly Master Finish Schedule sheet is the source of truth for every item:
+// prod code → model #, stage bucket, supplier, cost. Finish schedules reference these
+// prod codes per project; Ferguson emails reference the model #s. This catalog is the
+// join between all three. Read-only: we never write to the sheet.
+const MASTER_CATALOG_SHEET_ID = '1wSZb3PVq1rrE3PTyraBSUHVp-tYtOHpMaeAOO2l0_40';
+function normModel(m) { return String(m || '').toUpperCase().replace(/[^A-Z0-9]/g, ''); }
+async function syncMasterCatalog() {
+  if (!sheetsClient) throw new Error('Sheets access not configured.');
+  const { data } = await sheetsClient.spreadsheets.values.get({
+    spreadsheetId: MASTER_CATALOG_SHEET_ID, range: "'Master Finish Catalog'!A1:S963",
+  });
+  const rows = data.values || [];
+  const out = { seen: 0, upserted: 0, skippedNoCat: 0 };
+  for (const r of rows) {
+    const prod = String(r[1] || '').trim();
+    if (!/^[A-Z]{1,3}-/.test(prod)) continue;   // section headers / blank rows
+    out.seen++;
+    const code = canonicalCodeFromCategory(String(r[2] || '').trim());
+    if (!code) { out.skippedNoCat++; continue; }
+    const model = String(r[5] || '').trim();
+    const cost = Number(String(r[12] || '').replace(/[^0-9.]/g, '')) || null;
+    const qty = parseInt(r[7], 10) || 1;
+    await pool.query(
+      `INSERT INTO item_catalog (prod_code, item_role, category_code, brand, product_name, model_no, model_norm, finish, qty_default, supplier, cost, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+       ON CONFLICT (prod_code) DO UPDATE SET item_role=$2, category_code=$3, brand=$4, product_name=$5,
+         model_no=$6, model_norm=$7, finish=$8, qty_default=$9, supplier=$10, cost=$11, updated_at=NOW()`,
+      [prod.slice(0, 40), String(r[0] || '').trim().slice(0, 120), code, String(r[3] || '').trim().slice(0, 120),
+       String(r[4] || '').trim(), model.slice(0, 120), normModel(model).slice(0, 120) || null,
+       String(r[6] || '').trim().slice(0, 120), qty, normalizeSupplier(String(r[14] || '').trim()).slice(0, 120), cost]);
+    out.upserted++;
+  }
+  console.log('catalog sync:', JSON.stringify(out));
+  return out;
+}
+app.post('/catalog/sync', requireAuth, async (req, res) => {
+  try { res.json({ ok: true, ...(await syncMasterCatalog()) }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.get('/catalog', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: items } = await pool.query('SELECT * FROM item_catalog ORDER BY category_code, prod_code');
+    res.render('catalog', { items });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
 
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
 // Ferguson's shipping alerts (project44/Convey for UPS parcels, DispatchTrack for
