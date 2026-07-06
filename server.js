@@ -1601,6 +1601,17 @@ async function initDb() {
       synced_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS project_order_lines (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER,
+      model_norm VARCHAR(120),
+      prod_code VARCHAR(40),
+      supplier VARCHAR(60) DEFAULT 'Ferguson',
+      filename VARCHAR(255),
+      gmail_message_id VARCHAR(255),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS ferguson_updates (
       id SERIAL PRIMARY KEY,
       gmail_message_id VARCHAR(255) UNIQUE,
@@ -5932,11 +5943,23 @@ app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
     catch (e) { syncErr = e.message; }
     const { rows: expected } = await pool.query(
       'SELECT * FROM project_expected_items WHERE project_id=$1 ORDER BY category_code NULLS LAST, prod_code', [proj.id]);
-    // Delivered = the model # shows up in a COMPLETED Ferguson delivery for this project
+    // Delivered = (a) the model # appeared in a COMPLETED Ferguson delivery, or
+    // (b) it's on a confirmed Ferguson order AND that bucket's delivery has completed —
+    // the alerts only list the bulky items; the order PDF is the full manifest.
     const { rows: fu } = await pool.query(
-      "SELECT items, kind, auto_done_at FROM ferguson_updates WHERE project_id=$1 AND (kind='delivered' OR auto_done_at IS NOT NULL)", [proj.id]);
+      "SELECT items, po, kind, auto_done_at FROM ferguson_updates WHERE project_id=$1 AND (kind='delivered' OR auto_done_at IS NOT NULL)", [proj.id]);
     const deliveredBlob = fu.map(f => normModel(f.items || '')).join('|');
-    expected.forEach(e => { e.delivered = !!(e.model_norm && e.model_norm.length >= 5 && deliveredBlob.includes(e.model_norm)); });
+    const completedCodes = new Set();
+    fu.forEach(f => fergusonPoCodes(f.po).forEach(c => completedCodes.add(c)));
+    const { rows: ol } = await pool.query('SELECT model_norm FROM project_order_lines WHERE project_id=$1', [proj.id]);
+    const ordered = new Set(ol.map(o => o.model_norm));
+    expected.forEach(e => {
+      const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
+      const inDelivered = !!(mn && deliveredBlob.includes(mn));
+      const onOrder = !!(mn && ordered.has(mn));
+      e.delivered = inDelivered || (onOrder && e.category_code && completedCodes.has(e.category_code));
+      e.onOrder = !e.delivered && onOrder;
+    });
     res.render('checklist', { proj, expected, syncErr });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
@@ -5948,6 +5971,53 @@ app.get('/catalog', requireAuth, async (req, res) => {
     res.render('catalog', { items });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
+
+// ── Ferguson order confirmations ────────────────────────────────────────────────
+// Reps email the full order as a PDF ("23712 SINGAPORE ST - PLUMBING.pdf"). The
+// delivery alerts only list the bulky items, so the order PDF is the real record of
+// what's coming. We parse each PDF, keep every model # that exists in the catalog,
+// and match the project by the address in the subject/filename.
+async function sweepFergusonOrders() {
+  if (!useGmail) return;
+  try {
+    const { data } = await gmailClient.users.messages.list({
+      userId: 'me', maxResults: 20,
+      q: 'from:ferguson.com -from:alerts -from:no-reply has:attachment filename:pdf newer_than:30d',
+    });
+    for (const mm of (data.messages || [])) {
+      const { rows: seen } = await pool.query('SELECT 1 FROM qb_seen WHERE gmail_message_id=$1', [mm.id]);
+      if (seen.length) continue;
+      await pool.query('INSERT INTO qb_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [mm.id]);
+      const { data: full } = await gmailClient.users.messages.get({ userId: 'me', id: mm.id, format: 'full' });
+      const H = full.payload.headers || [];
+      const hv = n => { const h = H.find(x => x.name.toLowerCase() === n.toLowerCase()); return h ? h.value : ''; };
+      const subject = hv('Subject');
+      const atts = [];
+      (function w(p) { if (!p) return; if (p.filename && p.body && p.body.attachmentId && /\.pdf$/i.test(p.filename)) atts.push({ filename: p.filename, aid: p.body.attachmentId }); (p.parts || []).forEach(w); })(full.payload);
+      if (!atts.length) continue;
+      const { rows: cat } = await pool.query('SELECT prod_code, model_norm FROM item_catalog WHERE model_norm IS NOT NULL AND LENGTH(model_norm) >= 5');
+      for (const a of atts) {
+        const proj = await matchBidToProject(a.filename) || await matchBidToProject(subject);
+        if (!proj) continue;
+        const ab = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId: mm.id, id: a.aid });
+        const buf = Buffer.from(String(ab.data.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
+        const text = await docTextOrOcr(buf, a.filename);
+        if (!text || !/ferguson/i.test(text.slice(0, 800))) continue;
+        const tn = normModel(text);
+        let lines = 0;
+        for (const c of cat) {
+          if (!tn.includes(c.model_norm)) continue;
+          const { rows: [dup] } = await pool.query('SELECT 1 FROM project_order_lines WHERE project_id=$1 AND model_norm=$2 LIMIT 1', [proj.id, c.model_norm]);
+          if (dup) continue;
+          await pool.query('INSERT INTO project_order_lines (project_id, model_norm, prod_code, filename, gmail_message_id) VALUES ($1,$2,$3,$4,$5)',
+            [proj.id, c.model_norm, c.prod_code, a.filename.slice(0, 255), mm.id]);
+          lines++;
+        }
+        if (lines) console.log('ferguson order swept: ' + proj.address + ' | ' + a.filename + ' | ' + lines + ' items');
+      }
+    }
+  } catch (e) { console.error('sweepFergusonOrders:', e.message); }
+}
 
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
 // Ferguson's shipping alerts (project44/Convey for UPS parcels, DispatchTrack for
@@ -6661,6 +6731,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', ingestQuickBooksEmails); // every 20 min — QuickBooks bids from the inbox
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('*/20 * * * *', pollFergusonEmails);     // every 20 min — Ferguson shipment/appliance alerts
+  cron.schedule('*/20 * * * *', sweepFergusonOrders);    // every 20 min — rep order-confirmation PDFs
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
@@ -6682,4 +6753,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
