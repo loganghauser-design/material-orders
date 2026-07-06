@@ -5822,10 +5822,11 @@ async function pollFergusonEmails() {
         address = (text.match(/Shipping Address:\s*(.+?)(?:\s*,\s*US\b|\s+Delivery Window)/i) || [])[1] || '';
       }
       const proj = address ? await matchBidToProject(address) : null;
+      const emailDate = isNaN(new Date(hv('Date')).getTime()) ? new Date() : new Date(hv('Date'));
       await pool.query(
-        `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (gmail_message_id) DO NOTHING`,
-        [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null]);
+        `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items, created_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (gmail_message_id) DO NOTHING`,
+        [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null, emailDate]);
       // Testing phase: notifications go to the BIDS space (per Logan), threaded per order
       const projLabel = proj ? proj.address : (address || 'unmatched address');
       const line = kind === 'delivered'

@@ -27,28 +27,53 @@
   }
   </script>
 
-  <!-- Ferguson tracker: shipment + appliance-delivery alerts matched to projects -->
-  <% var _fu = (typeof ferguson !== 'undefined' && ferguson) || []; %>
+  <!-- Ferguson tracker: shipment + appliance-delivery alerts matched to projects.
+       Split into what's COMING UP (scheduled dates still ahead) and recent history. -->
+  <%
+    var _fu = (typeof ferguson !== 'undefined' && ferguson) || [];
+    // Parse "Monday, July 6th 2026 between 07:30 AM - 10:30 AM" → a Date for sorting/bucketing
+    var MONTHS = { january:0, february:1, march:2, april:3, may:4, june:5, july:6, august:7, september:8, october:9, november:10, december:11 };
+    function schedDate(s) {
+      var m = String(s || '').match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\w*,?\s+(\d{4})/i);
+      return m ? new Date(Number(m[3]), MONTHS[m[1].toLowerCase()], Number(m[2])) : null;
+    }
+    var _today = new Date(); _today.setHours(0, 0, 0, 0);
+    var upcoming = [], history = [];
+    _fu.forEach(function (f) {
+      f._sched = f.kind === 'scheduled' ? schedDate(f.scheduled_for) : null;
+      if (f.kind === 'scheduled' && f._sched && f._sched >= _today) upcoming.push(f); else history.push(f);
+    });
+    upcoming.sort(function (a, b) { return a._sched - b._sched; });   // soonest delivery first
+    function fuRow(f, dim) { %>
+      <div style="display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;font-size:.87rem;<%= dim ? 'opacity:.65' : '' %>">
+        <% var tag = f.kind === 'delivered' ? ['DELIVERED', '#16a34a', '#fff'] : f.kind === 'out' ? ['OUT FOR DELIVERY', '#d97706', '#fff'] : (dim ? ['WAS SCHEDULED', '#e6e6e6', '#555'] : ['SCHEDULED', '#e0e7ff', '#3730a3']); %>
+        <span style="background:<%= tag[1] %>;color:<%= tag[2] %>;font-size:.66rem;font-weight:800;padding:2px 9px;border-radius:9px;white-space:nowrap"><%= tag[0] %></span>
+        <strong><%= f.project_address || f.address || 'unmatched' %></strong>
+        <% if (f.po) { %><span style="color:var(--muted);font-size:.8rem"><%= f.po %></span><% } %>
+        <% if (f.kind === 'scheduled' && f.scheduled_for) { %><span style="color:<%= dim ? 'var(--muted)' : '#3730a3' %>;font-size:.82rem;font-weight:600">🗓 <%= f.scheduled_for %></span><% } %>
+        <% if (f.tracking) { %><a href="https://www.ups.com/track?tracknum=<%= f.tracking %>" target="_blank" rel="noopener" style="font-size:.78rem" title="Track on UPS">UPS ↗</a><% } %>
+        <span style="color:var(--muted);font-size:.74rem;margin-left:auto" title="When Ferguson's email arrived">✉ <%= new Date(f.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) %></span>
+      </div>
+      <% if (f.kind === 'scheduled' && f.items) { %><div style="color:var(--muted);font-size:.74rem;margin:-.1rem 0 .15rem 4.2rem;<%= dim ? 'opacity:.65' : '' %>"><%= f.items.slice(0, 150) %><%= f.items.length > 150 ? '…' : '' %></div><% } %>
+    <% } %>
   <% if (_fu.length) { %>
   <div class="card" style="max-width:none;margin-bottom:1.3rem;padding:1rem 1.3rem">
     <div style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">
       <strong style="font-size:1rem">📦 Ferguson tracker</strong>
-      <span style="color:var(--muted);font-size:.8rem">shipment &amp; appliance alerts from Ferguson's emails, matched to your projects — last 14 days</span>
+      <span style="color:var(--muted);font-size:.8rem">🗓 = when the delivery happens · ✉ = when Ferguson's email arrived</span>
     </div>
+    <% if (upcoming.length) { %>
+    <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:#3730a3;margin-bottom:.35rem">Coming up</div>
+    <div style="display:flex;flex-direction:column;gap:.35rem;margin-bottom:.9rem">
+      <% upcoming.forEach(function (f) { fuRow(f, false); }) %>
+    </div>
+    <% } %>
+    <% if (history.length) { %>
+    <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:.35rem">Recent activity</div>
     <div style="display:flex;flex-direction:column;gap:.35rem">
-      <% _fu.forEach(function (f) {
-           var tag = f.kind === 'delivered' ? ['DELIVERED', '#16a34a', '#fff'] : f.kind === 'out' ? ['OUT FOR DELIVERY', '#d97706', '#fff'] : ['SCHEDULED', '#e0e7ff', '#3730a3']; %>
-      <div style="display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;font-size:.87rem">
-        <span style="background:<%= tag[1] %>;color:<%= tag[2] %>;font-size:.66rem;font-weight:800;padding:2px 9px;border-radius:9px;white-space:nowrap"><%= tag[0] %></span>
-        <strong><%= f.project_address || f.address || 'unmatched' %></strong>
-        <% if (f.po) { %><span style="color:var(--muted);font-size:.8rem"><%= f.po %></span><% } %>
-        <% if (f.kind === 'scheduled' && f.scheduled_for) { %><span style="color:#3730a3;font-size:.82rem;font-weight:600"><%= f.scheduled_for %></span><% } %>
-        <% if (f.tracking) { %><a href="https://www.ups.com/track?tracknum=<%= f.tracking %>" target="_blank" rel="noopener" style="font-size:.78rem" title="Track on UPS"><%= f.tracking.slice(0, 18) %>…</a><% } %>
-        <span style="color:var(--muted);font-size:.74rem;margin-left:auto"><%= new Date(f.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) %></span>
-      </div>
-      <% if (f.kind === 'scheduled' && f.items) { %><div style="color:var(--muted);font-size:.74rem;margin:-.15rem 0 .1rem 4.2rem"><%= f.items.slice(0, 150) %><%= f.items.length > 150 ? '…' : '' %></div><% } %>
-      <% }) %>
+      <% history.forEach(function (f) { fuRow(f, f.kind === 'scheduled'); }) %>
     </div>
+    <% } %>
   </div>
   <% } %>
 
