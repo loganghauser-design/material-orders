@@ -6204,13 +6204,29 @@ function stripBrands(s) {
   BRAND_TOKENS.forEach(b => { t = t.replace(new RegExp('\\b' + b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'gi'), ''); });
   return t.replace(/\s{2,}/g, ' ').replace(/^[\s,\-–—]+/, '').trim();
 }
-function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window }) {
+function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window, method }) {
   const subject = `Delivery Update — ${jobName}`;
+  const isUps = String(method || '').toLowerCase() === 'ups';
+  const methodText = isUps ? 'UPS — parcel shipment (no appointment)' : 'Freight truck — appointment required';
+  // Three clean tiers per item: name + qty · maker + model · description + finish.
   const itemRow = it => {
-    const bits = [it.desc, it.color, 'Qty ' + it.qty].filter(Boolean).join(' &middot; ');
-    return `<div style="font-family:Arial,sans-serif;font-size:14px;color:#111827;line-height:1.5;padding:7px 0;border-top:1px solid #f0f1f4"><strong>${escapeHtml(it.name)}</strong><div style="font-size:12.5px;color:#6b7280;margin-top:2px">${escapeHtml(bits)}</div></div>`;
+    const maker = [it.brand, it.model ? 'Model ' + it.model : ''].filter(Boolean).join(' &middot; ');
+    const sub = [it.desc, it.color].filter(Boolean).join(' &middot; ');
+    return `<div style="padding:9px 0;border-top:1px solid #f0f1f4">`
+      + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>`
+      + `<td style="font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#111827">${escapeHtml(it.name)}</td>`
+      + `<td align="right" style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#374151;white-space:nowrap">Qty ${escapeHtml(String(it.qty || '1'))}</td></tr></table>`
+      + (maker ? `<div style="font-family:Arial,sans-serif;font-size:12.5px;font-weight:600;color:#4b5563;margin-top:2px">${maker}</div>` : '')
+      + (sub ? `<div style="font-family:Arial,sans-serif;font-size:12px;color:#9ca3af;margin-top:1px">${escapeHtml(sub)}</div>` : '')
+      + `</div>`;
   };
   const groupBlock = g => `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.5px;color:#2563eb;text-transform:uppercase;margin:14px 0 2px">${escapeHtml(g.label)}</div>${g.items.map(itemRow).join('')}`;
+  const intro = isUps
+    ? `A material shipment for your project at <strong>${escapeHtml(jobName)}</strong> is on its way via UPS. It does not require an appointment &mdash; <strong>please make sure someone can bring it inside and secure it</strong>.`
+    : `A material delivery for your project at <strong>${escapeHtml(jobName)}</strong> is on its way. <strong>Please have someone on site to receive the delivery</strong> during the window below.`;
+  const contactBlock = isUps
+    ? `<strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the site contact</strong> for this shipment. UPS will leave it at the site &mdash; please arrange for it to be received and stored safely.`
+    : `<strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the on-site contact</strong> for this delivery. The driver will call you <strong>30&ndash;60 minutes before arrival</strong>, so please keep your phone available.`;
   const html =
 `<div style="margin:0;padding:0;background:#f3f4f6">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0"><tr><td align="center">
@@ -6219,14 +6235,15 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
   <tr><td style="padding:30px 32px 4px">
     <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Update <span style="color:#111827">(${escapeHtml(jobName)})</span></div>
     <p style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
-    <p style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;line-height:1.6;margin:14px 0 0">A material delivery for your project at <strong>${escapeHtml(jobName)}</strong> is on its way. <strong>Please have someone on site to receive the delivery</strong> during the window below.</p>
+    <p style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;line-height:1.6;margin:14px 0 0">${intro}</p>
   </td></tr>
   <tr><td style="padding:18px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eff4ff;border:1px solid #d3e0fd;border-radius:10px"><tr><td style="padding:16px 18px">
-    <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Window</div>
-    <div style="font-family:Arial,sans-serif;font-size:17px;font-weight:700;color:#111827;margin-top:5px">${escapeHtml(window)}</div>
+    <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Method</div>
+    <div style="font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(methodText)}</div>
+    ${window ? `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin-top:12px">${isUps ? 'Estimated Arrival' : 'Delivery Window'}</div><div style="font-family:Arial,sans-serif;font-size:17px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(window)}</div>` : ''}
   </td></tr></table></td></tr>
   <tr><td style="padding:12px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px;font-family:Arial,sans-serif;font-size:13.5px;color:#374151;line-height:1.55">
-    <strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the on-site contact</strong> for this delivery. The driver will call you <strong>30&ndash;60 minutes before arrival</strong>, so please keep your phone available.
+    ${contactBlock}
   </td></tr></table></td></tr>
   <tr><td style="padding:16px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px 16px">
     <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#111827">Items being delivered</div>
@@ -6235,7 +6252,7 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
   </td></tr></table></td></tr>
   <tr><td style="padding:20px 32px 6px">
     <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#9ca3af;text-transform:uppercase;border-top:1px solid #eeeeee;padding-top:16px">Please note</div>
-    <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:8px"><strong style="color:#374151">Someone must be on site to accept the delivery.</strong> If no one is available to receive it, a redelivery fee may apply. Deliveries must be rescheduled or cancelled at least <strong style="color:#374151">24 hours in advance</strong>.</div>
+    ${isUps ? '' : `<div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:8px"><strong style="color:#374151">Someone must be on site to accept the delivery.</strong> If no one is available to receive it, a redelivery fee may apply. Deliveries must be rescheduled or cancelled at least <strong style="color:#374151">24 hours in advance</strong>.</div>`}
     <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:10px"><strong style="color:#374151">Please inspect all materials at the time of delivery.</strong> Any damage or shortages must be reported to Buildoly within 24&ndash;48 hours of receipt. Damage reported after this window cannot be verified as delivery-related, and responsibility for that damage will rest with the receiving party.</div>
   </td></tr>
   <tr><td style="padding:16px 32px 4px" align="center"><span style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af">Questions about this delivery? Just reply to this email.</span></td></tr>
@@ -6244,10 +6261,13 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
 </table></td></tr></table></div>`;
   return { subject, html };
 }
+// Junk model values on the sheet that aren't real model numbers.
+const MODEL_JUNK = /refer to|per plan|see plan|^n\/?a$|^qty|tbd|^\-+$/i;
 // Assemble + send the branded notice for a project's delivery of one or more buckets.
 // Recipient = the project's assigned super(s) (the on-site party), or toOverride for tests.
-// Items are pulled live from the finish schedule at the safe altitude (no brand/model).
-async function sendDeliveryNotice({ projectId, codes, window, toOverride }) {
+// method: 'truck' (freight/appointment) or 'ups' (parcel). Each item advertises its
+// maker + model number; the description is cleaned of the brand token to avoid repeating it.
+async function sendDeliveryNotice({ projectId, codes, window, toOverride, method }) {
   const { rows: [proj] } = await pool.query(
     'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
   if (!proj) return { ok: false, reason: 'no project' };
@@ -6269,7 +6289,15 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride }) {
   const groups = []; let supplierName = '';
   for (const code of codes) {
     const raw = byCanon[code] || [];
-    const items = raw.filter(it => !/contractor to proc|not in scope|^n\/a$/i.test(normalizeSupplier(it.supplier || ''))).map(it => ({ name: it.name, desc: stripBrands(it.product), color: it.color, qty: it.qty }));
+    const items = raw.filter(it => !/contractor to proc|not in scope|^n\/a$/i.test(normalizeSupplier(it.supplier || ''))).map(it => {
+      const brand = /^generic$/i.test((it.brand || '').trim()) ? '' : (it.brand || '').trim();
+      const model = MODEL_JUNK.test(it.model || '') ? '' : (it.model || '').trim();
+      let name = (it.name || '').trim();
+      let desc = stripBrands(it.product || '');
+      // Generic schedule names ("Required Accessory") → use the actual product as the name.
+      if (/^(required accessory|w\/d accessory|accessory)$/i.test(name) && desc) { name = desc; desc = ''; }
+      return { name, brand, model, desc, color: it.color, qty: it.qty };
+    });
     if (!items.length) continue;
     if (!supplierName && raw[0]) supplierName = normalizeSupplier(raw[0].supplier || '');
     groups.push({ label: CODE_NAME[code] || code.toUpperCase(), items });
@@ -6277,9 +6305,9 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride }) {
   if (!groups.length) return { ok: false, reason: 'no schedule items for ' + codes.join(', ') };
   const contactName = (sups[0] && sups[0].name) || 'there';
   const jobName = shortAddress(proj.full_address || proj.address);
-  const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || 'To be confirmed' });
+  const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || '', method });
   await sendMail({ to: recipients.join(', '), subject, html });
-  return { ok: true, to: recipients, jobName, window, groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
+  return { ok: true, to: recipients, jobName, window, method: method || 'truck', groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
 }
 
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
@@ -6391,7 +6419,8 @@ async function pollFergusonEmails() {
         const nCodes = fergusonPoCodes(po);
         if (nCodes.length) {
           try {
-            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor });
+            // DispatchTrack "Delivery and Installation Update" = the scheduled freight/appliance truck.
+            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck' });
             console.log('delivery notice: ' + JSON.stringify(dn));
           } catch (e) { console.error('delivery notice:', e.message); }
         }
@@ -7146,9 +7175,10 @@ app.get('/_test/run', async (req, res) => {
   if (job === 'delivery-notice') {
     const projectId = parseInt(req.query.project || '1', 10);
     const codes = String(req.query.code || '1b').split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-    const window = req.query.window || 'To be confirmed';
+    const window = req.query.window || '';
     const toOverride = req.query.to || undefined;
-    try { return res.json({ ok: true, job, result: await sendDeliveryNotice({ projectId, codes, window, toOverride }) }); }
+    const method = req.query.method || 'truck';
+    try { return res.json({ ok: true, job, result: await sendDeliveryNotice({ projectId, codes, window, toOverride, method }) }); }
     catch (e) { return res.json({ ok: false, job, error: e.message }); }
   }
   if (job === 'list' || !job) return res.json({ ok: true, isolation: MAIL_REDIRECT_ALL, jobs: [...Object.keys(JOBS), 'delivery-notice (params: project,code,window,to)'] });
