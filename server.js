@@ -4758,6 +4758,41 @@ app.post('/subs/licenses/verify-all', requireAuth, async (req, res) => {   // 3-
 });
 
 // 📇 Business-card scan: photo(s) — front and back — → Cloud Vision OCR → contact fields for the Add form
+// Card layout intelligence: the company is usually the BIGGEST text on the card, the
+// person's name sits near a role word ("Owner"), and addresses/phones have shapes.
+// We use Vision's letter sizes + positions instead of guessing from a text dump.
+const CARD_TRADE_RE = /construction|electric|plumb|roof|paint|hvac|\bair\b|floor|concrete|fram|drywall|stucco|landscap|cabinet|tile|insulat|iron|glass|window|door|solar|remodel|build|masonry|weld|fenc|pool|paving|grading|demo/i;
+const CARD_SUFFIX_RE = /\b(LLC|INC\.?|CORP\.?|CO\.?|COMPANY|SERVICES?|CONSTRUCTION|BUILDERS?|CONTRACTORS?|ENTERPRISES?|GROUP|SOLUTIONS|SONS?)\b/i;
+const CARD_ROLE_RE = /\b(owner|president|ceo|vice president|manager|estimator|founder|principal|supervisor|foreman|operations|sales|contractor)\b/i;
+const CARD_ADDR_RE = /\b\d{2,6}\s+[A-Za-z].*\b(St|Street|Ave|Avenue|Blvd|Dr|Drive|Rd|Road|Ln|Lane|Way|Ct|Suite|Ste|Unit)\b|\b[A-Z][a-z]+,?\s+CA\b|\bCA\s*,?\s*\d{5}/i;
+function cardIsPersonName(t) {
+  const toks = t.replace(/[.,]/g, '').split(/\s+/);
+  if (toks.length < 2 || toks.length > 4) return false;
+  if (CARD_TRADE_RE.test(t) || CARD_SUFFIX_RE.test(t) || CARD_ROLE_RE.test(t) || /[\d@\/]/.test(t)) return false;
+  return toks.every(w => /^([A-Z][a-zA-Z'’-]+|[A-Z]{2,14}|[A-Z]\.)$/.test(w));
+}
+function cardLinesFromVision(resp) {
+  // One entry per paragraph, with the average LETTER height (≈ font size) and position
+  const out = [];
+  const pages = ((resp || {}).fullTextAnnotation || {}).pages || [];
+  pages.forEach(p => (p.blocks || []).forEach(b => (b.paragraphs || []).forEach(par => {
+    const words = (par.words || []).map(w => (w.symbols || []).map(sy => sy.text).join(''));
+    const text = words.join(' ').replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    const hs = (par.words || []).map(w => {
+      const vs = ((w.boundingBox || {}).vertices) || [];
+      const ys = vs.map(v => v.y || 0);
+      return ys.length ? Math.max.apply(null, ys) - Math.min.apply(null, ys) : 0;
+    }).filter(h => h > 0);
+    const h = hs.length ? hs.reduce((a, c) => a + c, 0) / hs.length : 0;
+    const vs = ((par.boundingBox || {}).vertices) || [];
+    out.push({ text, h, y: vs.length ? Math.min.apply(null, vs.map(v => v.y || 0)) : 0 });
+  })));
+  // Normalize heights per image so front + back merge fairly
+  const maxH = Math.max.apply(null, out.map(l => l.h).concat([1]));
+  out.forEach(l => { l.hr = l.h / maxH; });
+  return out;
+}
 app.post('/subs/card/scan', requireAuth, upload.array('card', 4), async (req, res) => {
   try {
     if (!process.env.GOOGLE_PLACES_API_KEY) return res.status(400).json({ ok: false, error: 'Vision API key not configured.' });
@@ -4770,20 +4805,59 @@ app.post('/subs/card/scan', requireAuth, upload.array('card', 4), async (req, re
     const d = await r.json();
     const text = (d.responses || []).map(x => (x.fullTextAnnotation || {}).text || '').join('\n');
     if (!text.trim()) return res.json({ ok: false, error: 'Could not read any text on that photo — try a sharper, straight-on shot.' });
-    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    let lines = [];
+    (d.responses || []).forEach(resp => { lines = lines.concat(cardLinesFromVision(resp)); });
+    if (!lines.length) lines = text.split('\n').map(l => ({ text: l.trim(), hr: 0.5, y: 0 })).filter(l => l.text);
+
     const email = (text.match(/[\w.+-]+@[\w-]+\.[\w.-]+/) || [''])[0].toLowerCase();
-    const phone = (text.match(/\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/) || [''])[0];
-    const lic = (text.match(/(?:lic(?:ense)?\.?\s*#?\s*|csl[b#]?\s*#?\s*)(\d{5,8})/i) || [])[1] || '';
-    const TRADE_WORDS = /construction|electric|plumb|roof|paint|hvac|\bair\b|floor|concrete|fram|drywall|stucco|landscap|cabinet|tile|insulat|iron|glass|window|door|solar|remodel|build/i;
-    // Company: prefer a line with a business suffix, else a trade-word line, else the first line
-    let company = lines.find(l => /\b(LLC|INC|CORP|CO\.?|COMPANY|SERVICES?)\b/i.test(l) && /[a-z]/i.test(l) && !l.includes('@'))
-      || lines.find(l => TRADE_WORDS.test(l) && l.length < 50 && !l.includes('@'))
-      || (lines[0] || '');
+    const website = (text.match(/\b(?:www\.)[\w-]+\.[a-z]{2,}(?:\.[a-z]{2})?\b|\bhttps?:\/\/[\w.-]+\.[a-z]{2,}\b/i) || [''])[0];
+    const lic = (text.match(/(?:lic(?:ense)?\.?\s*#?\s*|csl[b#]?\s*#?\s*|st\.?\s*lic\.?\s*#?\s*)([A-C]?-?\d{5,8})/i) || [])[1] || '';
+    // Phone: prefer one labeled cell/mobile, else the first one on the card
+    const phones = [];
+    lines.forEach(l => {
+      const m = l.text.match(/\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/);
+      if (m) phones.push({ n: m[0], cell: /\b(c|cell|mobile|m)\b\s*[:.]?/i.test(l.text) });
+    });
+    const phonePick = (phones.find(p => p.cell) || phones[0] || { n: '' }).n;
+    const phone = phonePick.replace(/[\s.]+/g, '-').replace(/^\(?(\d{3})\)?-?(\d{3})-?(\d{4})$/, '($1) $2-$3');
+
+    // Company: score every line — big text, business suffix, trade words good; names, roles, addresses, contact lines bad
+    const isJunk = t => /[\w.+-]+@|\bwww\.|https?:\/\//i.test(t) || /\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}/.test(t) || /lic(?:ense)?\.?\s*#|csl[b#]/i.test(t);
+    let company = '', companyScore = -1e9;
+    lines.forEach(l => {
+      const t = l.text;
+      if (t.length < 3 || t.length > 60 || isJunk(t)) return;
+      let sc = l.hr * 4;
+      if (CARD_SUFFIX_RE.test(t)) sc += 3;
+      if (CARD_TRADE_RE.test(t)) sc += 2;
+      if (cardIsPersonName(t)) sc -= 2.5;
+      if (CARD_ROLE_RE.test(t) && t.split(/\s+/).length <= 3) sc -= 4;
+      if (CARD_ADDR_RE.test(t)) sc -= 5;
+      if (sc > companyScore) { companyScore = sc; company = t; }
+    });
     company = company.replace(/\s{2,}/g, ' ').trim().slice(0, 120);
-    // Owner: a 2-3 word name-looking line that isn't the company and has no digits/trade words
-    const owner = lines.find(l => l !== company && /^[A-Z][a-zA-Z'’.]+(\s+[A-Z][a-zA-Z'’.]+){1,2}$/.test(l) && !TRADE_WORDS.test(l) && !/\d/.test(l)) || '';
-    const trade = qbTradeFromName(company + ' ' + text.slice(0, 300)) || '';
-    res.json({ ok: true, company, owner, email, phone, license_number: lic, trade });
+
+    // Owner: best person-name line — a role word on the line right below it is a strong signal
+    const sorted = lines.slice().sort((a, b) => a.y - b.y);
+    let owner = '', ownerScore = -1e9;
+    sorted.forEach((l, i) => {
+      if (!cardIsPersonName(l.text) || l.text === company) return;
+      let sc = l.hr * 2;
+      const next = sorted[i + 1];
+      if (next && CARD_ROLE_RE.test(next.text)) sc += 3;
+      if (email && email.includes(l.text.split(/\s+/)[0].toLowerCase().replace(/[^a-z]/g, ''))) sc += 1.5;
+      if (sc > ownerScore) { ownerScore = sc; owner = l.text; }
+    });
+    // Title-case an ALL-CAPS name so it saves clean
+    if (owner === owner.toUpperCase()) owner = owner.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+
+    const trade = qbTradeFromName(company + ' ' + text.slice(0, 400)) || '';
+    const location = countyFromZip(text) || '';   // zip on the card → service-area guess
+    const noteBits = [];
+    if (website) noteBits.push(website);
+    const addrLine = lines.find(l => CARD_ADDR_RE.test(l.text) && /\d/.test(l.text));
+    if (addrLine) noteBits.push(addrLine.text.slice(0, 90));
+    res.json({ ok: true, company, owner, email, phone, license_number: lic.replace(/\D/g, ''), trade, location, note: noteBits.join(' · ').slice(0, 180) });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 

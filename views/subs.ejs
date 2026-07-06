@@ -1387,9 +1387,13 @@ async function csProcess() {
     fill('f_email', d.email);
     fill('f_phone', d.phone);
     if (d.trade && typeof setTradesFromString === 'function' && !document.getElementById('f_type').value.trim()) setTradesFromString(d.trade);
-    if (d.license_number) {
-      const n = document.getElementById('f_notes');
-      if (n && !n.value.includes(d.license_number)) n.value = ('Lic #' + d.license_number + (n.value ? '\n' + n.value : ''));
+    if (d.location && typeof setLocsFromString === 'function' && !document.getElementById('f_location').value.trim()) setLocsFromString(d.location);
+    const n = document.getElementById('f_notes');
+    if (n) {
+      const bits = [];
+      if (d.license_number && !n.value.includes(d.license_number)) bits.push('Lic #' + d.license_number);
+      if (d.note && !n.value.includes(d.note)) bits.push(d.note);
+      if (bits.length) n.value = bits.join('\n') + (n.value ? '\n' + n.value : '');
     }
     // Both card photos ride along with the form and save onto the new contractor
     const pi = document.getElementById('modalPhotoInput');
