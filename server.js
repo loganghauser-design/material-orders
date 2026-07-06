@@ -6219,8 +6219,8 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
       + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>`
       + `<td style="font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#111827">${escapeHtml(it.name)}</td>`
       + `<td align="right" style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#374151;white-space:nowrap">Qty ${escapeHtml(String(it.qty || '1'))}</td></tr></table>`
-      + (maker ? `<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:600;color:#4b5563;margin-top:2px">${maker}</div>` : '')
-      + (sub ? `<div style="font-family:Arial,sans-serif;font-size:12px;color:#9ca3af;margin-top:1px">${sub}</div>` : '')
+      + (maker ? `<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:600;color:#6b7280;margin-top:2px">${maker}</div>` : '')
+      + (sub ? `<div style="font-family:Arial,sans-serif;font-size:12px;color:#6b7280;margin-top:1px">${sub}</div>` : '')
       + `</div>`;
   };
   const groupBlock = g => `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin:14px 0 2px">${escapeHtml(g.label)}</div>${g.items.map(itemRow).join('')}`;
@@ -6237,8 +6237,8 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
   <tr><td style="background:#000000;padding:20px 32px"><img src="https://buildoly.up.railway.app/logo-white.png" alt="buildoly" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0"></td></tr>
   <tr><td style="padding:30px 32px 4px">
     <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Update <span style="color:#111827">(${escapeHtml(jobName)})</span></div>
-    <p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
-    <p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;line-height:1.6;margin:14px 0 0">${intro}</p>
+    <p style="font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
+    <p style="font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.6;margin:14px 0 0">${intro}</p>
   </td></tr>
   <tr><td style="padding:18px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eff4ff;border:1px solid #d3e0fd;border-radius:10px"><tr><td style="padding:16px 18px">
     <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Method</div>
@@ -6255,13 +6255,13 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
     ${groups.map(groupBlock).join('')}
   </td></tr></table></td></tr>
   <tr><td style="padding:20px 32px 6px">
-    <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#9ca3af;text-transform:uppercase;border-top:1px solid #eeeeee;padding-top:16px">Please note</div>
+    <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;border-top:1px solid #eeeeee;padding-top:16px">Please note</div>
     ${isUps ? '' : `<div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:8px"><strong style="color:#374151">Someone must be on site to accept the delivery.</strong> If no one is available to receive it, a redelivery fee may apply. Deliveries must be rescheduled or cancelled at least <strong style="color:#374151">24 hours in advance</strong>.</div>`}
     <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:10px"><strong style="color:#374151">Please inspect all materials at the time of delivery.</strong> Any damage or shortages must be reported to Buildoly within 24&ndash;48 hours of receipt. Damage reported after this window cannot be verified as delivery-related, and responsibility for that damage will rest with the receiving party.</div>
   </td></tr>
-  <tr><td style="padding:16px 32px 4px" align="center"><span style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af">Questions about this delivery? Just reply to this email.</span></td></tr>
-  <tr><td style="padding:12px 32px 26px"><p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;margin:0">Thank you,<br><strong>Logan Hauser</strong><br><span style="font-weight:400;color:#6b7280">Buildoly</span></p><p style="font-family:Arial,sans-serif;font-size:13px;color:#9ca3af;margin:4px 0 0">logan@buildoly.com</p></td></tr>
-  <tr><td style="background:#f9fafb;border-top:1px solid #eeeeee;padding:14px 32px" align="center"><span style="font-family:Arial,sans-serif;font-size:11px;color:#9ca3af">Buildoly &middot; 915 Wilshire Blvd #700, Los Angeles, CA 90017</span></td></tr>
+  <tr><td style="padding:16px 32px 4px" align="center"><span style="font-family:Arial,sans-serif;font-size:13px;color:#6b7280">Questions about this delivery? Just reply to this email.</span></td></tr>
+  <tr><td style="padding:12px 32px 26px"><p style="font-family:Arial,sans-serif;font-size:14px;color:#374151;margin:0">Thank you,<br><strong>Logan Hauser</strong><br><span style="font-weight:400;color:#6b7280">Buildoly</span></p><p style="font-family:Arial,sans-serif;font-size:13px;color:#6b7280;margin:4px 0 0">logan@buildoly.com</p></td></tr>
+  <tr><td style="background:#f9fafb;border-top:1px solid #eeeeee;padding:14px 32px" align="center"><span style="font-family:Arial,sans-serif;font-size:11px;color:#6b7280">Buildoly &middot; 915 Wilshire Blvd #700, Los Angeles, CA 90017</span></td></tr>
 </table></td></tr></table></div>`;
   return { subject, html };
 }
