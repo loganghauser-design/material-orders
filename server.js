@@ -1209,6 +1209,7 @@ const PAGE_META = [
   { key: 'subs', label: 'Subs', path: '/subs' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
+  { key: 'catalog', label: 'Master Catalog', path: '/catalog' },
   { key: 'driving', label: 'Driving Log', path: '/driving' },
   { key: 'settings', label: 'Settings', path: '/settings' },
 ];
@@ -1244,9 +1245,10 @@ function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
   if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
-  if (p.startsWith('/ordering') || p.startsWith('/catalog')) return 'ordering';
+  if (p.startsWith('/ordering')) return 'ordering';
   if (p.startsWith('/driving')) return 'driving';
   if (p.startsWith('/inventory') || p === '/stock-status') return 'inventory';
+  if (p.startsWith('/catalog')) return 'catalog';
   if (p.startsWith('/requests')) return 'requests';
   if (p.startsWith('/issues')) return 'issues';
   if (p.startsWith('/warranty-claims')) return 'warranty';

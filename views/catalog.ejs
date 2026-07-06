@@ -15,12 +15,15 @@
   </style>
 </head>
 <body>
-<%- include('_nav', { active: 'ordering' }) %>
+<%- include('_nav', { active: 'catalog' }) %>
 
 <div class="container">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
-    <h1>Item Catalog <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= items.length %>)</span></h1>
-    <button type="button" class="btn btn-ghost" id="catSync" onclick="catSync(this)" title="Re-read the Buildoly Master Finish Schedule sheet (read-only)">↻ Sync from master sheet</button>
+    <h1>Master Finish Schedule <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= items.length %> items)</span></h1>
+    <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+      <a class="btn btn-ghost" href="https://docs.google.com/spreadsheets/d/1wSZb3PVq1rrE3PTyraBSUHVp-tYtOHpMaeAOO2l0_40/edit" target="_blank" rel="noopener" title="Open the source Google Sheet — edits there, then sync here">📄 Open the sheet ↗</a>
+      <button type="button" class="btn btn-ghost" id="catSync" onclick="catSync(this)" title="Re-read the Buildoly Master Finish Schedule sheet (read-only)">↻ Sync from sheet</button>
+    </div>
   </div>
   <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem;max-width:760px">
     Every item from the <strong>Master Finish Schedule</strong>: prod code → model #, stage bucket, supplier, cost.
