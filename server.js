@@ -6207,7 +6207,7 @@ function stripBrands(s) {
 function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window, method }) {
   const subject = `Delivery Update — ${jobName}`;
   const isUps = String(method || '').toLowerCase() === 'ups';
-  const methodText = isUps ? 'UPS — parcel shipment (no appointment)' : 'Freight truck — appointment required';
+  const methodText = isUps ? 'UPS Parcel' : 'Delivery Truck';
   // Three clean tiers per item: name + qty · maker + model · description + finish.
   const itemRow = it => {
     const maker = [it.brand, it.model ? 'Model ' + it.model : ''].filter(Boolean).join(' &middot; ');
