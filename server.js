@@ -6058,7 +6058,17 @@ app.post('/projects/:id/item-mark', requireAuth, async (req, res) => {
     const st = e
       ? (e.delivered ? { st: 'd', m: e.manual ? 1 : 0 } : e.scheduled ? { st: 's', when: e.schedWhen || '', m: e.manual ? 1 : 0 } : e.onOrder ? { st: 'o', m: e.manual ? 1 : 0 } : null)
       : (state ? { st: state[0], when: when || '', m: 1 } : null);
-    res.json({ ok: true, st, agg: e && e.category_code ? { code: e.category_code, counts: agg[e.category_code] } : null });
+    // Cascade up: every expected item in the bucket delivered → the bucket itself is
+    // Delivered (forward only — never downgrades a pill someone set further along).
+    let bucketStatus = null;
+    if (e && e.category_code) {
+      const c = agg[e.category_code];
+      if (c && c.total && c.delivered === c.total) {
+        const bumped = await bumpItemsForward(req.params.id, [e.category_code], 'Delivered');
+        if (bumped.length) bucketStatus = { code: e.category_code, status: 'Delivered' };
+      }
+    }
+    res.json({ ok: true, st, agg: e && e.category_code ? { code: e.category_code, counts: agg[e.category_code] } : null, bucketStatus });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
@@ -6105,7 +6115,7 @@ async function sweepFergusonOrders() {
       const atts = [];
       (function w(p) { if (!p) return; if (p.filename && p.body && p.body.attachmentId && /\.pdf$/i.test(p.filename)) atts.push({ filename: p.filename, aid: p.body.attachmentId }); (p.parts || []).forEach(w); })(full.payload);
       if (!atts.length) continue;
-      const { rows: cat } = await pool.query("SELECT prod_code, model_norm, alt_models FROM item_catalog WHERE (model_norm IS NOT NULL AND LENGTH(model_norm) >= 5) OR (alt_models IS NOT NULL AND alt_models <> '')");
+      const { rows: cat } = await pool.query("SELECT prod_code, model_norm, alt_models, category_code FROM item_catalog WHERE (model_norm IS NOT NULL AND LENGTH(model_norm) >= 5) OR (alt_models IS NOT NULL AND alt_models <> '')");
       for (const a of atts) {
         const proj = await matchBidToProject(a.filename) || await matchBidToProject(subject);
         if (!proj) continue;
@@ -6115,6 +6125,7 @@ async function sweepFergusonOrders() {
         if (!text || !/ferguson/i.test(text.slice(0, 800))) continue;
         const tn = normModel(text);
         let lines = 0;
+        const bucketCodes = new Set();
         for (const c of cat) {
           // Match the catalog model # or any alternate SKU (Ferguson's substitutes for
           // generic accessories). The line stores whichever number the PDF actually used.
@@ -6123,13 +6134,26 @@ async function sweepFergusonOrders() {
           String(c.alt_models || '').split(',').map(normModel).filter(x => x.length >= 5).forEach(n => { if (!norms.includes(n)) norms.push(n); });
           const hit = norms.find(n => tn.includes(n));
           if (!hit) continue;
+          if (c.category_code) bucketCodes.add(c.category_code);
           const { rows: [dup] } = await pool.query('SELECT 1 FROM project_order_lines WHERE project_id=$1 AND model_norm=$2 LIMIT 1', [proj.id, hit]);
           if (dup) continue;
           await pool.query('INSERT INTO project_order_lines (project_id, model_norm, prod_code, filename, gmail_message_id) VALUES ($1,$2,$3,$4,$5)',
             [proj.id, hit, c.prod_code, a.filename.slice(0, 255), mm.id]);
           lines++;
         }
-        if (lines) console.log('ferguson order swept: ' + proj.address + ' | ' + a.filename + ' | ' + lines + ' items');
+        if (lines) {
+          console.log('ferguson order swept: ' + proj.address + ' | ' + a.filename + ' | ' + lines + ' items');
+          // A confirmed order means those buckets are at least "Order Placed" — advance the
+          // Materials pills and stamp the order date so nobody has to do it by hand.
+          const codes = [...bucketCodes];
+          if (codes.length) {
+            const bumped = await bumpItemsForward(proj.id, codes, 'Order Placed');
+            const emailDate = new Date(hv('Date'));
+            await pool.query('UPDATE project_items SET order_date=COALESCE(order_date, $3) WHERE project_id=$1 AND item_code = ANY($2)',
+              [proj.id, codes, isNaN(emailDate) ? new Date() : emailDate]);
+            if (bumped.length) console.log('ferguson order: ' + proj.address + ' → Order Placed: ' + bumped.map(b => b.code).join(', '));
+          }
+        }
       }
     }
   } catch (e) { console.error('sweepFergusonOrders:', e.message); }

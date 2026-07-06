@@ -652,7 +652,18 @@ async function cycleMark(el) {
     if (data.st) ITEM_STATES[key] = data.st; else delete ITEM_STATES[key];
     el.outerHTML = deliveryBadge(key, '');
     if (data.agg && data.agg.counts) updateBucketBar(data.agg.code, data.agg.counts);
-    showToast(next ? 'Marked ' + (next === 'delivered' ? '✅ delivered' : next === 'scheduled' ? '🚚 scheduled' : '📦 ordered') : '↩ Back to automatic');
+    if (data.bucketStatus) {
+      const mr = document.querySelector(`tr.mat-row[data-code="${data.bucketStatus.code}"]`);
+      const ss = mr && mr.querySelector('.item-status');
+      if (ss && ss.value !== data.bucketStatus.status) {
+        ss.value = data.bucketStatus.status;
+        STATUS_CLASSES.forEach(c => ss.classList.remove(c));
+        ss.classList.add(statusToClass(data.bucketStatus.status));
+      }
+      showToast('🎉 All ' + data.bucketStatus.code + ' items delivered — bucket marked Delivered');
+    } else {
+      showToast(next ? 'Marked ' + (next === 'delivered' ? '✅ delivered' : next === 'scheduled' ? '🚚 scheduled' : '📦 ordered') : '↩ Back to automatic');
+    }
   } catch (e) { showToast('Not saved — please try again', true); }
 }
 // Keep the bucket row's progress bar + counts in sync after a manual mark.
