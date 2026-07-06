@@ -2890,7 +2890,9 @@ app.post('/projects/:id/items/:code/notify', requireAuth, async (req, res) => {
     const { rows: [proj] } = await pool.query('SELECT address, super_email FROM projects WHERE id=$1', [req.params.id]);
     const name = ITEM_NAME[req.params.code] || req.params.code;
     const sups = proj ? parseSuperEmails(proj.super_email) : [];
-    const mention = sups.length ? sups.map(s => `<users/${s.chatId}>`).join(' ') + ' ' : '';
+    // No super on the project = nobody to tag = no post. Assign a super first.
+    if (!sups.length) return res.status(400).json({ ok: false, error: 'No super assigned to this project — pick a super up top first (delivery alerts tag them).' });
+    const mention = sups.map(s => `<users/${s.chatId}>`).join(' ') + ' ';
     const when = end
       ? `Delivery window ${chatDate(start, true)} – ${chatDate(end, true)}`
       : `scheduled for delivery ${chatDate(start)}`;
@@ -5881,6 +5883,12 @@ async function pollFergusonEmails() {
             const nice = new Date(dISO + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
             applied = (applied ? applied + '; ' : '') + updD.map(u => (CODE_NAME[u.item_code] || u.item_code)).join(', ') + ' date → ' + nice;
           }
+          // Ferguson booking the delivery means the order is real → advance RFQ sent to Order Placed
+          const { rows: updS } = await pool.query(
+            `UPDATE project_items SET status='Order Placed'
+             WHERE project_id=$1 AND item_code = ANY($2) AND status IN ('Not yet placed','RFQ sent')
+             RETURNING item_code`, [proj.id, codes]);
+          if (updS.length) applied = (applied ? applied + '; ' : '') + updS.map(u => (CODE_NAME[u.item_code] || u.item_code)).join(', ') + ' → Order Placed';
         }
       }
       await pool.query(
