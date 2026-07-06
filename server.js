@@ -5975,8 +5975,12 @@ async function projectItemStates(projectId) {
   expected.forEach(e => {
     const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
     const onOrder = !!(mn && ordered.has(mn));
-    e.delivered = !!(mn && deliveredBlob.includes(mn)) || (onOrder && e.category_code && completedCodes.has(e.category_code));
-    e.scheduled = !e.delivered && (!!(mn && schedBlob.includes(mn)) || (onOrder && e.category_code && (e.category_code in schedInfo)));
+    const explicitlyDelivered = !!(mn && deliveredBlob.includes(mn));
+    const explicitlyScheduled = !!(mn && schedBlob.includes(mn));
+    // Explicit item-level evidence beats bucket inference: an item named on a PENDING
+    // delivery is 🚚 even if an earlier parcel already completed the same bucket.
+    e.delivered = explicitlyDelivered || (!explicitlyScheduled && onOrder && e.category_code && completedCodes.has(e.category_code));
+    e.scheduled = !e.delivered && (explicitlyScheduled || (onOrder && e.category_code && (e.category_code in schedInfo)));
     e.schedWhen = e.scheduled ? (schedInfo[e.category_code] || '') : '';
     e.onOrder = !e.delivered && !e.scheduled && onOrder;
     const k = e.category_code || '—';
