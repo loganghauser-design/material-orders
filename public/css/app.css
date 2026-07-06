@@ -193,6 +193,10 @@ textarea { resize: vertical; min-height: 80px; }
 .item-notes { border: 1px solid var(--border); border-radius: 5px; padding: .35rem .6rem; font-size: .85rem; background: var(--surface); color: var(--text); width: 100%; min-width: 120px; }
 .item-select:focus, .item-date:focus, .item-notes:focus { outline: 2px solid var(--accent); }
 
+/* Bounced-email warning on the Subs page */
+.bounce-flag { display: inline-block; margin-top: 2px; background: #fee2e2; color: #b91c1c; font-size: .68rem; font-weight: 700; padding: 1px 8px; border-radius: 8px; white-space: nowrap; cursor: pointer; }
+.bounce-flag:hover { background: #fecaca; }
+
 /* Materials tab — per-item delivery redesign */
 .mat-code { display: inline-block; min-width: 27px; text-align: center; font-size: .7rem; font-weight: 800; color: #5b6472; background: #eef1f6; border-radius: 6px; padding: 2px 6px; letter-spacing: .02em; }
 .mat-main { padding: .85rem 1.25rem !important; }

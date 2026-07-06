@@ -1564,6 +1564,8 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_checked_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_report TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_expires DATE;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS email_bounced_at TIMESTAMPTZ;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS email_bounce_note TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_note TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_checked_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_chased_at TIMESTAMPTZ;
@@ -1605,6 +1607,14 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS ferg_order_seen (
       gmail_message_id VARCHAR(255) PRIMARY KEY,
       seen_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS email_bounces (
+      gmail_message_id VARCHAR(255) PRIMARY KEY,
+      recipient TEXT,
+      orig_subject TEXT,
+      sub_id INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
 
     CREATE TABLE IF NOT EXISTS project_item_marks (
@@ -4467,7 +4477,10 @@ app.post('/subs/:id', requireAuth, async (req, res) => {
     // Re-derive GC vs Sub when an explicit category isn't provided.
     const cat = b.category || (/general\s*contractor|^\s*gc\b/i.test(b.type || '') ? 'gc' : 'sub');
     await pool.query(
-      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, notes=$8, category=$9, referenced_by=$10 WHERE id=$11`,
+      `UPDATE subcontractors SET company=$1, location=$2, type=$3, status=$4, owner=$5, email=$6, phone=$7, notes=$8, category=$9, referenced_by=$10,
+         email_bounced_at = CASE WHEN LOWER(COALESCE($6,'')) IS DISTINCT FROM LOWER(COALESCE(email,'')) THEN NULL ELSE email_bounced_at END,
+         email_bounce_note = CASE WHEN LOWER(COALESCE($6,'')) IS DISTINCT FROM LOWER(COALESCE(email,'')) THEN NULL ELSE email_bounce_note END
+       WHERE id=$11`,
       [b.company || null, b.location || null, normalizeType(b.type) || null, b.status || null, b.owner || null,
        b.email || null, b.phone || null, b.notes || null, cat, b.referenced_by || null, req.params.id]
     );
@@ -4781,6 +4794,8 @@ app.post('/subs/:id/field', requireAuth, async (req, res) => {
       sets.push(`${k}=$${vals.length + 1}`); vals.push(v);
     }
     if (!sets.length) return res.json({ ok: true });
+    // Saving an email (even re-typing it) counts as "I fixed it" — clear any bounce flag.
+    if ('email' in req.body) { sets.push('email_bounced_at=NULL'); sets.push('email_bounce_note=NULL'); }
     vals.push(req.params.id);
     await pool.query(`UPDATE subcontractors SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
     res.json({ ok: true });
@@ -6360,6 +6375,54 @@ async function sendDeliveryConfirmations() {
   return out;
 }
 
+// ── Bounce watcher ──────────────────────────────────────────────────────────────
+// When an email we sent comes back "failed to deliver" (Mail Delivery Subsystem),
+// flag the matching sub's address with a red warning on the Subs page. No chat post —
+// the warning lives where the fix happens. Saving a new email clears it.
+async function pollEmailBounces() {
+  if (!useGmail) return;
+  try {
+    const { data } = await gmailClient.users.messages.list({
+      userId: 'me', maxResults: 20,
+      q: 'from:(mailer-daemon OR postmaster) newer_than:3d',
+    });
+    for (const mm of (data.messages || [])) {
+      const { rows: seen } = await pool.query('SELECT 1 FROM email_bounces WHERE gmail_message_id=$1', [mm.id]);
+      if (seen.length) continue;
+      const { data: full } = await gmailClient.users.messages.get({ userId: 'me', id: mm.id, format: 'full' });
+      const H = full.payload.headers || [];
+      const hv = n => { const h = H.find(x => x.name.toLowerCase() === n.toLowerCase()); return h ? h.value : ''; };
+      const chunks = [];
+      (function walk(p) { if (!p) return; if (p.body && p.body.data) chunks.push(Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); (p.parts || []).forEach(walk); })(full.payload);
+      const text = chunks.join(' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+      const failed = (hv('X-Failed-Recipients')
+        || (text.match(/(?:wasn't|was not|couldn't be|could not be) delivered to\s+([\w.+-]+@[\w.-]+\.\w+)/i) || [])[1]
+        || (text.match(/([\w.+-]+@[\w.-]+\.\w+)\s+because the address/i) || [])[1]
+        || '').trim().replace(/[>,;]+$/, '');
+      // The bounce lands in the same thread as the original send — pull its subject.
+      let origSubject = '';
+      try {
+        const { data: th } = await gmailClient.users.threads.get({ userId: 'me', id: full.threadId, format: 'metadata', metadataHeaders: ['Subject'] });
+        const fp = ((th.messages || [])[0] || {}).payload;
+        const sh = ((fp && fp.headers) || []).find(x => x.name.toLowerCase() === 'subject');
+        origSubject = sh ? sh.value : '';
+      } catch (e) { /* subject is a nice-to-have */ }
+      let subId = null;
+      if (failed) {
+        const { rows: [sub] } = await pool.query('SELECT id FROM subcontractors WHERE LOWER(email)=LOWER($1) LIMIT 1', [failed]);
+        if (sub) {
+          subId = sub.id;
+          await pool.query('UPDATE subcontractors SET email_bounced_at=NOW(), email_bounce_note=$2 WHERE id=$1',
+            [sub.id, (origSubject || '').slice(0, 200) || null]);
+          console.log('email bounce: flagged sub #' + sub.id + ' (' + failed + ')');
+        }
+      }
+      await pool.query('INSERT INTO email_bounces (gmail_message_id, recipient, orig_subject, sub_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING',
+        [mm.id, failed || null, (origSubject || '').slice(0, 300) || null, subId]);
+    }
+  } catch (e) { console.error('pollEmailBounces:', e.message); }
+}
+
 // ── Morning brief ───────────────────────────────────────────────────────────────
 // One 7am message to the Bids space that ties every system together: today's trucks
 // (with supers), the next few days, what the Order Planner says to order now, bids
@@ -6944,6 +7007,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('*/20 * * * *', pollFergusonEmails);     // every 20 min — Ferguson shipment/appliance alerts
   cron.schedule('*/20 * * * *', sweepFergusonOrders);    // every 20 min — rep order-confirmation PDFs
+  cron.schedule('*/20 * * * *', pollEmailBounces);       // every 20 min — flag bounced sub emails on the Subs page
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
@@ -6967,4 +7031,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));

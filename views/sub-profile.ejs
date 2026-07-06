@@ -96,7 +96,7 @@
       </div>
       <table class="sp-kv">
         <tr><td>Owner</td><td><%= sub.owner || '—' %></td></tr>
-        <tr><td>Email</td><td><% if (sub.email) { %><a href="mailto:<%= sub.email %>"><%= sub.email %></a><% } else { %>—<% } %></td></tr>
+        <tr><td>Email</td><td><% if (sub.email) { %><a href="mailto:<%= sub.email %>"<%- sub.email_bounced_at ? ' style="color:#b91c1c;text-decoration:line-through"' : '' %>><%= sub.email %></a><% if (sub.email_bounced_at) { %> <span class="bounce-flag" title="An email to this address failed to deliver on <%= new Date(sub.email_bounced_at).toLocaleDateString() %><%= sub.email_bounce_note ? ' — ' + sub.email_bounce_note : '' %>. Update the email below — saving clears this.">⚠ didn't deliver</span><% } %><% } else { %>—<% } %></td></tr>
         <tr><td>Phone</td><td><% if (sub.phone) { %><a href="tel:<%= sub.phone.replace(/[^0-9+]/g,'') %>"><%= sub.phone %></a><% } else { %>—<% } %></td></tr>
         <tr><td>Areas</td><td><%= sub.location || '—' %></td></tr>
         <tr><td>License #</td><td><%= sub.license_number || '—' %></td></tr>
