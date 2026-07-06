@@ -2729,10 +2729,21 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    // Per-bucket item states (from the last checklist sync — cheap, no sheet call)
-    let itemsAgg = {};
-    try { itemsAgg = (await projectItemStates(project.id)).agg; } catch (e) { /* fine — chips just don't show */ }
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS, itemsAgg });
+    // Per-item delivery states — synced from the finish schedule (5-min sheet cache),
+    // shown as chips on the bucket rows and a Delivery column on each expanded item.
+    let itemsAgg = {}, itemStates = {};
+    try {
+      try { await syncProjectExpected(project.id); } catch (e) { /* sheet unreadable — use last sync */ }
+      const st = await projectItemStates(project.id);
+      itemsAgg = st.agg;
+      st.expected.forEach(e => {
+        if (!e.model_norm || e.model_norm.length < 5) return;
+        if (e.delivered) itemStates[e.model_norm] = { st: 'd' };
+        else if (e.scheduled) itemStates[e.model_norm] = { st: 's', when: e.schedWhen || '' };
+        else if (e.onOrder) itemStates[e.model_norm] = { st: 'o' };
+      });
+    } catch (e) { /* fine — chips just don't show */ }
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS, itemsAgg, itemStates });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
