@@ -12,6 +12,8 @@
     .cat-code { font-weight:700; white-space:nowrap; }
     .cat-bucket { background:#eef0f4; color:#555; font-size:.7rem; font-weight:700; padding:2px 8px; border-radius:8px; white-space:nowrap; }
     .cat-model { font-family:monospace; font-size:.8rem; white-space:nowrap; }
+    .cat-sec td { background:#15161a; color:#fff; font-size:.85rem; font-weight:800; padding:.5rem .7rem; letter-spacing:.02em; }
+    .cat-sub td { background:var(--bg); color:var(--text); font-size:.76rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; padding:.4rem .7rem; }
   </style>
 </head>
 <body>
@@ -38,8 +40,15 @@
       <table class="cat-table">
         <thead><tr><th>Prod code</th><th>Bucket</th><th>Item</th><th>Model #</th><th>Finish</th><th>Supplier</th><th>Cost</th></tr></thead>
         <tbody>
+          <% var curSec = null, curSub = null; %>
           <% items.forEach(function (it) { %>
-          <tr data-s="<%= [it.prod_code, it.item_role, it.brand, it.product_name, it.model_no, it.supplier, it.category_code].filter(Boolean).join(' ').toLowerCase() %>">
+            <% if (it.section !== curSec) { curSec = it.section; curSub = null; %>
+              <tr class="cat-sec"><td colspan="7"><%= curSec || 'Other' %></td></tr>
+            <% } %>
+            <% if (it.subsection !== curSub) { curSub = it.subsection; %>
+              <% if (curSub) { %><tr class="cat-sub"><td colspan="7"><%= curSub %></td></tr><% } %>
+            <% } %>
+          <tr data-s="<%= [it.prod_code, it.item_role, it.brand, it.product_name, it.model_no, it.supplier, it.category_code, it.section, it.subsection].filter(Boolean).join(' ').toLowerCase() %>">
             <td class="cat-code"><%= it.prod_code %></td>
             <td><span class="cat-bucket"><%= it.category_code %></span></td>
             <td><strong><%= it.item_role %></strong><div style="color:var(--muted);font-size:.76rem"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
@@ -59,6 +68,18 @@
 function catFilter() {
   const q = document.getElementById('catSearch').value.toLowerCase().trim();
   document.querySelectorAll('tr[data-s]').forEach(function (r) { r.style.display = !q || r.dataset.s.includes(q) ? '' : 'none'; });
+  // Hide section/subsection dividers that have no visible items beneath them
+  const all = Array.prototype.slice.call(document.querySelectorAll('.cat-table tbody tr'));
+  all.forEach(function (tr, i) {
+    if (!tr.classList.contains('cat-sec') && !tr.classList.contains('cat-sub')) return;
+    let any = false;
+    for (let j = i + 1; j < all.length; j++) {
+      if (tr.classList.contains('cat-sec') && all[j].classList.contains('cat-sec')) break;
+      if (tr.classList.contains('cat-sub') && (all[j].classList.contains('cat-sub') || all[j].classList.contains('cat-sec'))) break;
+      if (all[j].dataset.s && all[j].style.display !== 'none') { any = true; break; }
+    }
+    tr.style.display = any ? '' : 'none';
+  });
 }
 async function catSync(btn) {
   btn.disabled = true; btn.textContent = '⏳ Reading the sheet…';

@@ -1583,6 +1583,9 @@ async function initDb() {
       cost NUMERIC(12,2),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS section VARCHAR(80);
+    ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS subsection VARCHAR(80);
+    ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS sheet_row INTEGER;
 
     CREATE TABLE IF NOT EXISTS project_expected_items (
       id SERIAL PRIMARY KEY,
@@ -5846,9 +5849,19 @@ async function syncMasterCatalog() {
   });
   const rows = data.values || [];
   const out = { seen: 0, upserted: 0, skippedNoCat: 0 };
-  for (const r of rows) {
+  // Preserve the sheet's structure: "Bath - BA" style majors, "Fixtures"/"Vanity" style subs
+  let section = '', subsection = '';
+  for (let ri = 0; ri < rows.length; ri++) {
+    const r = rows[ri];
     const prod = String(r[1] || '').trim();
-    if (!/^[A-Z]{1,3}-/.test(prod)) continue;   // section headers / blank rows
+    if (!/^[A-Z]{1,3}-/.test(prod)) {
+      const label = String(r[0] || '').trim();
+      if (label && !String(r[4] || '').trim() && !/master finish|customer|project address|^#$/i.test(label)) {
+        if (/\s-\s[A-Z]{1,4}$/.test(label)) { section = label.slice(0, 80); subsection = ''; }
+        else if (label.length <= 60) subsection = label.slice(0, 80);
+      }
+      continue;
+    }
     out.seen++;
     let code = canonicalCodeFromCategory(String(r[2] || '').trim());
     // Same unmistakable-by-name overrides the finish-schedule reader applies
@@ -5860,13 +5873,14 @@ async function syncMasterCatalog() {
     const cost = Number(String(r[12] || '').replace(/[^0-9.]/g, '')) || null;
     const qty = parseInt(r[7], 10) || 1;
     await pool.query(
-      `INSERT INTO item_catalog (prod_code, item_role, category_code, brand, product_name, model_no, model_norm, finish, qty_default, supplier, cost, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+      `INSERT INTO item_catalog (prod_code, item_role, category_code, brand, product_name, model_no, model_norm, finish, qty_default, supplier, cost, section, subsection, sheet_row, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,NOW())
        ON CONFLICT (prod_code) DO UPDATE SET item_role=$2, category_code=$3, brand=$4, product_name=$5,
-         model_no=$6, model_norm=$7, finish=$8, qty_default=$9, supplier=$10, cost=$11, updated_at=NOW()`,
+         model_no=$6, model_norm=$7, finish=$8, qty_default=$9, supplier=$10, cost=$11, section=$12, subsection=$13, sheet_row=$14, updated_at=NOW()`,
       [prod.slice(0, 40), String(r[0] || '').trim().slice(0, 120), code, String(r[3] || '').trim().slice(0, 120),
        String(r[4] || '').trim(), model.slice(0, 120), normModel(model).slice(0, 120) || null,
-       String(r[6] || '').trim().slice(0, 120), qty, normalizeSupplier(String(r[14] || '').trim()).slice(0, 120), cost]);
+       String(r[6] || '').trim().slice(0, 120), qty, normalizeSupplier(String(r[14] || '').trim()).slice(0, 120), cost,
+       section || null, subsection || null, ri + 1]);
     out.upserted++;
   }
   console.log('catalog sync:', JSON.stringify(out));
@@ -5927,7 +5941,7 @@ app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
 app.get('/catalog', requireAuth, async (req, res) => {
   try {
     await initDb();
-    const { rows: items } = await pool.query('SELECT * FROM item_catalog ORDER BY category_code, prod_code');
+    const { rows: items } = await pool.query('SELECT * FROM item_catalog ORDER BY sheet_row NULLS LAST, prod_code');
     res.render('catalog', { items });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
