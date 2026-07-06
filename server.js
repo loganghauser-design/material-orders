@@ -1581,6 +1581,7 @@ async function initDb() {
     );
     ALTER TABLE ferguson_updates ADD COLUMN IF NOT EXISTS applied VARCHAR(200);
     ALTER TABLE ferguson_updates ADD COLUMN IF NOT EXISTS order_base VARCHAR(40);
+    ALTER TABLE ferguson_updates ADD COLUMN IF NOT EXISTS auto_done_at TIMESTAMPTZ;
     UPDATE ferguson_updates SET order_base = SPLIT_PART(order_no, '_', 1) WHERE order_base IS NULL AND order_no IS NOT NULL;
 
     CREATE TABLE IF NOT EXISTS delivery_confirms (
@@ -5881,6 +5882,54 @@ async function pollFergusonEmails() {
   } catch (e) { console.error('pollFergusonEmails:', e.message); }
 }
 
+// Appliance deliveries don't send a "delivered" confirmation — the scheduled window IS
+// the signal. Once the window end (+2h grace, Pacific time) passes, mark it delivered
+// and flip the board items, same as a UPS confirmation would.
+const FERG_MONTHS = { january: 0, february: 1, march: 2, april: 3, may: 4, june: 5, july: 6, august: 7, september: 8, october: 9, november: 10, december: 11 };
+function fergusonWindowEndUtc(schedFor) {
+  const m = String(schedFor || '').match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\w*,?\s+(\d{4}).*?-\s*(\d{1,2}):(\d{2})\s*([AP])M/i);
+  if (!m) return null;
+  let hh = Number(m[4]) % 12;
+  if (/p/i.test(m[6])) hh += 12;
+  return new Date(Date.UTC(Number(m[3]), FERG_MONTHS[m[1].toLowerCase()], Number(m[2]), hh + 8, Number(m[5])));   // PT → UTC (+8 covers PST; PDT lands an hour late, inside the grace)
+}
+async function fergusonAutoComplete() {
+  try {
+    const { rows } = await pool.query(`
+      SELECT f.*, p.address AS project_address FROM ferguson_updates f
+      LEFT JOIN projects p ON p.id = f.project_id
+      WHERE f.kind = 'scheduled' AND f.auto_done_at IS NULL AND f.scheduled_for IS NOT NULL`);
+    for (const f of rows) {
+      const end = fergusonWindowEndUtc(f.scheduled_for);
+      if (!end || Date.now() < end.getTime() + 2 * 3600 * 1000) continue;   // window not over yet
+      // A real "delivered" email for the same order already handled it → close quietly
+      let sibling = false;
+      if (f.order_base) {
+        const { rows: [sib] } = await pool.query("SELECT 1 FROM ferguson_updates WHERE order_base=$1 AND kind='delivered' LIMIT 1", [f.order_base]);
+        sibling = !!sib;
+      }
+      let applied = '';
+      if (!sibling && f.project_id) {
+        const codes = fergusonPoCodes(f.po);
+        if (codes.length) {
+          const { rows: upd } = await pool.query(
+            `UPDATE project_items SET status='Delivered'
+             WHERE project_id=$1 AND item_code = ANY($2) AND status NOT IN ('Delivered','Delivered from Inv.','N/A')
+             RETURNING item_code`, [f.project_id, codes]);
+          if (upd.length) applied = upd.map(u => (CODE_NAME[u.item_code] || u.item_code)).join(', ') + ' → Delivered';
+        }
+      }
+      await pool.query('UPDATE ferguson_updates SET auto_done_at=NOW(), applied=COALESCE(applied, $1) WHERE id=$2', [applied || null, f.id]);
+      if (!sibling) {
+        const label = f.project_address || f.address || 'unmatched address';
+        postBidsText('✅ *Ferguson delivery window passed — marked DELIVERED* — ' + label + (f.po ? ' · ' + f.po : '') + (applied ? '\n✔ ' + applied + ' on the board' : ''),
+          f.order_base ? 'ferguson-' + f.order_base : undefined);
+      }
+      console.log('ferguson auto-complete: ' + (f.project_address || f.address) + ' | ' + (f.po || '') + (applied ? ' | ' + applied : ''));
+    }
+  } catch (e) { console.error('fergusonAutoComplete:', e.message); }
+}
+
 // Day-before delivery confirmations: for everything due tomorrow, email the vendor
 // inside the existing RFQ/order thread asking them to confirm. Never sends twice for
 // the same item+date. Runs from the button on Deliveries (and daily if AUTO_DELIVERY_CONFIRM=on).
@@ -6432,6 +6481,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', ingestQuickBooksEmails); // every 20 min — QuickBooks bids from the inbox
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('*/20 * * * *', pollFergusonEmails);     // every 20 min — Ferguson shipment/appliance alerts
+  cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   if (process.env.AUTO_DELIVERY_CONFIRM === 'on') cron.schedule('30 15 * * *', sendDeliveryConfirmations);   // day-before vendor confirmations (opt-in)
@@ -6452,4 +6502,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));

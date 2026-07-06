@@ -43,7 +43,8 @@
     _fu.forEach(function (f) { var k = f.order_base || ('row-' + f.id); (byOrder[k] = byOrder[k] || []).push(f); });
     var RANK = { delivered: 3, out: 2, scheduled: 1 };
     var merged = Object.keys(byOrder).map(function (k) {
-      var g = byOrder[k].slice().sort(function (a, b) { return (RANK[b.kind] || 0) - (RANK[a.kind] || 0); });
+      byOrder[k].forEach(function (x) { x._ekind = (x.kind === 'scheduled' && x.auto_done_at) ? 'delivered' : x.kind; });   // window passed = delivered
+      var g = byOrder[k].slice().sort(function (a, b) { return (RANK[b._ekind] || 0) - (RANK[a._ekind] || 0); });
       var main = g[0];
       main._journey = g.slice(1).map(function (x) {
         var label = x.kind === 'out' ? 'out for delivery' : x.kind === 'scheduled' ? 'scheduled' : 'delivered';
@@ -59,12 +60,13 @@
     var upcoming = [], history = [];
     merged.forEach(function (f) {
       f._sched = f.kind === 'scheduled' ? schedDate(f.scheduled_for) : null;
-      if (f.kind === 'scheduled' && f._sched && f._sched >= _today) upcoming.push(f); else history.push(f);
+      if (f._ekind === 'scheduled' && f._sched && f._sched >= _today) upcoming.push(f); else history.push(f);
     });
     upcoming.sort(function (a, b) { return a._sched - b._sched; });   // soonest delivery first
     function fuRow(f, dim) { %>
       <div style="display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;font-size:.87rem;<%= dim ? 'opacity:.65' : '' %>">
-        <% var tag = f.kind === 'delivered' ? ['DELIVERED', '#16a34a', '#fff'] : f.kind === 'out' ? ['OUT FOR DELIVERY', '#d97706', '#fff'] : (dim ? ['WAS SCHEDULED', '#e6e6e6', '#555'] : ['SCHEDULED', '#e0e7ff', '#3730a3']); %>
+        <% var ek = f._ekind || f.kind;
+           var tag = ek === 'delivered' ? ['DELIVERED', '#16a34a', '#fff'] : ek === 'out' ? ['OUT FOR DELIVERY', '#d97706', '#fff'] : (dim ? ['WAS SCHEDULED', '#e6e6e6', '#555'] : ['SCHEDULED', '#e0e7ff', '#3730a3']); %>
         <span style="background:<%= tag[1] %>;color:<%= tag[2] %>;font-size:.66rem;font-weight:800;padding:2px 9px;border-radius:9px;white-space:nowrap"><%= tag[0] %></span>
         <strong><%= f.project_address || f.address || 'unmatched' %></strong>
         <% if (f.po) { %><span style="color:var(--muted);font-size:.8rem"><%= f.po %></span><% } %>
@@ -92,7 +94,7 @@
     <% if (history.length) { %>
     <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:.35rem">Recent activity</div>
     <div style="display:flex;flex-direction:column;gap:.35rem">
-      <% history.forEach(function (f) { fuRow(f, f.kind === 'scheduled'); }) %>
+      <% history.forEach(function (f) { fuRow(f, (f._ekind || f.kind) === 'scheduled'); }) %>
     </div>
     <% } %>
   </div>
