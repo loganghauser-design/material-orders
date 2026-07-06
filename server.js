@@ -6204,10 +6204,11 @@ function stripBrands(s) {
   BRAND_TOKENS.forEach(b => { t = t.replace(new RegExp('\\b' + b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b\\s*', 'gi'), ''); });
   return t.replace(/\s{2,}/g, ' ').replace(/^[\s,\-–—]+/, '').trim();
 }
-function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window, method }) {
+function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window, method, tracking }) {
   const subject = `Delivery Update — ${jobName}`;
   const isUps = String(method || '').toLowerCase() === 'ups';
   const methodText = isUps ? 'UPS Parcel' : 'Delivery Truck';
+  const trackUrl = tracking ? 'https://www.ups.com/track?loc=en_US&requester=ST&tracknum=' + encodeURIComponent(tracking) : '';
   // Three clean tiers per item: name + qty · maker + model · description + finish.
   const itemRow = it => {
     const maker = [it.brand, it.model ? 'Model ' + it.model : ''].filter(Boolean).join(' &middot; ');
@@ -6225,7 +6226,7 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
     ? `A material shipment for your project at <strong>${escapeHtml(jobName)}</strong> is on its way via UPS. It does not require an appointment &mdash; <strong>please make sure someone can bring it inside and secure it</strong>.`
     : `A material delivery for your project at <strong>${escapeHtml(jobName)}</strong> is on its way. <strong>Please have someone on site to receive the delivery</strong> during the window below.`;
   const contactBlock = isUps
-    ? `<strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the site contact</strong> for this shipment. UPS will leave it at the site &mdash; please arrange for it to be received and stored safely.`
+    ? `<strong style="color:#111827">${escapeHtml(contactName)}, you are the site contact for this shipment.</strong> It is being shipped via UPS and does not require a scheduled appointment. Please ensure the package is received and stored securely on site.${tracking ? ` You can follow its progress using the tracking number below.` : ''}`
     : `<strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the on-site contact</strong> for this delivery. The driver will call you <strong>30&ndash;60 minutes before arrival</strong>, so please keep your phone available.`;
   const html =
 `<div style="margin:0;padding:0;background:#f3f4f6">
@@ -6241,6 +6242,7 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
     <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Method</div>
     <div style="font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(methodText)}</div>
     ${window ? `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin-top:12px">${isUps ? 'Estimated Arrival' : 'Delivery Window'}</div><div style="font-family:Arial,sans-serif;font-size:17px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(window)}</div>` : ''}
+    ${(isUps && tracking) ? `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin-top:12px">Tracking Number</div><div style="font-family:Arial,sans-serif;font-size:16px;font-weight:700;margin-top:4px"><a href="${trackUrl}" style="color:#2563eb;text-decoration:none">${escapeHtml(tracking)} &rsaquo;</a></div>` : ''}
   </td></tr></table></td></tr>
   <tr><td style="padding:12px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px;font-family:Arial,sans-serif;font-size:13.5px;color:#374151;line-height:1.55">
     ${contactBlock}
@@ -6267,7 +6269,7 @@ const MODEL_JUNK = /refer to|per plan|see plan|^n\/?a$|^qty|tbd|^\-+$/i;
 // Recipient = the project's assigned super(s) (the on-site party), or toOverride for tests.
 // method: 'truck' (freight/appointment) or 'ups' (parcel). Each item advertises its
 // maker + model number; the description is cleaned of the brand token to avoid repeating it.
-async function sendDeliveryNotice({ projectId, codes, window, toOverride, method }) {
+async function sendDeliveryNotice({ projectId, codes, window, toOverride, method, tracking }) {
   const { rows: [proj] } = await pool.query(
     'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
   if (!proj) return { ok: false, reason: 'no project' };
@@ -6305,9 +6307,9 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride, method
   if (!groups.length) return { ok: false, reason: 'no schedule items for ' + codes.join(', ') };
   const contactName = (sups[0] && sups[0].name) || 'there';
   const jobName = shortAddress(proj.full_address || proj.address);
-  const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || '', method });
+  const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || '', method, tracking });
   await sendMail({ to: recipients.join(', '), subject, html });
-  return { ok: true, to: recipients, jobName, window, method: method || 'truck', groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
+  return { ok: true, to: recipients, jobName, window, method: method || 'truck', tracking: tracking || null, groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
 }
 
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
@@ -7178,7 +7180,8 @@ app.get('/_test/run', async (req, res) => {
     const window = req.query.window || '';
     const toOverride = req.query.to || undefined;
     const method = req.query.method || 'truck';
-    try { return res.json({ ok: true, job, result: await sendDeliveryNotice({ projectId, codes, window, toOverride, method }) }); }
+    const tracking = req.query.tracking || undefined;
+    try { return res.json({ ok: true, job, result: await sendDeliveryNotice({ projectId, codes, window, toOverride, method, tracking }) }); }
     catch (e) { return res.json({ ok: false, job, error: e.message }); }
   }
   if (job === 'list' || !job) return res.json({ ok: true, isolation: MAIL_REDIRECT_ALL, jobs: [...Object.keys(JOBS), 'delivery-notice (params: project,code,window,to)'] });
