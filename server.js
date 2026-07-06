@@ -7034,6 +7034,13 @@ app.get('/_test/run', async (req, res) => {
     'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
     'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
     'bounces': pollEmailBounces, 'unread-threads': checkUnreadThreads, 'sub-replies': checkSubReplies, 'warranty': autoCompleteWarranty,
+    // Proof job: addresses a clearly-external inbox. With isolation on it must land in
+    // MAIL_REDIRECT_ALL tagged "[TEST → probe-external-sub@example.com]", never actually sent out.
+    'probe-external': async () => {
+      await sendMail({ to: 'probe-external-sub@example.com', subject: 'Isolation probe (should never leave your inbox)',
+        html: '<p>If you are reading this in loganghauser@gmail.com, isolation caught an email addressed to an external party.</p>' });
+      return 'probe sent to probe-external-sub@example.com (redirected)';
+    },
   };
   const job = String(req.query.job || '');
   if (job === 'list' || !job) return res.json({ ok: true, isolation: MAIL_REDIRECT_ALL, jobs: Object.keys(JOBS) });
