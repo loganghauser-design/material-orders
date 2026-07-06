@@ -38,24 +38,25 @@
     </div>
     <div style="max-height:74vh;overflow:auto">
       <table class="cat-table">
-        <thead><tr><th>Prod code</th><th>Bucket</th><th>Item</th><th>Model #</th><th>Finish</th><th>Supplier</th><th>Cost</th></tr></thead>
+        <thead><tr><th>Prod code</th><th>Bucket</th><th>Item</th><th>Model #</th><th>Finish</th><th>Supplier</th><th>Cost</th><th>Link</th></tr></thead>
         <tbody>
           <% var curSec = null, curSub = null; %>
           <% items.forEach(function (it) { %>
             <% if (it.section !== curSec) { curSec = it.section; curSub = null; %>
-              <tr class="cat-sec"><td colspan="7"><%= curSec || 'Other' %></td></tr>
+              <tr class="cat-sec"><td colspan="8"><%= curSec || 'Other' %></td></tr>
             <% } %>
             <% if (it.subsection !== curSub) { curSub = it.subsection; %>
-              <% if (curSub) { %><tr class="cat-sub"><td colspan="7"><%= curSub %></td></tr><% } %>
+              <% if (curSub) { %><tr class="cat-sub"><td colspan="8"><%= curSub %></td></tr><% } %>
             <% } %>
           <tr data-s="<%= [it.prod_code, it.item_role, it.brand, it.product_name, it.model_no, it.supplier, it.category_code, it.section, it.subsection].filter(Boolean).join(' ').toLowerCase() %>">
             <td class="cat-code"><%= it.prod_code %></td>
             <td><span class="cat-bucket"><%= it.category_code %></span></td>
-            <td><strong><%= it.item_role %></strong><% if (it.item_url) { %> <a href="<%= it.item_url %>" target="_blank" rel="noopener" title="Open product page" style="text-decoration:none;font-size:.82rem">🔗</a><% } %><div style="color:var(--muted);font-size:.76rem"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
+            <td><strong><%= it.item_role %></strong><div style="color:var(--muted);font-size:.76rem"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
             <td class="cat-model"><%= it.model_no || '—' %></td>
             <td style="font-size:.78rem;color:var(--muted)"><%= it.finish || '' %></td>
             <td style="font-size:.8rem"><%= it.supplier || '—' %></td>
             <td style="white-space:nowrap"><%= it.cost != null ? '$' + Number(it.cost).toLocaleString('en-US', { minimumFractionDigits: 2 }) : '' %></td>
+            <td style="text-align:center"><% if (it.item_url) { %><a href="<%= it.item_url %>" target="_blank" rel="noopener" title="Open product page" style="text-decoration:none;font-size:.9rem">🔗</a><% } %></td>
           </tr>
           <% }) %>
         </tbody>
