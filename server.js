@@ -6219,11 +6219,11 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
       + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>`
       + `<td style="font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#111827">${escapeHtml(it.name)}</td>`
       + `<td align="right" style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#374151;white-space:nowrap">Qty ${escapeHtml(String(it.qty || '1'))}</td></tr></table>`
-      + (maker ? `<div style="font-family:Arial,sans-serif;font-size:12.5px;font-weight:600;color:#4b5563;margin-top:2px">${maker}</div>` : '')
+      + (maker ? `<div style="font-family:Arial,sans-serif;font-size:12px;font-weight:600;color:#4b5563;margin-top:2px">${maker}</div>` : '')
       + (sub ? `<div style="font-family:Arial,sans-serif;font-size:12px;color:#9ca3af;margin-top:1px">${sub}</div>` : '')
       + `</div>`;
   };
-  const groupBlock = g => `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.5px;color:#2563eb;text-transform:uppercase;margin:14px 0 2px">${escapeHtml(g.label)}</div>${g.items.map(itemRow).join('')}`;
+  const groupBlock = g => `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin:14px 0 2px">${escapeHtml(g.label)}</div>${g.items.map(itemRow).join('')}`;
   const intro = isUps
     ? `A material shipment for your project at <strong>${escapeHtml(jobName)}</strong> is on its way via UPS. It does not require an appointment &mdash; <strong>please make sure someone can bring it inside and secure it</strong>.`
     : `A material delivery for your project at <strong>${escapeHtml(jobName)}</strong> is on its way. <strong>Please have someone on site to receive the delivery</strong> during the window below.`;
@@ -6237,16 +6237,16 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
   <tr><td style="background:#000000;padding:20px 32px"><img src="https://buildoly.up.railway.app/logo-white.png" alt="buildoly" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0"></td></tr>
   <tr><td style="padding:30px 32px 4px">
     <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Update <span style="color:#111827">(${escapeHtml(jobName)})</span></div>
-    <p style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
-    <p style="font-family:Arial,sans-serif;font-size:15px;color:#1f2937;line-height:1.6;margin:14px 0 0">${intro}</p>
+    <p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
+    <p style="font-family:Arial,sans-serif;font-size:14px;color:#1f2937;line-height:1.6;margin:14px 0 0">${intro}</p>
   </td></tr>
   <tr><td style="padding:18px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eff4ff;border:1px solid #d3e0fd;border-radius:10px"><tr><td style="padding:16px 18px">
     <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Method</div>
-    <div style="font-family:Arial,sans-serif;font-size:15px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(methodText)}</div>
-    ${window ? `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin-top:12px">${isUps ? 'Estimated Arrival' : 'Delivery Window'}</div><div style="font-family:Arial,sans-serif;font-size:17px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(window)}</div>` : ''}
+    <div style="font-family:Arial,sans-serif;font-size:16px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(methodText)}</div>
+    ${window ? `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin-top:12px">${isUps ? 'Estimated Arrival' : 'Delivery Window'}</div><div style="font-family:Arial,sans-serif;font-size:16px;font-weight:700;color:#111827;margin-top:4px">${escapeHtml(window)}</div>` : ''}
     ${(isUps && tracking) ? `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin-top:12px">Tracking Number</div><div style="font-family:Arial,sans-serif;font-size:16px;font-weight:700;margin-top:4px"><a href="${trackUrl}" style="color:#2563eb;text-decoration:none">${escapeHtml(tracking)} &rsaquo;</a></div>` : ''}
   </td></tr></table></td></tr>
-  <tr><td style="padding:12px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px;font-family:Arial,sans-serif;font-size:13.5px;color:#374151;line-height:1.55">
+  <tr><td style="padding:12px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px;font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.55">
     ${contactBlock}
   </td></tr></table></td></tr>
   <tr><td style="padding:16px 32px 4px"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e5e7eb;border-radius:10px"><tr><td style="padding:14px 18px 16px">
