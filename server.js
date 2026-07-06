@@ -1566,6 +1566,20 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_checked_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS ins_chased_at TIMESTAMPTZ;
 
+    CREATE TABLE IF NOT EXISTS ferguson_updates (
+      id SERIAL PRIMARY KEY,
+      gmail_message_id VARCHAR(255) UNIQUE,
+      kind VARCHAR(16),
+      order_no VARCHAR(60),
+      po VARCHAR(120),
+      tracking VARCHAR(60),
+      address TEXT,
+      project_id INTEGER,
+      scheduled_for VARCHAR(160),
+      items TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS delivery_confirms (
       id SERIAL PRIMARY KEY,
       project_item_id INTEGER,
@@ -3799,7 +3813,17 @@ app.get('/deliveries', requireAuth, async (req, res) => {
       ORDER BY pi.delivery_date ASC
     `);
     const items = rows.map(r => ({ ...r, item_name: ITEM_NAME[r.item_code] || r.item_code }));
-    res.render('deliveries', { items });
+    // Ferguson shipment/appliance alerts from the last 14 days, matched to projects
+    let ferguson = [];
+    try {
+      const { rows: fu } = await pool.query(`
+        SELECT f.*, p.address AS project_address FROM ferguson_updates f
+        LEFT JOIN projects p ON p.id = f.project_id
+        WHERE f.created_at > NOW() - INTERVAL '14 days'
+        ORDER BY f.created_at DESC LIMIT 40`);
+      ferguson = fu;
+    } catch (e) { /* table brand new */ }
+    res.render('deliveries', { items, ferguson });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -5744,6 +5768,61 @@ async function sendDeliveryReminder() {
   } catch (e) { console.error('sendDeliveryReminder:', e.message); }
 }
 
+// ── Ferguson delivery tracker ───────────────────────────────────────────────────
+// Ferguson's shipping alerts (project44/Convey for UPS parcels, DispatchTrack for
+// appliance deliveries) carry the job address, PO (material stage), and schedule.
+// Match each to the project by address, log it, and ping the delivery chat —
+// threaded per Ferguson order so "out for delivery" and "delivered" stack together.
+async function pollFergusonEmails() {
+  if (!useGmail) return;
+  try {
+    const q = 'from:(project44.com OR getconvey.com OR dispatchtrack.io) newer_than:7d '
+      + '(subject:"Your Ferguson shipment has been delivered" OR subject:"Your Ferguson shipment is out for delivery" OR subject:"Delivery and Installation Update for BUILDOLY INC")';
+    const { data } = await gmailClient.users.messages.list({ userId: 'me', q, maxResults: 30 });
+    const msgs = (data.messages || []).slice().reverse();   // oldest first so threads read in order
+    for (const mm of msgs) {
+      const { rows: seen } = await pool.query('SELECT 1 FROM ferguson_updates WHERE gmail_message_id=$1', [mm.id]);
+      if (seen.length) continue;
+      const { data: full } = await gmailClient.users.messages.get({ userId: 'me', id: mm.id, format: 'full' });
+      const H = full.payload.headers || [];
+      const hv = n => { const h = H.find(x => x.name.toLowerCase() === n.toLowerCase()); return h ? h.value : ''; };
+      const subject = hv('Subject');
+      const kind = /has been delivered/i.test(subject) ? 'delivered' : /out for delivery/i.test(subject) ? 'out' : /Delivery and Installation Update/i.test(subject) ? 'scheduled' : null;
+      if (!kind) continue;
+      const chunks = [];
+      (function walk(p) { if (!p) return; if (p.body && p.body.data) chunks.push(Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); (p.parts || []).forEach(walk); })(full.payload);
+      const text = chunks.join(' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&zwnj;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
+      let orderNo = '', po = '', tracking = '', address = '', schedFor = '', items = '';
+      if (kind === 'scheduled') {
+        orderNo = (text.match(/Your order\s+([\w_]+)/i) || [])[1] || '';
+        po = (text.match(/Customer PO:\s*(.+?)\s+and Job Name/i) || [])[1] || '';
+        const jobName = (text.match(/Job Name:\s*(.+?)\s+is scheduled/i) || [])[1] || '';
+        schedFor = (text.match(/scheduled for [^.]*? on\s+(.+?[AP]M\s*-\s*[\d:]+\s*[AP]M)/i) || [])[1] || '';
+        address = (text.match(/order address as:\s*(.+?)(?:\s+You will receive|\s+Everything look)/i) || [])[1] || jobName;
+        items = ((text.match(/Item SKU#?\s*Quantity\s*(.+?)\s*Click below/i) || [])[1] || '').slice(0, 400);
+      } else {
+        tracking = (text.match(/Tracking:\s*#?(\w+)/i) || [])[1] || '';
+        orderNo = (text.match(/Order Number:\s*(\w+)/i) || [])[1] || '';
+        po = (text.match(/PO Number:\s*(.+?)\s+Job Name/i) || [])[1] || '';
+        address = (text.match(/Shipping Address:\s*(.+?)(?:\s*,\s*US\b|\s+Delivery Window)/i) || [])[1] || '';
+      }
+      const proj = address ? await matchBidToProject(address) : null;
+      await pool.query(
+        `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (gmail_message_id) DO NOTHING`,
+        [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null]);
+      const projLabel = proj ? proj.address : (address || 'unmatched address');
+      const line = kind === 'delivered'
+        ? '✅ *Ferguson DELIVERED* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
+        : kind === 'out'
+        ? '🚚 *Ferguson out for delivery TODAY* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
+        : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '');
+      postToChat(line, orderNo ? 'ferguson-' + orderNo : undefined);
+      console.log('ferguson update: ' + kind + ' → ' + projLabel);
+    }
+  } catch (e) { console.error('pollFergusonEmails:', e.message); }
+}
+
 // Day-before delivery confirmations: for everything due tomorrow, email the vendor
 // inside the existing RFQ/order thread asking them to confirm. Never sends twice for
 // the same item+date. Runs from the button on Deliveries (and daily if AUTO_DELIVERY_CONFIRM=on).
@@ -6294,6 +6373,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
   cron.schedule('*/20 * * * *', ingestQuickBooksEmails); // every 20 min — QuickBooks bids from the inbox
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
+  cron.schedule('*/20 * * * *', pollFergusonEmails);     // every 20 min — Ferguson shipment/appliance alerts
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   if (process.env.AUTO_DELIVERY_CONFIRM === 'on') cron.schedule('30 15 * * *', sendDeliveryConfirmations);   // day-before vendor confirmations (opt-in)
@@ -6314,4 +6394,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));

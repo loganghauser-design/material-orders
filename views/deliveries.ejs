@@ -27,6 +27,31 @@
   }
   </script>
 
+  <!-- Ferguson tracker: shipment + appliance-delivery alerts matched to projects -->
+  <% var _fu = (typeof ferguson !== 'undefined' && ferguson) || []; %>
+  <% if (_fu.length) { %>
+  <div class="card" style="max-width:none;margin-bottom:1.3rem;padding:1rem 1.3rem">
+    <div style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap;margin-bottom:.6rem">
+      <strong style="font-size:1rem">📦 Ferguson tracker</strong>
+      <span style="color:var(--muted);font-size:.8rem">shipment &amp; appliance alerts from Ferguson's emails, matched to your projects — last 14 days</span>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:.35rem">
+      <% _fu.forEach(function (f) {
+           var tag = f.kind === 'delivered' ? ['DELIVERED', '#16a34a', '#fff'] : f.kind === 'out' ? ['OUT FOR DELIVERY', '#d97706', '#fff'] : ['SCHEDULED', '#e0e7ff', '#3730a3']; %>
+      <div style="display:flex;align-items:baseline;gap:.55rem;flex-wrap:wrap;font-size:.87rem">
+        <span style="background:<%= tag[1] %>;color:<%= tag[2] %>;font-size:.66rem;font-weight:800;padding:2px 9px;border-radius:9px;white-space:nowrap"><%= tag[0] %></span>
+        <strong><%= f.project_address || f.address || 'unmatched' %></strong>
+        <% if (f.po) { %><span style="color:var(--muted);font-size:.8rem"><%= f.po %></span><% } %>
+        <% if (f.kind === 'scheduled' && f.scheduled_for) { %><span style="color:#3730a3;font-size:.82rem;font-weight:600"><%= f.scheduled_for %></span><% } %>
+        <% if (f.tracking) { %><a href="https://www.ups.com/track?tracknum=<%= f.tracking %>" target="_blank" rel="noopener" style="font-size:.78rem" title="Track on UPS"><%= f.tracking.slice(0, 18) %>…</a><% } %>
+        <span style="color:var(--muted);font-size:.74rem;margin-left:auto"><%= new Date(f.created_at).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) %></span>
+      </div>
+      <% if (f.kind === 'scheduled' && f.items) { %><div style="color:var(--muted);font-size:.74rem;margin:-.15rem 0 .1rem 4.2rem"><%= f.items.slice(0, 150) %><%= f.items.length > 150 ? '…' : '' %></div><% } %>
+      <% }) %>
+    </div>
+  </div>
+  <% } %>
+
   <%
     const today = new Date(); today.setHours(0,0,0,0);
     const weekEnd = new Date(today); weekEnd.setDate(weekEnd.getDate() + 7);
