@@ -6360,6 +6360,78 @@ async function sendDeliveryConfirmations() {
   return out;
 }
 
+// ── Morning brief ───────────────────────────────────────────────────────────────
+// One 7am message to the Bids space that ties every system together: today's trucks
+// (with supers), the next few days, what the Order Planner says to order now, bids
+// sitting on a decision, and insurance about to lapse. Skips empty sections; posts
+// nothing at all on a quiet day.
+async function sendMorningBrief() {
+  try {
+    const lines = [];
+    const { rows: del } = await pool.query(`
+      SELECT p.address, p.super_email, pi.item_code, pi.delivery_date
+      FROM project_items pi JOIN projects p ON p.id = pi.project_id
+      WHERE p.phase IN ('Pre-Construction','Under Construction')
+        AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A')
+        AND pi.delivery_date IS NOT NULL
+        AND pi.delivery_date <= CURRENT_DATE + INTERVAL '3 days'
+        AND COALESCE(pi.delivery_date_end, pi.delivery_date) >= CURRENT_DATE
+      ORDER BY pi.delivery_date`);
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const fmt = d => new Date(d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const short = a => String(a || '').split(',')[0];
+    const todays = del.filter(r => new Date(r.delivery_date) <= today);
+    const soon = del.filter(r => new Date(r.delivery_date) > today);
+    if (todays.length) {
+      lines.push('🚚 *Arriving today:*');
+      const by = {};
+      todays.forEach(r => { (by[r.address] = by[r.address] || { sups: parseSuperEmails(r.super_email), items: [] }).items.push(ITEM_NAME[r.item_code] || r.item_code); });
+      Object.keys(by).forEach(a => {
+        const g = by[a];
+        lines.push('   • ' + short(a) + ' — ' + g.items.join(', ') + (g.sups.length ? '  (super: ' + g.sups.map(s => s.name).join(', ') + ')' : '  ⚠ no super assigned'));
+      });
+    }
+    if (soon.length) lines.push('📅 *Next 3 days:* ' + soon.map(r => short(r.address) + ' — ' + (ITEM_NAME[r.item_code] || r.item_code) + ' ' + fmt(r.delivery_date)).join(' · '));
+    // What the Order Planner says should be ordered within a week (same rules as /ordering)
+    const { rows: ruleRows } = await pool.query('SELECT * FROM order_rules');
+    const ruleMap = {}; ruleRows.forEach(r => ruleMap[r.item_code] = r);
+    const { rows: projs } = await pool.query(`SELECT id, address, phase_dates FROM projects WHERE phase IN ('Pre-Construction','Under Construction')`);
+    const ids = projs.map(p => p.id);
+    let items = [];
+    if (ids.length) ({ rows: items } = await pool.query('SELECT project_id, item_code, status FROM project_items WHERE project_id = ANY($1)', [ids]));
+    const im = {}; items.forEach(i => { (im[i.project_id] = im[i.project_id] || {})[i.item_code] = i.status; });
+    const due = [];
+    for (const p of projs) {
+      const pd = p.phase_dates || {};
+      for (const it of ALL_ITEMS) {
+        const rule = ruleMap[it.code]; if (!rule) continue;
+        const st = (im[p.id] && im[p.id][it.code]) || 'Not yet placed';
+        if (st === 'N/A' || (STATUS_RANK[st] ?? 0) >= STATUS_RANK['Order Placed']) continue;
+        const aDate = pd[rule.anchor === 'precon' ? 'Pre-Construction' : 'Under Construction'];
+        if (!aDate) continue;
+        const d = new Date(aDate + 'T00:00:00'); d.setDate(d.getDate() + rule.offset_weeks * 7);
+        const days = Math.round((d - today) / 86400000);
+        if (days <= 7) due.push({ address: p.address, name: it.name, days, rfqOut: st === 'RFQ sent' });
+      }
+    }
+    if (due.length) {
+      due.sort((a, b) => a.days - b.days);
+      lines.push('🛒 *Order now:* ' + due.slice(0, 8).map(d =>
+        short(d.address) + ' — ' + d.name + (d.days < 0 ? ' (overdue ' + (-d.days) + 'd)' : d.days === 0 ? ' (today)' : ' (in ' + d.days + 'd)') + (d.rfqOut ? ' — RFQ out' : '')
+      ).join(' · ') + (due.length > 8 ? ' · +' + (due.length - 8) + ' more' : ''));
+    }
+    const { rows: bids } = await pool.query("SELECT company, owner FROM subcontractors WHERE status ILIKE '%bid under review%'");
+    if (bids.length) lines.push('📋 *Bids waiting on a decision (' + bids.length + '):* ' + bids.slice(0, 8).map(b => b.company || b.owner).join(', ') + (bids.length > 8 ? ', …' : ''));
+    const { rows: ins } = await pool.query(
+      "SELECT company, owner, ins_expires FROM subcontractors WHERE ins_expires IS NOT NULL AND status NOT ILIKE '%reject%' AND status NOT ILIKE '%black%' AND ins_expires <= CURRENT_DATE + INTERVAL '14 days' ORDER BY ins_expires LIMIT 5");
+    if (ins.length) lines.push('🛡 *Insurance lapsing ≤14d:* ' + ins.map(s => (s.company || s.owner) + ' (' + new Date(s.ins_expires).toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }) + ')').join(', '));
+    if (!lines.length) return;
+    const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'America/Los_Angeles' });
+    await postBidsText('☀️ *Morning brief — ' + dateStr + '*\n' + lines.join('\n'), 'morning-brief');
+    console.log('morning brief sent: ' + lines.length + ' lines');
+  } catch (e) { console.error('sendMorningBrief:', e.message); }
+}
+
 async function sendWeeklyDigest() {
   if (!emailEnabled) return;
   try {
@@ -6875,6 +6947,8 @@ function startCron() {
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
+  cron.schedule('0 14 * * *', sendMorningBrief);        // daily 7am PT — the everything brief (Bids space)
+  if (process.env.RUN_BRIEF_ON_BOOT === '1') sendMorningBrief();   // local testing hook
   if (process.env.AUTO_DELIVERY_CONFIRM === 'on') cron.schedule('30 15 * * *', sendDeliveryConfirmations);   // day-before vendor confirmations (opt-in)
   cron.schedule('0 15 * * 1', sendWeeklyDigest);        // Mondays ~7am PT
   cron.schedule('40 15 * * 1', licenseWatchdog);        // Mondays — CSLB license re-check
