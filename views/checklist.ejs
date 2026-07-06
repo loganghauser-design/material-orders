@@ -43,27 +43,33 @@
   %>
   <% Object.keys(buckets).sort().forEach(function (k) {
        var list = buckets[k];
-       var done = list.filter(function (e) { return e.delivered; }).length; %>
+       var done = list.filter(function (e) { return e.delivered; }).length;
+       var sched = list.filter(function (e) { return e.scheduled; }).length;
+       var ord = list.filter(function (e) { return e.onOrder; }).length;
+       var pctD = list.length ? Math.round(done / list.length * 100) : 0;
+       var pctS = list.length ? Math.round(sched / list.length * 100) : 0;
+       var pctO = list.length ? Math.round(ord / list.length * 100) : 0; %>
   <div class="ck-bucket">
     <div class="ck-head">
       <h2><%= CODE_LABEL[k] || 'Uncategorized' %></h2>
-      <div class="ck-bar" title="<%= done %> of <%= list.length %> items confirmed delivered (Ferguson deliveries only for now)"><div style="width:<%= list.length ? Math.round(done / list.length * 100) : 0 %>%"></div></div>
-      <span style="font-size:.82rem;font-weight:700;color:<%= done === list.length ? '#16a34a' : 'var(--muted)' %>"><%= done %>/<%= list.length %> in</span>
+      <div class="ck-bar" style="display:flex" title="✅ <%= done %> delivered · 🚚 <%= sched %> scheduled · 📦 <%= ord %> ordered · <%= list.length - done - sched - ord %> not seen"><div style="width:<%= pctD %>%"></div><div style="width:<%= pctS %>%;background:#6366f1"></div><div style="width:<%= pctO %>%;background:#f0b429"></div></div>
+      <span style="font-size:.82rem;font-weight:700;color:<%= done === list.length ? '#16a34a' : 'var(--muted)' %>"><%= done %>✅<%= sched ? ' ' + sched + '🚚' : '' %><%= ord ? ' ' + ord + '📦' : '' %> / <%= list.length %></span>
     </div>
     <% list.forEach(function (e) { %>
     <div class="ck-row <%= e.delivered ? 'ck-done' : '' %>">
-      <span class="ck-check" title="<%= e.delivered ? 'Delivered' : e.onOrder ? 'On a confirmed Ferguson order — not delivered yet' : 'Not yet confirmed ordered or delivered' %>"><%= e.delivered ? '✅' : e.onOrder ? '📦' : '⬜' %></span>
+      <span class="ck-check" title="<%= e.delivered ? 'Delivered' : e.scheduled ? ('Delivery scheduled' + (e.schedWhen ? ': ' + e.schedWhen : '')) : e.onOrder ? 'On a confirmed Ferguson order — not scheduled yet' : 'Not yet seen on an order or delivery' %>"><%= e.delivered ? '✅' : e.scheduled ? '🚚' : e.onOrder ? '📦' : '⬜' %></span>
       <span class="ck-code"><%= e.prod_code || '—' %></span>
       <span><%= e.name %></span>
       <% if (e.qty > 1) { %><span style="font-size:.78rem;font-weight:700">×<%= e.qty %></span><% } %>
       <% if (e.model_no) { %><span class="ck-model"><%= e.model_no %></span><% } %>
+      <% if (e.scheduled && e.schedWhen) { %><span style="color:#3730a3;font-size:.76rem;font-weight:600">🗓 <%= e.schedWhen.slice(0, 45) %></span><% } %>
       <span class="ck-sup"><%= e.supplier || '' %></span>
     </div>
     <% }) %>
   </div>
   <% }) %>
 
-  <p style="color:var(--muted);font-size:.78rem;max-width:760px">✅ = delivered (Ferguson confirmed it, or it's on a confirmed order whose delivery completed) · 📦 = on a confirmed Ferguson order, delivery still ahead · ⬜ = not yet seen on an order or delivery. Other vendors don't self-confirm yet. The list re-syncs from the finish schedule each time you open this page.</p>
+  <p style="color:var(--muted);font-size:.78rem;max-width:760px">✅ delivered · 🚚 delivery scheduled (date shown) · 📦 on a confirmed Ferguson order, not scheduled yet · ⬜ not yet seen on an order or delivery. Other vendors don't self-confirm yet. The list re-syncs from the finish schedule each time you open this page.</p>
 </div>
 </body>
 </html>

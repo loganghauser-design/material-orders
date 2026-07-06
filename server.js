@@ -2724,7 +2724,10 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       items: c.lines.map(l => ({ desc: l.description || l.product_code || '', code: l.product_code || '', qty: l.qty != null ? Number(l.qty) : 1 })),
     }));
 
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS });
+    // Per-bucket item states (from the last checklist sync — cheap, no sheet call)
+    let itemsAgg = {};
+    try { itemsAgg = (await projectItemStates(project.id)).agg; } catch (e) { /* fine — chips just don't show */ }
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS, itemsAgg });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -5933,6 +5936,40 @@ async function syncProjectExpected(projectId) {
   }
   return { ok: true, items: n };
 }
+// Per-item state for one project: ⬜ not seen → 📦 ordered → 🚚 scheduled → ✅ delivered.
+// Sources: rep order-confirmation PDFs (ordered), pending Ferguson updates (scheduled),
+// completed updates (delivered — the full ordered package counts once its bucket completes).
+async function projectItemStates(projectId) {
+  const { rows: expected } = await pool.query(
+    'SELECT * FROM project_expected_items WHERE project_id=$1 ORDER BY category_code NULLS LAST, prod_code', [projectId]);
+  const agg = {};
+  if (!expected.length) return { expected, agg };
+  const { rows: fu } = await pool.query(
+    'SELECT items, po, kind, auto_done_at, scheduled_for FROM ferguson_updates WHERE project_id=$1', [projectId]);
+  const done = fu.filter(f => f.kind === 'delivered' || f.auto_done_at);
+  const pend = fu.filter(f => f.kind === 'scheduled' && !f.auto_done_at);
+  const deliveredBlob = done.map(f => normModel(f.items || '')).join('|');
+  const completedCodes = new Set();
+  done.forEach(f => fergusonPoCodes(f.po).forEach(c => completedCodes.add(c)));
+  const schedBlob = pend.map(f => normModel(f.items || '')).join('|');
+  const schedInfo = {};
+  pend.forEach(f => fergusonPoCodes(f.po).forEach(c => { if (!(c in schedInfo)) schedInfo[c] = f.scheduled_for || ''; }));
+  const { rows: ol } = await pool.query('SELECT model_norm FROM project_order_lines WHERE project_id=$1', [projectId]);
+  const ordered = new Set(ol.map(o => o.model_norm));
+  expected.forEach(e => {
+    const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
+    const onOrder = !!(mn && ordered.has(mn));
+    e.delivered = !!(mn && deliveredBlob.includes(mn)) || (onOrder && e.category_code && completedCodes.has(e.category_code));
+    e.scheduled = !e.delivered && (!!(mn && schedBlob.includes(mn)) || (onOrder && e.category_code && (e.category_code in schedInfo)));
+    e.schedWhen = e.scheduled ? (schedInfo[e.category_code] || '') : '';
+    e.onOrder = !e.delivered && !e.scheduled && onOrder;
+    const k = e.category_code || '—';
+    const a = agg[k] = agg[k] || { total: 0, delivered: 0, scheduled: 0, ordered: 0 };
+    a.total++;
+    if (e.delivered) a.delivered++; else if (e.scheduled) a.scheduled++; else if (e.onOrder) a.ordered++;
+  });
+  return { expected, agg };
+}
 app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
   try {
     await initDb();
@@ -5941,25 +5978,7 @@ app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
     let syncErr = null;
     try { const r = await syncProjectExpected(proj.id); if (!r.ok) syncErr = r.error; }
     catch (e) { syncErr = e.message; }
-    const { rows: expected } = await pool.query(
-      'SELECT * FROM project_expected_items WHERE project_id=$1 ORDER BY category_code NULLS LAST, prod_code', [proj.id]);
-    // Delivered = (a) the model # appeared in a COMPLETED Ferguson delivery, or
-    // (b) it's on a confirmed Ferguson order AND that bucket's delivery has completed —
-    // the alerts only list the bulky items; the order PDF is the full manifest.
-    const { rows: fu } = await pool.query(
-      "SELECT items, po, kind, auto_done_at FROM ferguson_updates WHERE project_id=$1 AND (kind='delivered' OR auto_done_at IS NOT NULL)", [proj.id]);
-    const deliveredBlob = fu.map(f => normModel(f.items || '')).join('|');
-    const completedCodes = new Set();
-    fu.forEach(f => fergusonPoCodes(f.po).forEach(c => completedCodes.add(c)));
-    const { rows: ol } = await pool.query('SELECT model_norm FROM project_order_lines WHERE project_id=$1', [proj.id]);
-    const ordered = new Set(ol.map(o => o.model_norm));
-    expected.forEach(e => {
-      const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
-      const inDelivered = !!(mn && deliveredBlob.includes(mn));
-      const onOrder = !!(mn && ordered.has(mn));
-      e.delivered = inDelivered || (onOrder && e.category_code && completedCodes.has(e.category_code));
-      e.onOrder = !e.delivered && onOrder;
-    });
+    const { expected } = await projectItemStates(proj.id);
     res.render('checklist', { proj, expected, syncErr });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
