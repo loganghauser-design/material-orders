@@ -1582,6 +1582,19 @@ async function initDb() {
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS project_expected_items (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      prod_code VARCHAR(40),
+      name TEXT,
+      category_code VARCHAR(4),
+      model_no VARCHAR(120),
+      model_norm VARCHAR(120),
+      qty INTEGER DEFAULT 1,
+      supplier VARCHAR(120),
+      synced_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS ferguson_updates (
       id SERIAL PRIMARY KEY,
       gmail_message_id VARCHAR(255) UNIQUE,
@@ -5861,6 +5874,54 @@ app.post('/catalog/sync', requireAuth, async (req, res) => {
   try { res.json({ ok: true, ...(await syncMasterCatalog()) }); }
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
+// ── Per-project item checklist ──────────────────────────────────────────────────
+// Expected items = the project's finish schedule (its shopping list), resolved through
+// the catalog for buckets/models. Delivered ✓ = the model # appeared in a completed
+// Ferguson delivery for this project. Re-synced from the sheet on every view (cached 5 min).
+async function syncProjectExpected(projectId) {
+  const { rows: [proj] } = await pool.query('SELECT id, finish_schedule_url FROM projects WHERE id=$1', [projectId]);
+  if (!proj || !proj.finish_schedule_url) return { ok: false, error: 'No finish schedule linked to this project yet.' };
+  const values = await fetchScheduleValues(proj.finish_schedule_url);
+  const parsed = parseScheduleRows(values).filter(r => r.type === 'item');
+  const { rows: cat } = await pool.query('SELECT prod_code, category_code, model_no, model_norm, supplier FROM item_catalog');
+  const catBy = {}; cat.forEach(c => { catBy[c.prod_code] = c; });
+  await pool.query('DELETE FROM project_expected_items WHERE project_id=$1', [projectId]);
+  let n = 0;
+  for (const it of parsed) {
+    const c = catBy[it.prodCode] || {};
+    const supplier = normalizeSupplier(it.supplier || c.supplier || '');
+    if (/contractor to proc|not in scope|^n\/a$/i.test(supplier) || /not in scope/i.test(it.prodCode || '')) continue;
+    const model = (it.model || c.model_no || '').trim();
+    if (!it.prodCode && !model) continue;
+    const catCode = canonicalCodeFromCategory(it.category) || c.category_code || null;
+    await pool.query(
+      `INSERT INTO project_expected_items (project_id, prod_code, name, category_code, model_no, model_norm, qty, supplier)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [projectId, (it.prodCode || '').slice(0, 40) || null, (it.name || it.product || '').slice(0, 200), catCode,
+       model.slice(0, 120), normModel(model).slice(0, 120) || null, parseInt(it.qty, 10) || 1, supplier.slice(0, 120)]);
+    n++;
+  }
+  return { ok: true, items: n };
+}
+app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows: [proj] } = await pool.query('SELECT id, address, finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
+    if (!proj) return res.status(404).send('Project not found.');
+    let syncErr = null;
+    try { const r = await syncProjectExpected(proj.id); if (!r.ok) syncErr = r.error; }
+    catch (e) { syncErr = e.message; }
+    const { rows: expected } = await pool.query(
+      'SELECT * FROM project_expected_items WHERE project_id=$1 ORDER BY category_code NULLS LAST, prod_code', [proj.id]);
+    // Delivered = the model # shows up in a COMPLETED Ferguson delivery for this project
+    const { rows: fu } = await pool.query(
+      "SELECT items, kind, auto_done_at FROM ferguson_updates WHERE project_id=$1 AND (kind='delivered' OR auto_done_at IS NOT NULL)", [proj.id]);
+    const deliveredBlob = fu.map(f => normModel(f.items || '')).join('|');
+    expected.forEach(e => { e.delivered = !!(e.model_norm && e.model_norm.length >= 5 && deliveredBlob.includes(e.model_norm)); });
+    res.render('checklist', { proj, expected, syncErr });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
 app.get('/catalog', requireAuth, async (req, res) => {
   try {
     await initDb();

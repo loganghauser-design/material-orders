@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Item Checklist — <%= proj.address %></title>
+  <link rel="stylesheet" href="/css/app.css">
+  <style>
+    .ck-bucket { background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:1rem 1.2rem; margin-bottom:1rem; max-width:none; }
+    .ck-head { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin-bottom:.6rem; }
+    .ck-head h2 { font-size:1rem; font-weight:800; margin:0; }
+    .ck-bar { flex:1; min-width:140px; max-width:320px; height:10px; background:var(--bg); border:1px solid var(--border); border-radius:5px; overflow:hidden; }
+    .ck-bar > div { height:100%; background:#16a34a; }
+    .ck-row { display:flex; align-items:baseline; gap:.6rem; padding:.32rem 0; border-bottom:1px solid var(--border); font-size:.87rem; flex-wrap:wrap; }
+    .ck-row:last-child { border-bottom:none; }
+    .ck-check { flex:none; width:20px; text-align:center; }
+    .ck-code { font-weight:700; white-space:nowrap; }
+    .ck-model { font-family:monospace; font-size:.78rem; color:var(--muted); white-space:nowrap; }
+    .ck-sup { margin-left:auto; font-size:.76rem; color:var(--muted); white-space:nowrap; }
+    .ck-done { opacity:.62; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'projects' }) %>
+
+<div class="container">
+  <p style="margin:0 0 .7rem"><a href="/projects/<%= proj.id %>" style="font-size:.86rem;color:var(--muted);text-decoration:none">← <%= proj.address %></a></p>
+  <div class="page-header"><h1>📋 Item Checklist <span style="color:var(--muted);font-weight:400;font-size:1rem">— what this project's finish schedule expects</span></h1></div>
+
+  <% if (syncErr) { %>
+    <div class="card" style="background:#fff7e6;border-color:#f0d9a8;color:#7a5b00;margin-bottom:1rem;max-width:none">⚠ Couldn't refresh from the finish schedule: <%= syncErr %><%= expected.length ? ' — showing the last synced list.' : '' %></div>
+  <% } %>
+  <% if (!expected.length) { %>
+    <div class="card" style="max-width:none;color:var(--muted)">No items yet — link a finish schedule to this project and reload.</div>
+  <% } %>
+
+  <%
+    var CODE_LABEL = { '1a':'1a · Doors, Windows','1b':'1b · R. Plumb, Fans','1c':'1c · HVAC Trim','1d':'1d · Tile','1e':'1e · Rec. Light',
+      '2a':'2a · Millwork','2b':'2b · Flooring','2c':'2c · Decking','2d':'2d · Fs. Plumb/Light/Hood','2e':'2e · Water Heater',
+      '3a':'3a · Countertops','3b':'3b · Appliances','3c':'3c · Cabinet Hardware','3d':'3d · Misc','3e':'3e · Shower Doors' };
+    var buckets = {};
+    expected.forEach(function (e) { var k = e.category_code || '—'; (buckets[k] = buckets[k] || []).push(e); });
+  %>
+  <% Object.keys(buckets).sort().forEach(function (k) {
+       var list = buckets[k];
+       var done = list.filter(function (e) { return e.delivered; }).length; %>
+  <div class="ck-bucket">
+    <div class="ck-head">
+      <h2><%= CODE_LABEL[k] || 'Uncategorized' %></h2>
+      <div class="ck-bar" title="<%= done %> of <%= list.length %> items confirmed delivered (Ferguson deliveries only for now)"><div style="width:<%= list.length ? Math.round(done / list.length * 100) : 0 %>%"></div></div>
+      <span style="font-size:.82rem;font-weight:700;color:<%= done === list.length ? '#16a34a' : 'var(--muted)' %>"><%= done %>/<%= list.length %> in</span>
+    </div>
+    <% list.forEach(function (e) { %>
+    <div class="ck-row <%= e.delivered ? 'ck-done' : '' %>">
+      <span class="ck-check"><%= e.delivered ? '✅' : '⬜' %></span>
+      <span class="ck-code"><%= e.prod_code || '—' %></span>
+      <span><%= e.name %></span>
+      <% if (e.qty > 1) { %><span style="font-size:.78rem;font-weight:700">×<%= e.qty %></span><% } %>
+      <% if (e.model_no) { %><span class="ck-model"><%= e.model_no %></span><% } %>
+      <span class="ck-sup"><%= e.supplier || '' %></span>
+    </div>
+    <% }) %>
+  </div>
+  <% }) %>
+
+  <p style="color:var(--muted);font-size:.78rem;max-width:760px">✅ = this model # appeared in a completed Ferguson delivery for this project. Items from other vendors don't self-confirm yet — that's the receipts phase. The list re-syncs from the finish schedule each time you open this page.</p>
+</div>
+</body>
+</html>

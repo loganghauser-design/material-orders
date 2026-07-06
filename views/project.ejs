@@ -81,6 +81,7 @@
     <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">📦 Orders</button>
     <button type="button" class="tab-btn" data-tab="emails" onclick="showTab('emails')">✉️ Emails</button>
     <button type="button" class="tab-btn" data-tab="schedule" onclick="showTab('schedule')">📋 Finish Schedule</button>
+    <a class="tab-btn" href="/projects/<%= project.id %>/checklist" style="text-decoration:none" title="Every item this project's finish schedule expects, with delivered checkmarks per bucket">✅ Item Checklist</a>
   </div>
 
   <div class="tab-panel" data-tab="schedule">
