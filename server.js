@@ -6211,14 +6211,16 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
   const trackUrl = tracking ? 'https://www.ups.com/track?loc=en_US&requester=ST&tracknum=' + encodeURIComponent(tracking) : '';
   // Three clean tiers per item: name + qty · maker + model · description + finish.
   const itemRow = it => {
-    const maker = [it.brand, it.model ? 'Model ' + it.model : ''].filter(Boolean).join(' &middot; ');
-    const sub = [it.desc, it.color].filter(Boolean).join(' &middot; ');
+    // Escape each piece first, THEN join with the raw &middot; separator (joining first
+    // and escaping after would turn the separator into a literal "&middot;").
+    const maker = [it.brand, it.model ? 'Model ' + it.model : ''].filter(Boolean).map(escapeHtml).join(' &middot; ');
+    const sub = [it.desc, it.color].filter(Boolean).map(escapeHtml).join(' &middot; ');
     return `<div style="padding:9px 0;border-top:1px solid #f0f1f4">`
       + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>`
       + `<td style="font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#111827">${escapeHtml(it.name)}</td>`
       + `<td align="right" style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#374151;white-space:nowrap">Qty ${escapeHtml(String(it.qty || '1'))}</td></tr></table>`
       + (maker ? `<div style="font-family:Arial,sans-serif;font-size:12.5px;font-weight:600;color:#4b5563;margin-top:2px">${maker}</div>` : '')
-      + (sub ? `<div style="font-family:Arial,sans-serif;font-size:12px;color:#9ca3af;margin-top:1px">${escapeHtml(sub)}</div>` : '')
+      + (sub ? `<div style="font-family:Arial,sans-serif;font-size:12px;color:#9ca3af;margin-top:1px">${sub}</div>` : '')
       + `</div>`;
   };
   const groupBlock = g => `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:.5px;color:#2563eb;text-transform:uppercase;margin:14px 0 2px">${escapeHtml(g.label)}</div>${g.items.map(itemRow).join('')}`;
