@@ -748,7 +748,7 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
     const held = isHeldSupplier(supplier);
     (byCode[code] = byCode[code] || []).push({
       name, room: currentRoom, product: (row[6] || '').trim(), brand: (row[5] || '').trim(),
-      finishColor: (row[8] || '').trim(),
+      finishColor: (row[8] || '').trim(), prodCode,
       model, qty: (row[9] || '').trim() || '1', supplier,
       hood, jedco, defaultSupplier: (hood || jedco) ? origSupplier : undefined,
       held, itemKey: held ? heldItemKey(prodCode, model, name) : undefined,
@@ -1587,6 +1587,7 @@ async function initDb() {
     ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS subsection VARCHAR(80);
     ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS sheet_row INTEGER;
     ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS item_url TEXT;
+    ALTER TABLE item_catalog ADD COLUMN IF NOT EXISTS alt_models TEXT;
 
     CREATE TABLE IF NOT EXISTS project_expected_items (
       id SERIAL PRIMARY KEY,
@@ -2737,10 +2738,11 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       const st = await projectItemStates(project.id);
       itemsAgg = st.agg;
       st.expected.forEach(e => {
-        if (!e.model_norm || e.model_norm.length < 5) return;
-        if (e.delivered) itemStates[e.model_norm] = { st: 'd' };
-        else if (e.scheduled) itemStates[e.model_norm] = { st: 's', when: e.schedWhen || '' };
-        else if (e.onOrder) itemStates[e.model_norm] = { st: 'o' };
+        const v = e.delivered ? { st: 'd' } : e.scheduled ? { st: 's', when: e.schedWhen || '' } : e.onOrder ? { st: 'o' } : null;
+        if (!v) return;
+        if (e.model_norm && e.model_norm.length >= 5) itemStates[e.model_norm] = v;
+        // Prod-code key so accessories without a model # still get a Delivery badge
+        if (e.prod_code) itemStates['PC:' + e.prod_code.toUpperCase()] = v;
       });
     } catch (e) { /* fine — chips just don't show */ }
     res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS, itemsAgg, itemStates });
@@ -5972,11 +5974,19 @@ async function projectItemStates(projectId) {
   pend.forEach(f => fergusonPoCodes(f.po).forEach(c => { if (!(c in schedInfo)) schedInfo[c] = f.scheduled_for || ''; }));
   const { rows: ol } = await pool.query('SELECT model_norm FROM project_order_lines WHERE project_id=$1', [projectId]);
   const ordered = new Set(ol.map(o => o.model_norm));
+  // Alternate model #s: Ferguson substitutes its own SKUs for generic accessories
+  // (e.g. sheet part 5308819008 "range cord" ships as Ferguson's RAP34009). alt_models
+  // on the catalog row lists those equivalents so the item still matches.
+  const { rows: al } = await pool.query("SELECT prod_code, alt_models FROM item_catalog WHERE alt_models IS NOT NULL AND alt_models <> ''");
+  const aliasBy = {};
+  al.forEach(r => { aliasBy[r.prod_code.toUpperCase()] = r.alt_models.split(',').map(normModel).filter(x => x.length >= 5); });
   expected.forEach(e => {
     const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
-    const onOrder = !!(mn && ordered.has(mn));
-    const explicitlyDelivered = !!(mn && deliveredBlob.includes(mn));
-    const explicitlyScheduled = !!(mn && schedBlob.includes(mn));
+    const norms = mn ? [mn] : [];
+    (aliasBy[(e.prod_code || '').toUpperCase()] || []).forEach(n => { if (!norms.includes(n)) norms.push(n); });
+    const onOrder = norms.some(n => ordered.has(n));
+    const explicitlyDelivered = norms.some(n => deliveredBlob.includes(n));
+    const explicitlyScheduled = norms.some(n => schedBlob.includes(n));
     // Explicit item-level evidence beats bucket inference: an item named on a PENDING
     // delivery is 🚚 even if an earlier parcel already completed the same bucket.
     e.delivered = explicitlyDelivered || (!explicitlyScheduled && onOrder && e.category_code && completedCodes.has(e.category_code));
@@ -6034,7 +6044,7 @@ async function sweepFergusonOrders() {
       const atts = [];
       (function w(p) { if (!p) return; if (p.filename && p.body && p.body.attachmentId && /\.pdf$/i.test(p.filename)) atts.push({ filename: p.filename, aid: p.body.attachmentId }); (p.parts || []).forEach(w); })(full.payload);
       if (!atts.length) continue;
-      const { rows: cat } = await pool.query('SELECT prod_code, model_norm FROM item_catalog WHERE model_norm IS NOT NULL AND LENGTH(model_norm) >= 5');
+      const { rows: cat } = await pool.query("SELECT prod_code, model_norm, alt_models FROM item_catalog WHERE (model_norm IS NOT NULL AND LENGTH(model_norm) >= 5) OR (alt_models IS NOT NULL AND alt_models <> '')");
       for (const a of atts) {
         const proj = await matchBidToProject(a.filename) || await matchBidToProject(subject);
         if (!proj) continue;
@@ -6045,11 +6055,17 @@ async function sweepFergusonOrders() {
         const tn = normModel(text);
         let lines = 0;
         for (const c of cat) {
-          if (!tn.includes(c.model_norm)) continue;
-          const { rows: [dup] } = await pool.query('SELECT 1 FROM project_order_lines WHERE project_id=$1 AND model_norm=$2 LIMIT 1', [proj.id, c.model_norm]);
+          // Match the catalog model # or any alternate SKU (Ferguson's substitutes for
+          // generic accessories). The line stores whichever number the PDF actually used.
+          const norms = [];
+          if (c.model_norm && c.model_norm.length >= 5) norms.push(c.model_norm);
+          String(c.alt_models || '').split(',').map(normModel).filter(x => x.length >= 5).forEach(n => { if (!norms.includes(n)) norms.push(n); });
+          const hit = norms.find(n => tn.includes(n));
+          if (!hit) continue;
+          const { rows: [dup] } = await pool.query('SELECT 1 FROM project_order_lines WHERE project_id=$1 AND model_norm=$2 LIMIT 1', [proj.id, hit]);
           if (dup) continue;
           await pool.query('INSERT INTO project_order_lines (project_id, model_norm, prod_code, filename, gmail_message_id) VALUES ($1,$2,$3,$4,$5)',
-            [proj.id, c.model_norm, c.prod_code, a.filename.slice(0, 255), mm.id]);
+            [proj.id, hit, c.prod_code, a.filename.slice(0, 255), mm.id]);
           lines++;
         }
         if (lines) console.log('ferguson order swept: ' + proj.address + ' | ' + a.filename + ' | ' + lines + ' items');

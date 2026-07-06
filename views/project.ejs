@@ -632,7 +632,8 @@ async function loadMaterialsSchedule() {
     const ITEM_STATES = <%- JSON.stringify(typeof itemStates !== 'undefined' ? itemStates : {}) %>;
     function deliveryCell(it) {
       const mn = String(it.model || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const st = (mn && mn.length >= 5) ? ITEM_STATES[mn] : null;
+      const pc = String(it.prodCode || '').toUpperCase();
+      const st = ((mn && mn.length >= 5) ? ITEM_STATES[mn] : null) || (pc ? ITEM_STATES['PC:' + pc] : null);
       if (!st) return '<td style="padding:3px 6px;color:var(--muted)">—</td>';
       if (st.st === 'd') return '<td style="padding:3px 6px;white-space:nowrap"><span style="background:#e7f6ec;color:#176b3a;font-weight:700;font-size:.72rem;padding:2px 8px;border-radius:8px">✅ Delivered</span></td>';
       if (st.st === 's') {
