@@ -5835,7 +5835,11 @@ async function syncMasterCatalog() {
     const prod = String(r[1] || '').trim();
     if (!/^[A-Z]{1,3}-/.test(prod)) continue;   // section headers / blank rows
     out.seen++;
-    const code = canonicalCodeFromCategory(String(r[2] || '').trim());
+    let code = canonicalCodeFromCategory(String(r[2] || '').trim());
+    // Same unmistakable-by-name overrides the finish-schedule reader applies
+    const nameText = (String(r[0] || '') + ' ' + String(r[4] || '')).toLowerCase();
+    if (/water heater|wtr htr|tankless/.test(nameText)) code = '2e';
+    if (/shower door|shower glass|shower enclosure/.test(nameText)) code = '3e';
     if (!code) { out.skippedNoCat++; continue; }
     const model = String(r[5] || '').trim();
     const cost = Number(String(r[12] || '').replace(/[^0-9.]/g, '')) || null;
