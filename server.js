@@ -1601,6 +1601,11 @@ async function initDb() {
       synced_at TIMESTAMPTZ DEFAULT NOW()
     );
 
+    CREATE TABLE IF NOT EXISTS ferg_order_seen (
+      gmail_message_id VARCHAR(255) PRIMARY KEY,
+      seen_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     CREATE TABLE IF NOT EXISTS project_order_lines (
       id SERIAL PRIMARY KEY,
       project_id INTEGER,
@@ -6004,9 +6009,9 @@ async function sweepFergusonOrders() {
       q: 'from:ferguson.com -from:alerts -from:no-reply has:attachment filename:pdf newer_than:30d',
     });
     for (const mm of (data.messages || [])) {
-      const { rows: seen } = await pool.query('SELECT 1 FROM qb_seen WHERE gmail_message_id=$1', [mm.id]);
+      const { rows: seen } = await pool.query('SELECT 1 FROM ferg_order_seen WHERE gmail_message_id=$1', [mm.id]);
       if (seen.length) continue;
-      await pool.query('INSERT INTO qb_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [mm.id]);
+      await pool.query('INSERT INTO ferg_order_seen (gmail_message_id) VALUES ($1) ON CONFLICT DO NOTHING', [mm.id]);
       const { data: full } = await gmailClient.users.messages.get({ userId: 'me', id: mm.id, format: 'full' });
       const H = full.payload.headers || [];
       const hv = n => { const h = H.find(x => x.name.toLowerCase() === n.toLowerCase()); return h ? h.value : ''; };
