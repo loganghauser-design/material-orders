@@ -6255,16 +6255,23 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride }) {
   const recipients = toOverride ? [toOverride] : sups.map(s => s.email).filter(Boolean);
   if (!recipients.length) return { ok: false, reason: 'no on-site contact assigned (add a super with an email)' };
   if (!proj.finish_schedule_url) return { ok: false, reason: 'no finish schedule linked' };
-  let byCode;
+  // Group by CANONICAL code (by category text) so it matches fergusonPoCodes() and the
+  // board — the sheet's own leading numbers can disagree (e.g. it labels appliances "2d",
+  // canon is 3b). readScheduleByCategory keys by raw number, so we regroup here.
+  let byCanon = {};
   try {
-    byCode = await readScheduleByCategory(proj.finish_schedule_url, { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source });
+    const rows = await fetchScheduleValues(proj.finish_schedule_url);
+    parseScheduleRows(rows).filter(r => r.type === 'item').forEach(it => {
+      const c = canonicalCodeFromCategory(it.category);
+      if (c) (byCanon[c] = byCanon[c] || []).push(it);
+    });
   } catch (e) { return { ok: false, reason: 'schedule unreadable: ' + e.message }; }
   const groups = []; let supplierName = '';
   for (const code of codes) {
-    const raw = byCode[code] || [];
-    const items = raw.filter(it => !/contractor to proc|not in scope|^n\/a$/i.test(it.supplier || '')).map(it => ({ name: it.name, desc: stripBrands(it.product), color: it.finishColor, qty: it.qty }));
+    const raw = byCanon[code] || [];
+    const items = raw.filter(it => !/contractor to proc|not in scope|^n\/a$/i.test(normalizeSupplier(it.supplier || ''))).map(it => ({ name: it.name, desc: stripBrands(it.product), color: it.color, qty: it.qty }));
     if (!items.length) continue;
-    if (!supplierName && raw[0]) supplierName = raw[0].supplier || '';
+    if (!supplierName && raw[0]) supplierName = normalizeSupplier(raw[0].supplier || '');
     groups.push({ label: CODE_NAME[code] || code.toUpperCase(), items });
   }
   if (!groups.length) return { ok: false, reason: 'no schedule items for ' + codes.join(', ') };
