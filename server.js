@@ -5865,6 +5865,24 @@ async function pollFergusonEmails() {
           if (upd.length) applied = upd.map(u => (CODE_NAME[u.item_code] || u.item_code)).join(', ') + ' → Delivered';
         }
       }
+      // SCHEDULED + matched project → Ferguson's date becomes the board's delivery date
+      if (kind === 'scheduled' && proj) {
+        const dISO = fergusonSchedDateISO(schedFor);
+        const codes = fergusonPoCodes(po);
+        if (dISO && codes.length) {
+          const { rows: updD } = await pool.query(
+            `UPDATE project_items SET delivery_date = $1,
+                    delivery_date_end = CASE WHEN delivery_date_end IS NOT NULL AND delivery_date_end < $1::date THEN NULL ELSE delivery_date_end END
+             WHERE project_id = $2 AND item_code = ANY($3)
+               AND status NOT IN ('Delivered','Delivered from Inv.','N/A')
+               AND (delivery_date IS DISTINCT FROM $1::date)
+             RETURNING item_code`, [dISO, proj.id, codes]);
+          if (updD.length) {
+            const nice = new Date(dISO + 'T12:00:00').toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' });
+            applied = (applied ? applied + '; ' : '') + updD.map(u => (CODE_NAME[u.item_code] || u.item_code)).join(', ') + ' date → ' + nice;
+          }
+        }
+      }
       await pool.query(
         `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, order_base, po, tracking, address, project_id, scheduled_for, items, created_at, applied)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) ON CONFLICT (gmail_message_id) DO NOTHING`,
@@ -5875,7 +5893,7 @@ async function pollFergusonEmails() {
         ? '✅ *Ferguson DELIVERED* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '') + (applied ? '\n✔ ' + applied + ' on the board' : '')
         : kind === 'out'
         ? '🚚 *Ferguson out for delivery TODAY* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
-        : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '');
+        : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '') + (applied ? '\n📌 ' + applied + ' on the board' : '');
       postBidsText(line, orderBase ? 'ferguson-' + orderBase : undefined);   // whole order lifecycle = one chat thread
       console.log('ferguson update: ' + kind + ' → ' + projLabel);
     }
@@ -5892,6 +5910,12 @@ function fergusonWindowEndUtc(schedFor) {
   let hh = Number(m[4]) % 12;
   if (/p/i.test(m[6])) hh += 12;
   return new Date(Date.UTC(Number(m[3]), FERG_MONTHS[m[1].toLowerCase()], Number(m[2]), hh + 8, Number(m[5])));   // PT → UTC (+8 covers PST; PDT lands an hour late, inside the grace)
+}
+// "Monday, July 6th 2026 between …" → 2026-07-06 (for the board's delivery_date)
+function fergusonSchedDateISO(schedFor) {
+  const m = String(schedFor || '').match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\w*,?\s+(\d{4})/i);
+  if (!m) return null;
+  return m[3] + '-' + String(FERG_MONTHS[m[1].toLowerCase()] + 1).padStart(2, '0') + '-' + String(Number(m[2])).padStart(2, '0');
 }
 async function fergusonAutoComplete() {
   try {
