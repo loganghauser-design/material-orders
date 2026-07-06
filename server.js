@@ -1136,7 +1136,22 @@ function parseRecipients(to) {
   return String(to || '').split(/[,;]+/).map(s => s.trim()).filter(Boolean);
 }
 
+// ── Isolation / test mode ────────────────────────────────────────────────────────
+// When MAIL_REDIRECT_ALL is set to an address, every outbound email is rewritten to
+// that single inbox and the intended recipient is shown in the subject — nothing can
+// reach a real client, sub, or vendor. Threading is stripped so test copies don't land
+// inside real Gmail conversations. Delivery-chat pings are diverted to the Bids space.
+const MAIL_REDIRECT_ALL = (process.env.MAIL_REDIRECT_ALL || '').trim();
+const ISOLATION_ON = !!MAIL_REDIRECT_ALL;
+if (ISOLATION_ON) console.log('⚠ ISOLATION MODE ON — all outbound email redirected to ' + MAIL_REDIRECT_ALL);
+
 async function sendMail({ to, cc, subject, text, html, attachments, threadId, inReplyTo, references }) {
+  if (MAIL_REDIRECT_ALL) {
+    const intended = [to, cc].filter(Boolean).join(', ') || '(no recipient)';
+    subject = `[TEST → ${intended}] ${subject || ''}`;
+    to = MAIL_REDIRECT_ALL; cc = undefined;
+    threadId = undefined; inReplyTo = undefined; references = undefined;
+  }
   const recipients = parseRecipients(to);
   const ccList = parseRecipients(cc);
   if (useGmail) {
@@ -1339,6 +1354,7 @@ function shortAddress(addr) {
 // Post to Google Chat. Pass a threadKey to group messages into one thread
 // (e.g. an issue + its responses) — works in spaces that are organized by thread.
 async function postToChat(text, threadKey) {
+  if (MAIL_REDIRECT_ALL) { return postBidsText('[TEST · would post to delivery chat]\n' + text, threadKey); }
   if (!CHAT_WEBHOOK_URL) { console.log('postToChat: no CHAT_WEBHOOK_URL set'); return; }
   try {
     let url = CHAT_WEBHOOK_URL;
@@ -1360,6 +1376,11 @@ async function postToChat(text, threadKey) {
 // Create a Gmail draft (instead of sending) so the user can review/send from Gmail
 async function createDraft({ to, cc, subject, text, html, attachments }) {
   if (!useGmail) throw new Error('Drafts require Gmail to be configured.');
+  if (MAIL_REDIRECT_ALL) {
+    const intended = [to, cc].filter(Boolean).join(', ') || '(no recipient)';
+    subject = `[TEST → ${intended}] ${subject || ''}`;
+    to = MAIL_REDIRECT_ALL; cc = undefined;
+  }
   const recipients = parseRecipients(to);
   const ccList = parseRecipients(cc);
   const raw = buildRawMessage({ from: gmailUser, to: recipients.join(', '), cc: ccList.join(', ') || undefined, subject, text, html, attachments });
@@ -6998,6 +7019,34 @@ async function ingestQuickBooksEmails() {
     }
   } catch (e) { console.error('ingestQuickBooksEmails:', e.message); }
 }
+
+// ── Test runner ──────────────────────────────────────────────────────────────────
+// Drives any automated job on demand for an isolated end-to-end test. Only works while
+// ISOLATION MODE is on (every email is redirected to MAIL_REDIRECT_ALL) and requires the
+// TEST_KEY, so it can never fire real notifications. GET /_test/run?key=…&job=list
+app.get('/_test/run', async (req, res) => {
+  if (!ISOLATION_ON) return res.status(403).json({ ok: false, error: 'Isolation mode is OFF (set MAIL_REDIRECT_ALL to enable the test runner).' });
+  if (!process.env.TEST_KEY || req.query.key !== process.env.TEST_KEY) return res.status(403).json({ ok: false, error: 'Missing or bad key.' });
+  const JOBS = {
+    'morning-brief': sendMorningBrief, 'weekly-digest': sendWeeklyDigest, 'coverage-digest': coverageDigest,
+    'delivery-reminder': sendDeliveryReminder, 'delivery-confirmations': sendDeliveryConfirmations,
+    'license-watchdog': licenseWatchdog, 'insurance-scan': insuranceScanAll,
+    'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
+    'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
+    'bounces': pollEmailBounces, 'unread-threads': checkUnreadThreads, 'sub-replies': checkSubReplies, 'warranty': autoCompleteWarranty,
+  };
+  const job = String(req.query.job || '');
+  if (job === 'list' || !job) return res.json({ ok: true, isolation: MAIL_REDIRECT_ALL, jobs: Object.keys(JOBS) });
+  const fn = JOBS[job];
+  if (!fn) return res.status(400).json({ ok: false, error: 'unknown job: ' + job, jobs: Object.keys(JOBS) });
+  const t0 = Date.now();
+  try {
+    const result = await fn();
+    res.json({ ok: true, job, ms: Date.now() - t0, result: result === undefined ? 'ran (see email/Bids space + logs)' : result });
+  } catch (e) {
+    res.json({ ok: false, job, ms: Date.now() - t0, error: e.message, stack: (e.stack || '').split('\n').slice(0, 4) });
+  }
+});
 
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
