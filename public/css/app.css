@@ -182,8 +182,8 @@ textarea { resize: vertical; min-height: 80px; }
 .cell-issue { background: #cc0000; color: #ffffff; }
 
 /* Stage cards */
-.stage-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 1.25rem; overflow: hidden; }
-.stage-header { padding: .85rem 1.25rem; font-weight: 700; font-size: .95rem; background: #f0f2f8; border-bottom: 1px solid var(--border); }
+.stage-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1.25rem; overflow: hidden; box-shadow: 0 1px 3px rgba(20,25,40,.05); }
+.stage-header { padding: .8rem 1.25rem; font-weight: 800; font-size: .98rem; background: var(--surface); border-bottom: 2px solid #eceff5; }
 .stage-table { width: 100%; border-collapse: collapse; }
 .stage-table th { padding: .6rem 1rem; text-align: left; font-size: .75rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; background: #f8f9fb; }
 .stage-table td { padding: .65rem 1rem; border-top: 1px solid var(--border); vertical-align: middle; }
@@ -194,21 +194,33 @@ textarea { resize: vertical; min-height: 80px; }
 .item-select:focus, .item-date:focus, .item-notes:focus { outline: 2px solid var(--accent); }
 
 /* Materials tab — per-item delivery redesign */
-.mat-code { display: inline-block; min-width: 26px; text-align: center; font-size: .7rem; font-weight: 700; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 1px 5px; }
-.ck-mini { display: inline-flex; align-items: center; gap: .5rem; text-decoration: none; color: var(--text); max-width: 100%; }
+.mat-code { display: inline-block; min-width: 27px; text-align: center; font-size: .7rem; font-weight: 800; color: #5b6472; background: #eef1f6; border-radius: 6px; padding: 2px 6px; letter-spacing: .02em; }
+.mat-main { padding: .85rem 1.25rem !important; }
+.mat-title { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .95rem; }
+.mat-title .cat-caret { color: var(--muted); font-size: .8rem; width: 12px; display: inline-block; }
+.mat-title strong { font-weight: 700; }
+.mat-srcs { margin: .35rem 0 0 1.35rem; display: flex; gap: 1rem; flex-wrap: wrap; }
+.mat-srcs label { font-size: .7rem; color: var(--muted); }
+.mat-srcs select { font-size: .7rem; border: 1px solid var(--border); border-radius: 5px; padding: .1rem .3rem; }
+.ck-mini { display: inline-flex; align-items: center; gap: .55rem; text-decoration: none; color: var(--text); max-width: 100%; }
 .ck-mini:hover .ck-mini-txt { text-decoration: underline; }
-.ck-mini-bar { flex: none; width: 74px; height: 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: hidden; display: inline-flex; }
+.mat-prog { display: flex; margin: .5rem 0 0 1.35rem; }
+.mat-prog .ck-mini-bar { width: 220px; height: 9px; }
+.ck-mini-bar { flex: none; width: 74px; height: 8px; background: #e9ecf2; border-radius: 5px; overflow: hidden; display: inline-flex; }
 .ck-mini-bar i { display: block; height: 100%; }
 .ck-mini-bar i.d { background: #16a34a; }
 .ck-mini-bar i.s { background: #6366f1; }
 .ck-mini-bar i.o { background: #f0b429; }
-.ck-mini-txt { font-size: .72rem; font-weight: 700; white-space: nowrap; }
-.sched-cell { white-space: nowrap; }
-.sched-sum { font-size: .78rem; color: var(--text); }
-.sched-sum:empty::before { content: '\2014'; color: var(--muted); }
-.edit-btn { border: 1px solid var(--border); background: var(--surface); border-radius: 7px; padding: .18rem .45rem; cursor: pointer; font-size: .78rem; color: var(--muted); }
-.edit-btn:hover { border-color: #4f8ef7; color: var(--text); }
-.stage-table tr.edit-row td { background: #f8f9fb; border-top: 1px dashed var(--border); padding: .5rem 1rem; }
+.ck-mini-txt { font-size: .73rem; font-weight: 700; white-space: nowrap; color: #444c59; }
+.stage-roll { display: inline-flex; align-items: center; gap: .5rem; font-size: .73rem; font-weight: 600; color: var(--muted); }
+.mat-side { padding: .85rem 1.25rem !important; text-align: right; white-space: nowrap; width: 1%; vertical-align: middle !important; }
+.mat-side .status-select { font-size: .72rem; padding: .28rem .65rem; }
+.mat-actions { display: inline-flex; gap: .3rem; margin-left: .35rem; vertical-align: middle; }
+.sched-sum { font-size: .76rem; color: var(--muted); font-weight: 600; margin-right: .6rem; }
+.sched-sum:empty { display: none; }
+.edit-btn, .notify-btn { border: 1px solid var(--border); background: var(--surface); border-radius: 7px; padding: .22rem .5rem; cursor: pointer; font-size: .78rem; color: var(--muted); line-height: 1; }
+.edit-btn:hover, .notify-btn:hover { border-color: #4f8ef7; color: var(--text); }
+.stage-table tr.edit-row td { background: #f8f9fb; border-top: 1px dashed var(--border); padding: .55rem 1.25rem .55rem 2.4rem; }
 .stage-table tr.edit-row:hover td { background: #f8f9fb; }
 .edit-lbl { display: inline-flex; align-items: center; gap: .4rem; font-size: .74rem; font-weight: 600; color: var(--muted); }
 .dlv-badge { font-weight: 700; font-size: .72rem; padding: 2px 8px; border-radius: 8px; cursor: pointer; user-select: none; white-space: nowrap; }
@@ -317,9 +329,17 @@ textarea { resize: vertical; min-height: 80px; }
   .form-grid { grid-template-columns: 1fr; }
   .container { padding: 1rem; }
   .stats { grid-template-columns: 1fr 1fr; }
-  .stage-table th:nth-child(4), .stage-table td:nth-child(4) { display: none; }
-  .stage-table tr.edit-row td, .stage-table tr.sched-sub td { display: table-cell; }
-  .ck-mini-bar { width: 46px; }
+}
+
+/* Materials rows stack below ~900px (tablet/phone) so the right side never crushes */
+@media (max-width: 900px) {
+  .mat-row td { display: block; border-top: none; }
+  .mat-row td.mat-main { border-top: 1px solid var(--border); padding-bottom: .2rem !important; }
+  .mat-side { text-align: left !important; padding: 0 1.25rem .8rem 2.35rem !important; white-space: normal !important; width: auto !important; }
+  .sched-sum { display: block; margin: 0 0 .35rem; }
+  .mat-prog .ck-mini-bar { width: 140px; }
+  .stage-roll { display: none; }
+  .stage-table tr.edit-row td { padding-left: 1.25rem; }
 }
 
 /* Home-grid super chips (assign supers inline from the project list) */
