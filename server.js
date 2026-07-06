@@ -6205,10 +6205,22 @@ function stripBrands(s) {
   return t.replace(/\s{2,}/g, ' ').replace(/^[\s,\-–—]+/, '').trim();
 }
 function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window, method, tracking }) {
-  const subject = `Delivery Update — ${jobName}`;
   const isUps = String(method || '').toLowerCase() === 'ups';
   const methodText = isUps ? 'UPS Parcel' : 'Delivery Truck';
   const trackUrl = tracking ? 'https://www.ups.com/track?loc=en_US&requester=ST&tracknum=' + encodeURIComponent(tracking) : '';
+  // Short "Mon, Jul 6" for the subject line, parsed from the window text.
+  const shortWhen = (() => {
+    const w = String(window || '');
+    const m = w.match(/(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s+([A-Z][a-z]+)\s+(\d{1,2})/);
+    if (m) return m[1] + ', ' + m[2].slice(0, 3) + ' ' + m[3];
+    if (/today/i.test(w)) return 'Today';
+    return '';
+  })();
+  const subject = `Delivery Update — ${jobName}` + (shortWhen ? ` · Arriving ${shortWhen}` : (isUps ? ' · Shipping via UPS' : ''));
+  // Inbox preview snippet (hidden in the body).
+  const preheader = isUps
+    ? `${methodText}${tracking ? ' · tracking number enclosed' : ''} · no appointment needed`
+    : `${methodText}${window ? ' · ' + window : ''} · someone must be on site to receive it`;
   // Three clean tiers per item: name + qty · maker + model · description + finish.
   const itemRow = it => {
     // Escape each piece first, THEN join with the raw &middot; separator (joining first
@@ -6232,9 +6244,10 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
     : `<strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the on-site contact</strong> for this delivery. The driver will call you <strong>30&ndash;60 minutes before arrival</strong>, so please keep your phone available.`;
   const html =
 `<div style="margin:0;padding:0;background:#f3f4f6">
+<div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f3f4f6;opacity:0">${escapeHtml(preheader)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0"><tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-  <tr><td style="background:#000000;padding:20px 32px"><img src="https://buildoly.up.railway.app/logo-white.png" alt="buildoly" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0"></td></tr>
+  <tr><td style="background:#000000;padding:20px 32px"><img src="https://buildoly.up.railway.app/logo-white.png" alt="buildoly" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0;color:#ffffff;font-family:Arial,sans-serif;font-size:24px;font-weight:800;letter-spacing:.3px;line-height:36px"></td></tr>
   <tr><td style="padding:30px 32px 4px">
     <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Update <span style="color:#111827">(${escapeHtml(jobName)})</span></div>
     <p style="font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
