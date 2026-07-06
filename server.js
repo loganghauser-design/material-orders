@@ -5768,6 +5768,21 @@ async function sendDeliveryReminder() {
   } catch (e) { console.error('sendDeliveryReminder:', e.message); }
 }
 
+// Plain-text post to the Bids space — the testing ground for all notifications for now.
+// (The material delivery chat stays quiet unless Logan explicitly asks for something there.)
+async function postBidsText(text, threadKey) {
+  if (!process.env.BIDS_WEBHOOK_URL) return;
+  try {
+    let url = process.env.BIDS_WEBHOOK_URL;
+    const body = { text };
+    if (threadKey) {
+      url += (url.includes('?') ? '&' : '?') + 'messageReplyOption=REPLY_MESSAGE_FALLBACK_TO_NEW_THREAD';
+      body.thread = { threadKey: String(threadKey) };
+    }
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify(body) });
+  } catch (e) { console.error('postBidsText:', e.message); }
+}
+
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
 // Ferguson's shipping alerts (project44/Convey for UPS parcels, DispatchTrack for
 // appliance deliveries) carry the job address, PO (material stage), and schedule.
@@ -5811,8 +5826,15 @@ async function pollFergusonEmails() {
         `INSERT INTO ferguson_updates (gmail_message_id, kind, order_no, po, tracking, address, project_id, scheduled_for, items)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (gmail_message_id) DO NOTHING`,
         [mm.id, kind, orderNo.slice(0, 60), po.slice(0, 120), tracking.slice(0, 60), address.slice(0, 250), proj ? proj.id : null, schedFor.slice(0, 160), items || null]);
-      // No chat posts — the tracker card on the Deliveries page is the home for these.
-      console.log('ferguson update: ' + kind + ' → ' + (proj ? proj.address : (address || 'unmatched')));
+      // Testing phase: notifications go to the BIDS space (per Logan), threaded per order
+      const projLabel = proj ? proj.address : (address || 'unmatched address');
+      const line = kind === 'delivered'
+        ? '✅ *Ferguson DELIVERED* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
+        : kind === 'out'
+        ? '🚚 *Ferguson out for delivery TODAY* — ' + projLabel + (po ? ' · ' + po : '') + (tracking ? '\nTracking ' + tracking : '')
+        : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '');
+      postBidsText(line, orderNo ? 'ferguson-' + orderNo : undefined);
+      console.log('ferguson update: ' + kind + ' → ' + projLabel);
     }
   } catch (e) { console.error('pollFergusonEmails:', e.message); }
 }
@@ -5908,8 +5930,8 @@ async function licenseWatchdog() {
       await new Promise(r => setTimeout(r, 900));
     }
     if (findings.length) {
-      const LOGAN = '106404376271648731086';
-      postToChat(['🛡️ *License Watchdog* <users/' + LOGAN + '> — ' + findings.length + ' contractor(s) need attention:', ...findings.slice(0, 15)].join('\n'));
+      // Recruiting intel lives in the Bids space — the delivery chat stays quiet
+      postBidsText(['🛡️ *License Watchdog* — ' + findings.length + ' contractor(s) need attention:', ...findings.slice(0, 15)].join('\n'));
     }
     console.log('licenseWatchdog: checked ' + rows.length + ', flagged ' + findings.length);
   } catch (e) { console.error('licenseWatchdog:', e.message); }
