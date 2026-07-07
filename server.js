@@ -6309,9 +6309,12 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride, method
   const groups = []; let supplierName = '';
   for (const code of codes) {
     let raw = byCanon[code] || [];
-    // Split-order handling: keep only manifest items, or drop already-shipped items.
-    if (manifestBlob) raw = raw.filter(it => { const mn = normModel(it.model); return mn.length >= 5 && manifestBlob.includes(mn); });
-    else if (exceptBlob) raw = raw.filter(it => { const mn = normModel(it.model); return !(mn.length >= 5 && exceptBlob.includes(mn)); });
+    // Split-order handling: match a shipment manifest to schedule items. The model # can
+    // live in the model OR color column (data quirk — fans put "FV-0510VSC1" under color),
+    // so gather every model-like token (has a digit + a letter, len >= 5) and match any.
+    const idTokens = it => [it.model, it.color].map(normModel).filter(t => t.length >= 5 && /\d/.test(t) && /[A-Z]/.test(t));
+    if (manifestBlob) raw = raw.filter(it => idTokens(it).some(t => manifestBlob.includes(t)));
+    else if (exceptBlob) raw = raw.filter(it => !idTokens(it).some(t => exceptBlob.includes(t)));
     const items = raw.filter(it => !/contractor to proc|not in scope|^n\/a$/i.test(normalizeSupplier(it.supplier || ''))).map(it => {
       const brand = /^generic$/i.test((it.brand || '').trim()) ? '' : (it.brand || '').trim();
       const model = MODEL_JUNK.test(it.model || '') ? '' : (it.model || '').trim();
