@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Buildoly Office</title>
-  <link rel="stylesheet" href="/css/app.css?v=3">
+  <link rel="stylesheet" href="/css/app.css?v=5">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -12,62 +12,67 @@
   <link rel="apple-touch-icon" href="/icon.svg">
   <script>if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}</script>
   <style>
-    .dash { max-width: 1180px; margin: 0 auto; padding: 1.7rem 1.2rem 3.5rem; }
-    .dash-hero { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; margin-bottom:.4rem; }
-    .dash-hero h1 { font-size: 1.75rem; font-weight: 800; letter-spacing: -.02em; }
-    .dash-hero .date { color: var(--muted); font-size: .95rem; margin-top: .25rem; }
-    .sec-head { display:flex; align-items:baseline; justify-content:space-between; margin: 1.9rem 0 .85rem; }
-    .sec-head h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .07em; color: var(--muted); font-weight: 800; }
-    .sec-head a { font-size: .85rem; font-weight: 700; }
+    .dash { max-width: 1200px; margin: 0 auto; padding: 1.8rem 1.3rem 3.5rem; }
 
-    .attn-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
-    .attn { display:flex; flex-direction:column; background: var(--surface); border:1px solid var(--border); border-radius:16px; padding:1.15rem 1.2rem; text-decoration:none; color:var(--text); transition: box-shadow .15s, transform .15s, border-color .15s; }
-    .attn:hover { box-shadow: 0 12px 30px rgba(20,22,30,.09); transform: translateY(-2px); border-color:#d4d7e2; text-decoration:none; }
-    .attn-top { display:flex; align-items:center; gap:.7rem; }
-    .attn-ico { width:40px; height:40px; border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.25rem; flex:none; }
-    .attn-count { margin-left:auto; font-size:2.15rem; font-weight:800; line-height:1; letter-spacing:-.03em; }
-    .attn-name { font-weight:800; font-size:1.02rem; }
-    .attn-sub { font-size:.8rem; color:var(--muted); margin-top:.1rem; }
-    .attn-list { margin-top:1rem; border-top:1px solid var(--border); padding-top:.75rem; display:flex; flex-direction:column; gap:.55rem; flex:1; }
-    .attn-row { display:flex; gap:.6rem; align-items:baseline; font-size:.82rem; }
-    .attn-row .a-main { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .attn-row .a-meta { color:var(--muted); margin-left:auto; white-space:nowrap; font-size:.74rem; }
-    .attn-empty { font-size:.84rem; color:var(--success); margin-top:1rem; border-top:1px solid var(--border); padding-top:.8rem; display:flex; align-items:center; gap:.4rem; flex:1; font-weight:600; }
+    /* Hero */
+    .hero { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.6rem; }
+    .hero h1 { font-size: 1.8rem; font-weight: 800; letter-spacing: -.025em; line-height:1.1; }
+    .hero .date { color: var(--muted); font-size: .92rem; margin-top: .35rem; font-weight:500; }
+    .hero .btn-new { display:inline-flex; align-items:center; gap:.4rem; background:#111318; color:#fff; font-weight:700; font-size:.9rem; padding:.6rem 1.05rem; border-radius:11px; text-decoration:none; transition:transform .12s, box-shadow .12s; }
+    .hero .btn-new:hover { transform:translateY(-1px); box-shadow:0 8px 20px rgba(17,19,24,.22); }
 
-    .attn.req .attn-ico { background:#fdf0d9; }
-    .attn.req .attn-count { color:#b9791a; }
-    .attn.iss .attn-ico { background:#fbe2e2; }
-    .attn.iss .attn-count { color:#c23b3b; }
-    .attn.war .attn-ico { background:#e2ecfb; }
-    .attn.war .attn-count { color:#2b62c2; }
-    .attn.zero .attn-count { color:var(--success); }
+    /* Section headers */
+    .sec { display:flex; align-items:baseline; justify-content:space-between; margin: 1.9rem 0 .8rem; }
+    .sec h2 { font-size: .74rem; text-transform: uppercase; letter-spacing: .09em; color: var(--muted); font-weight: 800; }
+    .sec a { font-size: .82rem; font-weight: 700; text-decoration:none; color:#2563eb; }
+    .sec a:hover { text-decoration:underline; }
 
-    .tiles { display:grid; grid-template-columns: repeat(4, 1fr); gap:.8rem; margin-bottom:1rem; }
-    .tile { background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:.85rem 1rem; }
-    .tile .t-label { font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); font-weight:800; }
-    .tile .t-val { font-size:1.75rem; font-weight:800; margin-top:.15rem; letter-spacing:-.02em; }
-    .tile.ip .t-val { color:#2b62c2; }
-    .tile.dl .t-val { color:var(--success); }
-    .tile.ny .t-val { color:#b9791a; }
+    /* Stat strip */
+    .stats-row { display:grid; grid-template-columns: repeat(4,1fr); gap:.7rem; }
+    .stat { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:.95rem 1.1rem; display:flex; flex-direction:column; gap:.15rem; }
+    .stat .v { font-size:1.85rem; font-weight:800; letter-spacing:-.03em; line-height:1; }
+    .stat .l { font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:800; }
+    .stat.ip .v { color:#2563eb; } .stat.dl .v { color:#16794a; } .stat.ny .v { color:#b9791a; }
 
-    .plist { display:flex; flex-direction:column; gap:.5rem; }
-    .prow { display:flex; align-items:center; gap:.9rem; background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.72rem .95rem; text-decoration:none; color:var(--text); transition: border-color .15s, box-shadow .15s; }
-    .prow:hover { border-color:#d4d7e2; box-shadow:0 6px 18px rgba(20,22,30,.06); text-decoration:none; }
-    .prow .p-addr { font-weight:700; font-size:.95rem; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-    .prow .p-ver { color:var(--muted); font-weight:500; font-size:.8rem; margin-left:.4rem; }
-    .pill { font-size:.7rem; font-weight:700; padding:.22rem .6rem; border-radius:999px; white-space:nowrap; }
-    .p-prog { margin-left:auto; display:flex; align-items:center; gap:.6rem; min-width:175px; }
-    .bar { flex:1; height:7px; border-radius:999px; background:#edeef4; overflow:hidden; min-width:80px; }
-    .bar > span { display:block; height:100%; background:var(--success); border-radius:999px; }
-    .p-frac { font-size:.76rem; color:var(--muted); font-weight:700; white-space:nowrap; min-width:62px; text-align:right; }
-    .udot { width:9px; height:9px; border-radius:50%; background:var(--danger); flex:none; }
-    .empty-note { color:var(--muted); font-size:.9rem; padding:1.5rem; text-align:center; background:var(--surface); border:1px dashed var(--border); border-radius:12px; }
+    /* Attention — compact */
+    .attn-grid { display:grid; grid-template-columns: repeat(3,1fr); gap:.85rem; }
+    .attn { display:flex; flex-direction:column; gap:.65rem; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1rem 1.1rem; text-decoration:none; color:var(--text); transition: box-shadow .15s, transform .15s, border-color .15s; }
+    .attn:hover { box-shadow:0 10px 26px rgba(20,22,30,.08); transform:translateY(-2px); border-color:#d4d7e2; text-decoration:none; }
+    .attn-h { display:flex; align-items:center; gap:.6rem; }
+    .attn-ic { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; flex:none; }
+    .attn-ic svg { width:17px; height:17px; }
+    .attn-n { font-weight:700; font-size:.92rem; }
+    .attn-c { margin-left:auto; font-size:1.6rem; font-weight:800; line-height:1; letter-spacing:-.03em; }
+    .attn-item { font-size:.82rem; color:var(--text); font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .attn-item .meta { color:var(--muted); font-weight:500; }
+    .attn-more { font-size:.76rem; color:var(--muted); font-weight:700; }
+    .attn-ok { font-size:.83rem; color:#16794a; font-weight:600; display:flex; align-items:center; gap:.35rem; }
+    .attn.req .attn-ic { background:#fdf0d9; color:#b9791a; }
+    .attn.iss .attn-ic { background:#fbe2e2; color:#c23b3b; }
+    .attn.war .attn-ic { background:#e2ecfb; color:#2b62c2; }
+    .attn.req .attn-c { color:#b9791a; } .attn.iss .attn-c { color:#c23b3b; } .attn.war .attn-c { color:#2b62c2; }
+    .attn.zero .attn-c { color:#16794a; }
+
+    /* Projects — card grid */
+    .pgrid { display:grid; grid-template-columns: repeat(2,1fr); gap:.85rem; }
+    .pcard { display:flex; flex-direction:column; gap:.7rem; background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1rem 1.15rem; text-decoration:none; color:var(--text); transition: box-shadow .15s, transform .15s, border-color .15s; }
+    .pcard:hover { box-shadow:0 10px 26px rgba(20,22,30,.08); transform:translateY(-2px); border-color:#d4d7e2; text-decoration:none; }
+    .pcard-h { display:flex; align-items:center; gap:.55rem; }
+    .pc-addr { font-weight:700; font-size:.98rem; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .pc-ver { color:var(--muted); font-weight:500; font-size:.8rem; margin-left:.35rem; }
+    .pc-unread { width:8px; height:8px; border-radius:50%; background:var(--danger); flex:none; }
+    .pill { font-size:.68rem; font-weight:700; padding:.2rem .6rem; border-radius:999px; white-space:nowrap; margin-left:auto; }
+    .pcard-bar { height:8px; border-radius:999px; background:#edeef4; overflow:hidden; }
+    .pcard-bar > span { display:block; height:100%; background:#16a34a; border-radius:999px; }
+    .pcard-f { display:flex; align-items:center; justify-content:space-between; gap:.5rem; }
+    .pc-frac { font-size:.8rem; color:var(--muted); font-weight:700; }
+    .pc-pct { font-size:.8rem; font-weight:800; color:var(--text); }
+    .empty-note { color:var(--muted); font-size:.9rem; padding:1.6rem; text-align:center; background:var(--surface); border:1px dashed var(--border); border-radius:14px; }
 
     @media (max-width: 820px) {
       .attn-grid { grid-template-columns: 1fr; }
-      .tiles { grid-template-columns: repeat(2,1fr); }
-      .p-prog { min-width:120px; }
-      .prow .p-ver { display:none; }
+      .stats-row { grid-template-columns: repeat(2,1fr); }
+      .pgrid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -78,102 +83,69 @@
   function rel(d){ if(!d) return ''; var ms=Date.now()-new Date(d).getTime(); var m=Math.floor(ms/60000); if(m<1)return 'just now'; if(m<60)return m+'m ago'; var h=Math.floor(m/60); if(h<24)return h+'h ago'; var dd=Math.floor(h/24); return dd+'d ago'; }
   function stPill(s){ s=s||''; if(/progress/i.test(s)) return 'background:#e8efff;color:#1d4ed8'; if(/fully|all delivered/i.test(s)) return 'background:#e3f6ec;color:#16794a'; if(/not yet/i.test(s)) return 'background:#fdf0d5;color:#9a6b00'; if(/draft|contract/i.test(s)) return 'background:#efe8fb;color:#6b3fc2'; return 'background:#eef0f4;color:#555'; }
   function shortDate(d){ if(!d) return ''; try { return new Date(d).toLocaleDateString('en-US',{month:'short',day:'numeric'}); } catch(e){ return ''; } }
+  var IC_REQ = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>';
+  var IC_ISS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>';
+  var IC_WAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>';
 %>
 
 <div class="dash">
-  <div class="dash-hero">
+  <div class="hero">
     <div>
       <h1 id="greeting">Welcome back</h1>
       <div class="date" id="todayDate"></div>
     </div>
+    <a class="btn-new" href="/projects/new"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Project</a>
+  </div>
+
+  <!-- STATS -->
+  <div class="stats-row">
+    <div class="stat"><div class="v"><%= stats.total %></div><div class="l">Total</div></div>
+    <div class="stat ip"><div class="v"><%= stats.in_progress %></div><div class="l">In Progress</div></div>
+    <div class="stat dl"><div class="v"><%= stats.delivered %></div><div class="l">Delivered</div></div>
+    <div class="stat ny"><div class="v"><%= stats.not_yet %></div><div class="l">Not Yet</div></div>
   </div>
 
   <!-- NEEDS ATTENTION -->
-  <div class="sec-head"><h2>Needs attention</h2></div>
+  <div class="sec"><h2>Needs attention</h2></div>
   <div class="attn-grid">
-
     <a class="attn req <%= pendingRequests ? '' : 'zero' %>" href="/requests">
-      <div class="attn-top">
-        <div class="attn-ico">📥</div>
-        <div><div class="attn-name">Material requests</div><div class="attn-sub"><%= pendingRequests ? 'Awaiting your action' : 'Nothing pending' %></div></div>
-        <div class="attn-count"><%= pendingRequests %></div>
-      </div>
-      <% if (recentRequests.length) { %>
-        <div class="attn-list">
-          <% recentRequests.slice(0,4).forEach(r => { %>
-            <div class="attn-row">
-              <span class="a-main"><%= r.address || 'Project' %><% if (r.codeCount) { %> · <%= r.codeCount %> item<%= r.codeCount>1?'s':'' %><% } %></span>
-              <span class="a-meta"><%= r.needed_by ? 'needs '+shortDate(r.needed_by) : rel(r.created_at) %></span>
-            </div>
-          <% }) %>
-        </div>
-      <% } else { %>
-        <div class="attn-empty">✓ All requests handled</div>
-      <% } %>
+      <div class="attn-h"><span class="attn-ic"><%- IC_REQ %></span><span class="attn-n">Material requests</span><span class="attn-c"><%= pendingRequests %></span></div>
+      <% if (recentRequests.length) { var r0 = recentRequests[0]; %>
+        <div class="attn-item"><%= r0.address || 'Project' %><% if (r0.codeCount) { %> <span class="meta">· <%= r0.codeCount %> item<%= r0.codeCount>1?'s':'' %></span><% } %> <span class="meta">· <%= r0.needed_by ? 'needs '+shortDate(r0.needed_by) : rel(r0.created_at) %></span></div>
+        <span class="attn-more"><%= recentRequests.length>1 ? '+'+(pendingRequests-1)+' more · view all →' : 'View all →' %></span>
+      <% } else { %><div class="attn-ok">✓ All requests handled</div><% } %>
     </a>
 
     <a class="attn iss <%= pendingIssues ? '' : 'zero' %>" href="/issues">
-      <div class="attn-top">
-        <div class="attn-ico">⚠️</div>
-        <div><div class="attn-name">Open issues</div><div class="attn-sub"><%= pendingIssues ? 'Flagged by the field' : 'No open issues' %></div></div>
-        <div class="attn-count"><%= pendingIssues %></div>
-      </div>
-      <% if (recentIssues.length) { %>
-        <div class="attn-list">
-          <% recentIssues.slice(0,4).forEach(r => { %>
-            <div class="attn-row">
-              <span class="a-main"><%= r.item_label || r.address || 'Issue' %></span>
-              <span class="a-meta"><%= r.who %> · <%= rel(r.created_at) %></span>
-            </div>
-          <% }) %>
-        </div>
-      <% } else { %>
-        <div class="attn-empty">✓ No issues to resolve</div>
-      <% } %>
+      <div class="attn-h"><span class="attn-ic"><%- IC_ISS %></span><span class="attn-n">Open issues</span><span class="attn-c"><%= pendingIssues %></span></div>
+      <% if (recentIssues.length) { var i0 = recentIssues[0]; %>
+        <div class="attn-item"><%= i0.item_label || i0.address || 'Issue' %> <span class="meta">· <%= i0.who %> · <%= rel(i0.created_at) %></span></div>
+        <span class="attn-more"><%= recentIssues.length>1 ? '+'+(pendingIssues-1)+' more · view all →' : 'View all →' %></span>
+      <% } else { %><div class="attn-ok">✓ No issues to resolve</div><% } %>
     </a>
 
     <a class="attn war <%= openWarranty ? '' : 'zero' %>" href="/warranty-claims">
-      <div class="attn-top">
-        <div class="attn-ico">🛡️</div>
-        <div><div class="attn-name">Warranty claims</div><div class="attn-sub"><%= openWarranty ? 'Open claims to review' : 'No open claims' %></div></div>
-        <div class="attn-count"><%= openWarranty %></div>
-      </div>
-      <% if (recentWarranty.length) { %>
-        <div class="attn-list">
-          <% recentWarranty.slice(0,4).forEach(r => { %>
-            <div class="attn-row">
-              <span class="a-main"><%= r.client_name || r.address || 'Claim' %></span>
-              <span class="a-meta"><%= r.rooms ? String(r.rooms).split(',')[0] + ' · ' : '' %><%= rel(r.created_at) %></span>
-            </div>
-          <% }) %>
-        </div>
-      <% } else { %>
-        <div class="attn-empty">✓ No warranty claims open</div>
-      <% } %>
+      <div class="attn-h"><span class="attn-ic"><%- IC_WAR %></span><span class="attn-n">Warranty claims</span><span class="attn-c"><%= openWarranty %></span></div>
+      <% if (recentWarranty.length) { var w0 = recentWarranty[0]; %>
+        <div class="attn-item"><%= w0.client_name || w0.address || 'Claim' %> <span class="meta">· <%= w0.rooms ? String(w0.rooms).split(',')[0]+' · ' : '' %><%= rel(w0.created_at) %></span></div>
+        <span class="attn-more"><%= recentWarranty.length>1 ? '+'+(openWarranty-1)+' more · view all →' : 'View all →' %></span>
+      <% } else { %><div class="attn-ok">✓ No warranty claims open</div><% } %>
     </a>
-
   </div>
 
-  <!-- PROJECTS -->
-  <div class="sec-head"><h2>Projects</h2><a href="/projects">Open full grid →</a></div>
-  <div class="tiles">
-    <div class="tile"><div class="t-label">Total</div><div class="t-val"><%= stats.total %></div></div>
-    <div class="tile ip"><div class="t-label">In Progress</div><div class="t-val"><%= stats.in_progress %></div></div>
-    <div class="tile dl"><div class="t-label">Delivered</div><div class="t-val"><%= stats.delivered %></div></div>
-    <div class="tile ny"><div class="t-label">Not Yet</div><div class="t-val"><%= stats.not_yet %></div></div>
-  </div>
-
+  <!-- ACTIVE PROJECTS -->
+  <div class="sec"><h2>Active projects <span style="color:var(--muted);font-weight:700">· <%= activeCount %></span></h2><a href="/projects">Open full grid →</a></div>
   <% if (projCards.length) { %>
-    <div class="plist">
+    <div class="pgrid">
       <% projCards.forEach(p => { var pct = p.total ? Math.round(p.delivered/p.total*100) : 0; %>
-        <a class="prow" href="/projects/<%= p.id %>">
-          <span class="p-addr"><%= p.address %><% if (p.version) { %><span class="p-ver">v<%= p.version %></span><% } %></span>
-          <% if (p.unread) { %><span class="udot" title="Vendor reply waiting"></span><% } %>
-          <span class="pill" style="<%= stPill(p.status) %>"><%= p.status %></span>
-          <span class="p-prog">
-            <span class="bar"><span style="width:<%= pct %>%"></span></span>
-            <span class="p-frac"><%= p.delivered %>/<%= p.total %></span>
-          </span>
+        <a class="pcard" href="/projects/<%= p.id %>">
+          <div class="pcard-h">
+            <span class="pc-addr"><%= p.address %><% if (p.version) { %><span class="pc-ver">v<%= p.version %></span><% } %></span>
+            <% if (p.unread) { %><span class="pc-unread" title="Vendor reply waiting"></span><% } %>
+            <span class="pill" style="<%= stPill(p.status) %>"><%= p.status %></span>
+          </div>
+          <div class="pcard-bar"><span style="width:<%= pct %>%"></span></div>
+          <div class="pcard-f"><span class="pc-frac"><%= p.delivered %> / <%= p.total %> delivered</span><span class="pc-pct"><%= pct %>%</span></div>
         </a>
       <% }) %>
     </div>

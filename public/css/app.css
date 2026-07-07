@@ -142,7 +142,7 @@ textarea { resize: vertical; min-height: 80px; }
 
 /* Main grid */
 .grid-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
-.grid-table { width: 100%; min-width: 1360px; border-collapse: collapse; font-size: .8rem; white-space: nowrap; table-layout: fixed; }
+.grid-table { width: 100%; min-width: 1720px; border-collapse: collapse; font-size: .8rem; white-space: nowrap; table-layout: fixed; }
 .grid-table thead tr:first-child th { padding: .6rem .75rem; background: #f0f2f8; text-align: center; font-size: .78rem; font-weight: 700; color: var(--text); border-bottom: 1px solid var(--border); }
 .grid-table thead tr:nth-child(2) th { padding: .4rem .3rem; background: #f8f9fb; text-align: center; border-bottom: 2px solid var(--border); white-space: normal; vertical-align: top; line-height: 1.15; }
 .grid-table thead tr:nth-child(2) th b { display: block; font-size: .74rem; font-weight: 800; color: var(--text); letter-spacing: .01em; }

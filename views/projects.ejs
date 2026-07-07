@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Projects — Buildoly Office</title>
-  <link rel="stylesheet" href="/css/app.css?v=4">
+  <link rel="stylesheet" href="/css/app.css?v=5">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#000000">
 </head>
@@ -56,7 +56,10 @@
       return 'Pre-Construction';
     }
   %>
-  <% PROJECT_PHASES.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
+  <% // Section display order: active work first, then upcoming, then warranty/complete.
+     var _phaseOrder = ['Under Construction', 'Pre-Construction', 'In Permitting', 'Under Warranty', 'Complete'].filter(ph => PROJECT_PHASES.includes(ph));
+     PROJECT_PHASES.forEach(ph => { if (!_phaseOrder.includes(ph)) _phaseOrder.push(ph); }); %>
+  <% _phaseOrder.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
     <div class="phase-divider <%= PHASE_CLASSES[ph] %>"><span><%= ph %> (<%= rows.length %>)</span></div>
     <% if (rows.length) { %>
       <%- include('_project-grid', { rows, emptyMsg: '', sortable: !sortedNow }) %>
