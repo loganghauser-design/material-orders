@@ -802,6 +802,12 @@ async function refreshHeldUsages() {
   return _heldUsagesCache;
 }
 let _heldRefreshing = false;
+// Force a fresh read: drop the per-sheet cache so the very latest schedule values (and any
+// source-toggle changes) are re-read, then recompute held usages.
+async function forceRefreshHeldUsages() {
+  _sheetCache.clear(); _sheetFail.clear();
+  return refreshHeldUsages();
+}
 async function computeHeldUsages(maxAgeMs = 30 * 60 * 1000) {
   // Never block a page load on the (slow, variable) sheet reads. Serve whatever's cached
   // immediately; if it's stale, kick a background refresh so the NEXT load is current.
@@ -5775,6 +5781,18 @@ app.get('/inventory/data', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// Force a fresh read from the schedules (after you toggle sources / edit a sheet). Kicks the
+// refresh in the background and returns immediately — the client polls /inventory/status.
+app.post('/inventory/refresh', requireAuth, (req, res) => {
+  if (_heldRefreshing) return res.json({ ok: true, already: true, at: _heldUsagesCache.at });
+  _heldRefreshing = true;
+  forceRefreshHeldUsages().catch(e => console.error('force held refresh:', e.message)).finally(() => { _heldRefreshing = false; });
+  res.json({ ok: true, started: true, prevAt: _heldUsagesCache.at });
+});
+app.get('/inventory/status', requireAuth, (req, res) => {
+  res.json({ refreshing: _heldRefreshing, cachedAt: _heldUsagesCache.at, fails: (_heldUsagesCache.fails || []).length });
 });
 
 // Stock Status was merged into the Inventory page — keep the old link working.

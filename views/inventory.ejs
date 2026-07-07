@@ -69,6 +69,7 @@
       <h1>Inventory</h1>
       <button class="btn btn-primary" onclick="openAdd()">+ Add Office Item</button>
     </div>
+    <button type="button" class="btn btn-ghost" id="refreshBtn" onclick="refreshFromSheets()" title="Re-read the finish schedules now — use after switching item sources (e.g. hoods to Buildoly Stock)">↻ Refresh from sheets</button>
   </div>
 
   <div id="invTables">
@@ -124,6 +125,30 @@ function loadInventory() {
     });
 }
 loadInventory();
+
+// Force a fresh read from the schedules (after switching sources / editing a sheet).
+// The refresh runs in the background (reading all sheets can take a minute); we poll
+// until the cache timestamp advances, then reload the tables.
+async function refreshFromSheets() {
+  const btn = document.getElementById('refreshBtn');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = '↻ Refreshing…';
+  try {
+    const s0 = await (await fetch('/inventory/status')).json();
+    await fetch('/inventory/refresh', { method: 'POST' });
+    const started = Date.now();
+    const poll = setInterval(async () => {
+      let s;
+      try { s = await (await fetch('/inventory/status')).json(); } catch (e) { return; }
+      if ((s.cachedAt && s.cachedAt !== s0.cachedAt) || (!s.refreshing && Date.now() - started > 4000)) {
+        clearInterval(poll);
+        loadInventory();
+        btn.disabled = false; btn.textContent = orig;
+      } else if (Date.now() - started > 180000) {   // give up after 3 min
+        clearInterval(poll); loadInventory(); btn.disabled = false; btn.textContent = orig;
+      }
+    }, 4000);
+  } catch (e) { btn.disabled = false; btn.textContent = orig; }
+}
 
 let CATALOG = null;
 let CATALOG_LOADING = false;
