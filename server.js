@@ -791,15 +791,35 @@ function heldItemKey(prodCode, model, name) {
 // range hood toggled to Buildoly Stock counts) and return every line whose
 // resolved supplier is held stock. These are what draw inventory items down.
 //   [{ project, name, prodCode, model, supplier, qty, text }]
-async function computeHeldUsages() {
+// Cached held-usage computation. Reading every project's finish schedule live on each
+// inventory load hammered the Sheets API (31 parallel reads → rate-limited → ~3 min).
+// We now read in small concurrent batches, cache the result, and refresh in the background,
+// so the inventory page serves instantly from a warm cache.
+let _heldUsagesCache = { at: 0, usages: [], fails: [] };
+async function refreshHeldUsages() {
+  const raw = await _computeHeldUsagesRaw();
+  _heldUsagesCache = { at: Date.now(), usages: raw.usages, fails: raw.fails };
+  return _heldUsagesCache;
+}
+async function computeHeldUsages(maxAgeMs = 20 * 60 * 1000) {
+  if (_heldUsagesCache.usages.length && (Date.now() - _heldUsagesCache.at) < maxAgeMs) return _heldUsagesCache.usages;
+  await refreshHeldUsages();
+  return _heldUsagesCache.usages;
+}
+async function _computeHeldUsagesRaw() {
   const { rows: projects } = await pool.query(
     "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
   );
-  // Fetch all schedules in parallel (cached) instead of one-at-a-time
-  const fetched = await Promise.all(projects.map(async proj => {
-    try { return { proj, rows: await fetchScheduleValues(proj.finish_schedule_url) }; }
-    catch (e) { return null; }
-  }));
+  // Read in concurrent batches of 6 — big parallel bursts get throttled and stall.
+  const fetched = []; const fails = [];
+  const BATCH = 6;
+  for (let i = 0; i < projects.length; i += BATCH) {
+    const part = await Promise.all(projects.slice(i, i + BATCH).map(async proj => {
+      try { return { proj, rows: await fetchScheduleValues(proj.finish_schedule_url) }; }
+      catch (e) { fails.push({ address: proj.address, error: String(e.message || e).slice(0, 80) }); return null; }
+    }));
+    fetched.push(...part);
+  }
   const usages = [];
   for (const f of fetched) {
     if (!f) continue;
@@ -825,7 +845,7 @@ async function computeHeldUsages() {
       });
     }
   }
-  return usages;
+  return { usages, fails };
 }
 
 // When a project grid category is marked "Delivered from Inv." (or moved back to
@@ -5745,7 +5765,7 @@ app.get('/inventory/data', requireAuth, async (req, res) => {
       })),
     })).sort((a, b) => a.name.localeCompare(b.name));
 
-    res.render('_inventory-tables', { officeItems, warehouseItems, error });
+    res.render('_inventory-tables', { officeItems, warehouseItems, error, sheetFails: _heldUsagesCache.fails || [] });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
@@ -7308,6 +7328,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('*/20 * * * *', pollFergusonEmails);     // every 20 min — Ferguson shipment/appliance alerts
   cron.schedule('*/20 * * * *', sweepFergusonOrders);    // every 20 min — rep order-confirmation PDFs
+  cron.schedule('*/15 * * * *', () => refreshHeldUsages().catch(e => console.error('held usages refresh:', e.message)));  // keep the inventory cache warm
   cron.schedule('*/20 * * * *', pollEmailBounces);       // every 20 min — flag bounced sub emails on the Subs page
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
@@ -7332,4 +7353,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); loadPeople(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); loadPeople(); refreshHeldUsages().then(c => console.log('inventory cache warm: ' + c.usages.length + ' usages, ' + c.fails.length + ' sheet(s) failed')).catch(e => console.error('warm held usages:', e.message)); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));

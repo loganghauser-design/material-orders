@@ -9,6 +9,14 @@
 <% if (error) { %>
   <div class="error-msg">Couldn't read one or more schedules right now: <%= error %></div>
 <% } %>
+<% if (typeof sheetFails !== 'undefined' && sheetFails && sheetFails.length) { %>
+  <div style="background:#fff7e6;border:1px solid #f0d9a8;color:#7a5b00;border-radius:10px;padding:.7rem .9rem;margin-bottom:1rem;font-size:.86rem">
+    ⚠ <strong><%= sheetFails.length %> project schedule<%= sheetFails.length>1?'s':'' %> couldn't be read</strong>, so their stock isn't counted here. Fix the finish-schedule link/tab for:
+    <ul style="margin:.4rem 0 0;padding-left:1.2rem">
+      <% sheetFails.forEach(function(f){ %><li><%= f.address %> <span style="color:#a58a4a">— <%= /not be found|not found|404/i.test(f.error) ? 'link is dead or not shared' : (/parse range|Fin Sched/i.test(f.error) ? 'no “Fin Sched” tab' : f.error) %></span></li><% }) %>
+    </ul>
+  </div>
+<% } %>
 
 <!-- ───────────── OFFICE STOCK ───────────── -->
 <div class="sec-head">
