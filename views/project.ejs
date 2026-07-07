@@ -25,11 +25,22 @@
     <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost btn-sm" title="Edit address, client name/email, status, notes">✎ Edit project</a>
     <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
     <% const _assigned = (project.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean); %>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap" title="Assigned supers get tagged on this project's delivery alerts">
-      <span style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:.2rem">Supers</span>
-      <% supers.forEach(s => { const on = _assigned.includes(s.email.toLowerCase()); %>
-        <button type="button" class="super-chip<%= on ? ' on' : '' %>" data-email="<%= s.email %>" onclick="toggleSuper(this)"><%= on ? '✓ ' : '' %><%= s.name %></button>
-      <% }) %>
+    <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
+      <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;justify-content:flex-end" title="The assigned site contact receives this project's delivery notices (supers are also tagged in chat)">
+        <span style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:.2rem">Site contacts</span>
+        <% supers.forEach(s => { const on = _assigned.includes(s.email.toLowerCase()); %>
+          <button type="button" class="super-chip<%= on ? ' on' : '' %>" data-email="<%= s.email %>" onclick="toggleSuper(this)"><%= s.name %><% if (s.role === 'gc') { %> <span class="chip-role">GC</span><% } %></button>
+        <% }) %>
+        <button type="button" class="super-chip add-contact" onclick="openAddContact()">+ Add</button>
+      </div>
+      <div id="addContactBox">
+        <input id="acName" placeholder="Full name" autocomplete="off">
+        <input id="acEmail" type="email" placeholder="Email" autocomplete="off">
+        <input id="acPhone" placeholder="Phone (optional)" autocomplete="off">
+        <select id="acRole"><option value="super">Super</option><option value="gc">GC / outsourced</option></select>
+        <button type="button" class="btn btn-primary btn-sm" onclick="saveContact()">Add &amp; assign</button>
+        <button type="button" class="btn btn-ghost btn-sm" onclick="closeAddContact()">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -41,7 +52,15 @@
     .super-chip{font-size:.82rem;padding:.25rem .7rem;border:1px solid var(--border);border-radius:14px;background:var(--surface);color:var(--text);cursor:pointer}
     .super-chip:hover{border-color:#4f8ef7}
     .super-chip.on{background:#4f8ef7;color:#fff;border-color:#4f8ef7;font-weight:600}
+    .super-chip.on::before{content:'\2713 '}
     .super-chip:disabled{opacity:.55;cursor:default}
+    .super-chip.add-contact{border-style:dashed;color:var(--muted);font-weight:700}
+    .super-chip.add-contact:hover{color:#4f8ef7;border-color:#4f8ef7}
+    .chip-role{font-size:.58rem;font-weight:800;letter-spacing:.03em;padding:0 4px;border-radius:5px;margin-left:4px;vertical-align:middle;background:#efe8fb;color:#6b3fc2}
+    .super-chip.on .chip-role{background:rgba(255,255,255,.28);color:#fff}
+    #addContactBox{display:none;align-items:center;gap:.4rem;flex-wrap:wrap;justify-content:flex-end;background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:.5rem .6rem}
+    #addContactBox input,#addContactBox select{font-size:.82rem;padding:.35rem .5rem;border:1px solid var(--border);border-radius:7px;background:var(--surface)}
+    #addContactBox input{width:130px}
     .held-qty.qty-done{background:#6aa84f;color:#fff;border-color:#6aa84f;font-weight:600}
     .held-qty.qty-partial{background:#fde6c8;color:#8a4b00;border-color:#e0a106}
     .held-qty.qty-none{background:#ede0fb;color:#5b2a86}
@@ -1368,12 +1387,11 @@ async function previewRfq() {
 // on delivery alerts. Saves the full current selection each click.
 async function toggleSuper(btn) {
   btn.classList.toggle('on');
-  const chips = Array.from(document.querySelectorAll('.super-chip'));
-  // Update the ✓ prefix to reflect each chip's state.
-  chips.forEach(c => {
-    const clean = c.textContent.replace(/^✓\s*/, '');
-    c.textContent = (c.classList.contains('on') ? '✓ ' : '') + clean;
-  });
+  await saveSupers(() => btn.classList.toggle('on'));
+}
+// Persist the currently-assigned site contacts (the "on" chips). The ✓ is handled by CSS.
+async function saveSupers(onFail) {
+  const chips = Array.from(document.querySelectorAll('.super-chip[data-email]'));
   const emails = chips.filter(c => c.classList.contains('on')).map(c => c.dataset.email);
   chips.forEach(c => c.disabled = true);
   try {
@@ -1381,11 +1399,35 @@ async function toggleSuper(btn) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails }),
     });
     const data = await r.json();
-    if (data.ok) {
-      showToast(emails.length ? 'Supers updated — ' + emails.length + ' tagged on delivery alerts' : 'No supers assigned');
-    } else { showToast(data.error || 'Could not save', true); btn.classList.toggle('on'); }
-  } catch (e) { showToast('Could not save', true); btn.classList.toggle('on'); }
+    if (data.ok) showToast(emails.length ? 'Site contacts updated — ' + emails.length + ' assigned' : 'No site contact assigned');
+    else { showToast(data.error || 'Could not save', true); if (onFail) onFail(); }
+  } catch (e) { showToast('Could not save', true); if (onFail) onFail(); }
   finally { chips.forEach(c => c.disabled = false); }
+}
+function openAddContact() { const b = document.getElementById('addContactBox'); b.style.display = 'flex'; document.getElementById('acName').focus(); }
+function closeAddContact() { document.getElementById('addContactBox').style.display = 'none'; ['acName','acEmail','acPhone'].forEach(id => document.getElementById(id).value = ''); }
+// Add a new site contact (super or GC), then assign them to this project immediately.
+async function saveContact() {
+  const name = document.getElementById('acName').value.trim();
+  const email = document.getElementById('acEmail').value.trim();
+  const phone = document.getElementById('acPhone').value.trim();
+  const role = document.getElementById('acRole').value;
+  if (!name || !email) { showToast('Name and email are required', true); return; }
+  try {
+    const r = await fetch('/contacts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, email, phone, role }) });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not add contact', true); return; }
+    const c = d.contact;
+    const chip = document.createElement('button');
+    chip.type = 'button'; chip.className = 'super-chip on'; chip.dataset.email = c.email;
+    chip.innerHTML = escapeHtmlJs(c.name) + (c.role === 'gc' ? ' <span class="chip-role">GC</span>' : '');
+    chip.addEventListener('click', () => toggleSuper(chip));
+    const addBtn = document.querySelector('.super-chip.add-contact');
+    addBtn.parentNode.insertBefore(chip, addBtn);
+    closeAddContact();
+    await saveSupers();   // persist the assignment (new chip is already "on")
+    showToast(c.name + ' added and assigned');
+  } catch (e) { showToast('Could not add contact', true); }
 }
 
 function toggleEditor(code) {

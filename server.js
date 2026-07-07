@@ -1209,9 +1209,25 @@ const SUPERS = [
   { email: 'kevin@buildoly.com', username: 'kevin', name: 'Kevin Leon', chatId: '114651669878031315273', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
   { email: 'eddie@buildoly.com', username: 'eddie', name: 'Eddie Solorzano', chatId: '105599791425178916274', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },
 ];
+// Added site contacts (extra supers + outsourced GCs) managed from the UI. These are
+// contacts only — assignable to a project and able to receive the delivery notice — but
+// have NO login and NO Chat mention (only the built-in SUPERS above do). Cached in memory
+// and refreshed on edit so the sync helpers below stay synchronous.
+let DYNAMIC_PEOPLE = [];
+async function loadPeople() {
+  try {
+    const { rows } = await pool.query("SELECT id, name, email, phone, role FROM people WHERE active = TRUE ORDER BY name");
+    DYNAMIC_PEOPLE = rows.filter(r => r.email).map(r => ({ id: r.id, email: String(r.email).toLowerCase(), name: r.name, phone: r.phone || '', role: r.role || 'super', dynamic: true }));
+  } catch (e) { DYNAMIC_PEOPLE = []; }
+}
+// Everyone assignable as a job-site contact: built-in supers + added people (deduped by email).
+function allContacts() {
+  const seen = new Set(SUPERS.map(s => s.email.toLowerCase()));
+  return [...SUPERS.map(s => ({ ...s, role: 'super' })), ...DYNAMIC_PEOPLE.filter(p => !seen.has(p.email))];
+}
 function findSuper(email) {
   const e = String(email || '').trim().toLowerCase();
-  return SUPERS.find(s => s.email.toLowerCase() === e) || null;
+  return allContacts().find(s => s.email.toLowerCase() === e) || null;
 }
 // Additional full-access (admin) logins beyond the env ADMIN account (Logan).
 // Default password is "buildoly" — ask to have it changed to something specific.
@@ -1330,7 +1346,7 @@ function canSuperViewWarranty(email) {
 // A project's super_email holds a comma-separated list (multiple supers per project).
 function parseSuperEmails(str) {
   const set = String(str || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-  return SUPERS.filter(s => set.includes(s.email.toLowerCase()));
+  return allContacts().filter(s => set.includes(s.email.toLowerCase()));
 }
 // Editable super phone numbers (stored in DB, managed on the Settings page).
 async function getSuperPhones() {
@@ -1497,6 +1513,16 @@ async function initDb() {
     CREATE TABLE IF NOT EXISTS super_contacts (
       email TEXT PRIMARY KEY,
       phone TEXT
+    );
+    -- Added site contacts: extra supers + outsourced GCs, assignable as a job-site contact.
+    CREATE TABLE IF NOT EXISTS people (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT,
+      phone TEXT,
+      role VARCHAR(12) DEFAULT 'super',
+      active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS super_passwords (
       email TEXT PRIMARY KEY,
@@ -2648,7 +2674,7 @@ app.get('/projects', requireAuth, async (req, res) => {
     }
 
     const pendingIssues = await getPendingIssueCount();
-    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, PROJECT_PHASES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues, STAGES });
+    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, PROJECT_PHASES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: allContacts(), pendingIssues, STAGES });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -2805,7 +2831,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       const { rows: strayMarks } = await pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [project.id]);
       strayMarks.forEach(m => { if (m.state && !itemStates[m.item_key]) itemStates[m.item_key] = { st: m.state[0], when: m.sched_when || '', m: 1 }; });
     } catch (e) { /* fine — chips just don't show */ }
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: SUPERS, itemsAgg, itemStates });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), itemsAgg, itemStates });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -3868,6 +3894,32 @@ app.post('/projects/:id/super', requireAuth, async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// ── Site contacts (extra supers + outsourced GCs) ─────────────────────────────
+// Add a person who can be assigned as a job-site contact on any project and receive
+// the delivery notice. Contacts only — no login, no Chat mention.
+app.post('/contacts', requireAuth, async (req, res) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const phone = String(req.body.phone || '').trim();
+    const role = req.body.role === 'gc' ? 'gc' : 'super';
+    if (!name || !email) return res.status(400).json({ ok: false, error: 'Name and email are both required.' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ ok: false, error: 'Enter a valid email address.' });
+    if (allContacts().some(c => c.email.toLowerCase() === email)) return res.status(400).json({ ok: false, error: 'That email is already on the contact list.' });
+    const { rows: [row] } = await pool.query(
+      'INSERT INTO people (name, email, phone, role) VALUES ($1,$2,$3,$4) RETURNING id', [name, email, phone || null, role]);
+    await loadPeople();
+    res.json({ ok: true, contact: { id: row.id, name, email, phone, role } });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/contacts/:id/delete', requireAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE people SET active = FALSE WHERE id = $1', [req.params.id]);
+    await loadPeople();
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // ── PDF exports ───────────────────────────────────────────────────────────────
@@ -7280,4 +7332,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); loadPeople(); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
