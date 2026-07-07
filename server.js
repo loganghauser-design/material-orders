@@ -801,9 +801,15 @@ async function refreshHeldUsages() {
   _heldUsagesCache = { at: Date.now(), usages: raw.usages, fails: raw.fails };
   return _heldUsagesCache;
 }
-async function computeHeldUsages(maxAgeMs = 20 * 60 * 1000) {
-  if (_heldUsagesCache.usages.length && (Date.now() - _heldUsagesCache.at) < maxAgeMs) return _heldUsagesCache.usages;
-  await refreshHeldUsages();
+let _heldRefreshing = false;
+async function computeHeldUsages(maxAgeMs = 30 * 60 * 1000) {
+  // Never block a page load on the (slow, variable) sheet reads. Serve whatever's cached
+  // immediately; if it's stale, kick a background refresh so the NEXT load is current.
+  const stale = !(_heldUsagesCache.usages.length && (Date.now() - _heldUsagesCache.at) < maxAgeMs);
+  if (stale && !_heldRefreshing) {
+    _heldRefreshing = true;
+    refreshHeldUsages().catch(e => console.error('held usages refresh:', e.message)).finally(() => { _heldRefreshing = false; });
+  }
   return _heldUsagesCache.usages;
 }
 async function _computeHeldUsagesRaw() {
@@ -7328,7 +7334,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('*/20 * * * *', pollFergusonEmails);     // every 20 min — Ferguson shipment/appliance alerts
   cron.schedule('*/20 * * * *', sweepFergusonOrders);    // every 20 min — rep order-confirmation PDFs
-  cron.schedule('*/15 * * * *', () => refreshHeldUsages().catch(e => console.error('held usages refresh:', e.message)));  // keep the inventory cache warm
+  cron.schedule('*/25 * * * *', () => { if (!_heldRefreshing) { _heldRefreshing = true; refreshHeldUsages().catch(e => console.error('held usages refresh:', e.message)).finally(() => { _heldRefreshing = false; }); } });  // keep the inventory cache warm
   cron.schedule('*/20 * * * *', pollEmailBounces);       // every 20 min — flag bounced sub emails on the Subs page
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
@@ -7353,4 +7359,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); loadPeople(); refreshHeldUsages().then(c => console.log('inventory cache warm: ' + c.usages.length + ' usages, ' + c.fails.length + ' sheet(s) failed')).catch(e => console.error('warm held usages:', e.message)); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); loadPeople(); _heldRefreshing = true; refreshHeldUsages().then(c => console.log('inventory cache warm: ' + c.usages.length + ' usages, ' + c.fails.length + ' sheet(s) failed')).catch(e => console.error('warm held usages:', e.message)).finally(() => { _heldRefreshing = false; }); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
