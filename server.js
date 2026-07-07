@@ -6247,7 +6247,7 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
 <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:#f3f4f6;opacity:0">${escapeHtml(preheader)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:24px 0"><tr><td align="center">
 <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb">
-  <tr><td style="background:#000000;padding:20px 32px"><img src="https://buildoly.up.railway.app/logo-white.png" alt="buildoly" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0;color:#ffffff;font-family:Arial,sans-serif;font-size:24px;font-weight:800;letter-spacing:.3px;line-height:36px"></td></tr>
+  <tr><td bgcolor="#000000" style="background-color:#000000;background:#000000;padding:20px 32px"><img src="https://buildoly.up.railway.app/logo-white.png" alt="buildoly" width="150" style="display:block;width:150px;max-width:150px;height:auto;border:0;color:#ffffff;font-family:Arial,sans-serif;font-size:24px;font-weight:800;letter-spacing:.3px;line-height:36px"></td></tr>
   <tr><td style="padding:30px 32px 4px">
     <div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase">Delivery Update <span style="color:#111827">(${escapeHtml(jobName)})</span></div>
     <p style="font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.6;margin:16px 0 0">Hi ${escapeHtml(contactName)},</p>
@@ -6269,7 +6269,7 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
   </td></tr></table></td></tr>
   <tr><td style="padding:20px 32px 6px">
     <div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;border-top:1px solid #eeeeee;padding-top:16px">Please note</div>
-    ${isUps ? '' : `<div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:8px"><strong style="color:#374151">Someone must be on site to accept the delivery.</strong> If no one is available to receive it, a redelivery fee may apply. Deliveries must be rescheduled or cancelled at least <strong style="color:#374151">24 hours in advance</strong>.</div>`}
+    ${isUps ? '' : `<div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:8px"><strong style="color:#374151">Someone must be on site to accept the delivery.</strong> If no one is available to receive it, a redelivery fee may apply. Deliveries must be rescheduled or cancelled a minimum of <strong style="color:#374151">24 hours in advance</strong>.</div>`}
     <div style="font-family:Arial,sans-serif;font-size:12px;line-height:1.65;color:#6b7280;margin-top:10px"><strong style="color:#374151">Please inspect all materials at the time of delivery.</strong> Any damage or shortages must be reported to Buildoly within 24&ndash;48 hours of receipt. Damage reported after this window cannot be verified as delivery-related, and responsibility for that damage will rest with the receiving party.</div>
   </td></tr>
   <tr><td style="padding:16px 32px 4px" align="center"><span style="font-family:Arial,sans-serif;font-size:13px;color:#6b7280">Questions about this delivery? Just reply to this email.</span></td></tr>
