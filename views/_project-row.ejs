@@ -1,9 +1,12 @@
 <%
   const im = itemMaps[p.id] || {};
-  const codes = ['1a','1b','1c','1d','1e','2a','2b','2c','2d','2e','3a','3b','3c','3d','3e'];
+  // Codes generated from STAGES so Roofing/Solar (and any future stage) render automatically.
+  const codes = [];
+  const stageStart = {};
+  STAGES.forEach((s, si) => s.items.forEach((it, ii) => { codes.push(it.code); if (si > 0 && ii === 0) stageStart[it.code] = true; }));
 %>
 <tr data-id="<%= p.id %>">
-  <td class="col-addr"><span class="drag-handle" title="Drag to reorder">⠿</span><% var _unread = (typeof unread !== 'undefined' && unread && unread[p.id]); %><a href="/projects/<%= p.id %><%= _unread ? '?tab=emails&openUnread=1' : '' %>"><strong><%= p.address %></strong><% if (_unread) { %> <span class="reply-dot" title="New vendor reply — click to open it">●</span><% } %><% if(p.version){%><br><small style="color:var(--muted)"><%= p.version %></small><%}%><% if (typeof deliveredCounts !== 'undefined' && deliveredCounts) { %><br><small style="color:var(--muted)">✓ <%= deliveredCounts[p.id] || 0 %>/15 delivered</small><% } %></a><% var _fs = p.finish_schedule_url && String(p.finish_schedule_url).trim(); %><div class="fs-toggle" data-url="<%= p.finish_schedule_url || '' %>" onclick="editFinishSchedule('<%= p.id %>', this)" title="Click to add or edit the finish-schedule sheet link" style="cursor:pointer;font-size:.78rem;margin-top:2px;color:<%= _fs ? '#16a34a' : '#d97706' %>">Finish schedule: <%= _fs ? 'Yes' : 'No' %> ✎</div><% if (typeof supers !== 'undefined' && supers && supers.length) { var _sup = (p.super_email||'').split(',').map(function(e){return e.trim().toLowerCase();}).filter(Boolean); var _assigned = supers.filter(function(s){return _sup.indexOf(s.email.toLowerCase())>=0;}); if (_assigned.length) { %><div class="row-supers" title="Super(s) running this job — set on the project page">👷 <% _assigned.forEach(function(s){ %><span class="rsuper on" style="cursor:default"><%= s.name.split(' ')[0] %></span><% }); %></div><% } } %></td>
+  <td class="col-addr"><span class="drag-handle" title="Drag to reorder">⠿</span><% var _unread = (typeof unread !== 'undefined' && unread && unread[p.id]); %><a href="/projects/<%= p.id %><%= _unread ? '?tab=emails&openUnread=1' : '' %>"><strong><%= p.address %></strong><% if (_unread) { %> <span class="reply-dot" title="New vendor reply — click to open it">●</span><% } %><% if(p.version){%><br><small style="color:var(--muted)"><%= p.version %></small><%}%><% if (typeof deliveredCounts !== 'undefined' && deliveredCounts) { %><br><small style="color:var(--muted)">✓ <%= deliveredCounts[p.id] || 0 %>/<%= codes.length %> delivered</small><% } %></a><% var _fs = p.finish_schedule_url && String(p.finish_schedule_url).trim(); %><div class="fs-toggle" data-url="<%= p.finish_schedule_url || '' %>" onclick="editFinishSchedule('<%= p.id %>', this)" title="Click to add or edit the finish-schedule sheet link" style="cursor:pointer;font-size:.78rem;margin-top:2px;color:<%= _fs ? '#16a34a' : '#d97706' %>">Finish schedule: <%= _fs ? 'Yes' : 'No' %> ✎</div><% if (typeof supers !== 'undefined' && supers && supers.length) { var _sup = (p.super_email||'').split(',').map(function(e){return e.trim().toLowerCase();}).filter(Boolean); var _assigned = supers.filter(function(s){return _sup.indexOf(s.email.toLowerCase())>=0;}); if (_assigned.length) { %><div class="row-supers" title="Super(s) running this job — set on the project page">👷 <% _assigned.forEach(function(s){ %><span class="rsuper on" style="cursor:default"><%= s.name.split(' ')[0] %></span><% }); %></div><% } } %></td>
   <td class="col-status">
     <%
       // Single status: the lifecycle phase (the legacy delivery status is synced server-side)
@@ -22,7 +25,7 @@
   <% codes.forEach((code, i) => {
     const st = (im[code] && im[code].status) || 'Not yet placed';
     const cls = 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
-    const groupClass = (i === 4 || i === 9) ? 'border-right' : '';
+    const groupClass = stageStart[code] ? 'stage-start' : '';
   %>
   <td class="item-cell <%= groupClass %>">
     <select class="grid-select <%= cls %>" data-project="<%= p.id %>" data-code="<%= code %>" onchange="saveGridItem(this)">

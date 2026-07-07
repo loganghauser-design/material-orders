@@ -1,35 +1,27 @@
+<%
+  // Column set is generated from STAGES so new stages (Roofing, Solar, …) appear automatically.
+  var _cols = STAGES.reduce(function (n, s) { return n + s.items.length; }, 0);
+%>
 <div class="grid-wrap">
   <table class="grid-table">
     <thead>
       <tr>
         <th class="col-addr" rowspan="2">Project</th>
         <th class="col-status" rowspan="2">Status</th>
-        <th colspan="5" class="stage-group framing">Framing Stage</th>
-        <th colspan="5" class="stage-group warehouse">Warehouse Outbound</th>
-        <th colspan="5" class="stage-group oneweek">1 Wk after W/O</th>
+        <% STAGES.forEach(function (s) { %>
+          <th colspan="<%= s.items.length %>" class="stage-group sg-<%= s.key %>"><%= s.name %></th>
+        <% }); %>
         <th rowspan="2"></th>
       </tr>
       <tr>
-        <th class="item-th">1a<br><span>Doors/Win</span></th>
-        <th class="item-th">1b<br><span>R.Plumb/Fans</span></th>
-        <th class="item-th">1c<br><span>HVAC Trim</span></th>
-        <th class="item-th">1d<br><span>Tile</span></th>
-        <th class="item-th">1e<br><span>Rec. Light</span></th>
-        <th class="item-th">2a<br><span>Millwork</span></th>
-        <th class="item-th">2b<br><span>Flooring</span></th>
-        <th class="item-th">2c<br><span>Decking</span></th>
-        <th class="item-th">2d<br><span>Plumb/Light</span></th>
-        <th class="item-th">2e<br><span>Water Heater</span></th>
-        <th class="item-th">3a<br><span>Countertops</span></th>
-        <th class="item-th">3b<br><span>Appliances</span></th>
-        <th class="item-th">3c<br><span>Cab. Hardware</span></th>
-        <th class="item-th">3d<br><span>Misc</span></th>
-        <th class="item-th">3e<br><span>Shower Doors</span></th>
+        <% STAGES.forEach(function (s, si) { s.items.forEach(function (it, ii) { %>
+          <th class="item-th<%= (si > 0 && ii === 0) ? ' stage-start' : '' %>"><b><%= it.code.toUpperCase() %></b><span><%= it.name %></span></th>
+        <% }); }); %>
       </tr>
     </thead>
     <tbody<%- (typeof sortable !== 'undefined' && sortable) ? ' class="sortable-body"' : '' %>>
       <% if (rows.length === 0) { %>
-        <tr><td colspan="18" class="empty-row"><%= emptyMsg %></td></tr>
+        <tr><td colspan="<%= _cols + 3 %>" class="empty-row"><%= emptyMsg %></td></tr>
       <% } %>
       <% rows.forEach(p => { %>
         <%- include('_project-row', { p }) %>

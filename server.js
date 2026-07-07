@@ -71,6 +71,20 @@ const STAGES = [
       { code: '3e', name: 'Shower Doors' },
     ],
   },
+  {
+    key: 'roofing',
+    name: 'Roofing',
+    items: [
+      { code: '4a', name: 'Roofing' },
+    ],
+  },
+  {
+    key: 'solar',
+    name: 'Solar',
+    items: [
+      { code: '5a', name: 'Solar' },
+    ],
+  },
 ];
 
 const ALL_ITEMS = STAGES.flatMap(s => s.items);
@@ -2634,7 +2648,7 @@ app.get('/projects', requireAuth, async (req, res) => {
     }
 
     const pendingIssues = await getPendingIssueCount();
-    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, PROJECT_PHASES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues });
+    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, PROJECT_PHASES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: SUPERS, pendingIssues, STAGES });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
