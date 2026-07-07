@@ -6284,7 +6284,10 @@ const MODEL_JUNK = /refer to|per plan|see plan|^n\/?a$|^qty|tbd|^\-+$/i;
 // Recipient = the project's assigned super(s) (the on-site party), or toOverride for tests.
 // method: 'truck' (freight/appointment) or 'ups' (parcel). Each item advertises its
 // maker + model number; the description is cleaned of the brand token to avoid repeating it.
-async function sendDeliveryNotice({ projectId, codes, window, toOverride, method, tracking }) {
+// manifestBlob: normalized model#s actually on THIS shipment (from a Ferguson truck manifest)
+//   → the notice lists only those items. exceptBlob: model#s already shipped another way
+//   (e.g. by truck) → the notice lists the bucket MINUS those (the UPS half of a split order).
+async function sendDeliveryNotice({ projectId, codes, window, toOverride, method, tracking, manifestBlob, exceptBlob }) {
   const { rows: [proj] } = await pool.query(
     'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
   if (!proj) return { ok: false, reason: 'no project' };
@@ -6305,7 +6308,10 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride, method
   } catch (e) { return { ok: false, reason: 'schedule unreadable: ' + e.message }; }
   const groups = []; let supplierName = '';
   for (const code of codes) {
-    const raw = byCanon[code] || [];
+    let raw = byCanon[code] || [];
+    // Split-order handling: keep only manifest items, or drop already-shipped items.
+    if (manifestBlob) raw = raw.filter(it => { const mn = normModel(it.model); return mn.length >= 5 && manifestBlob.includes(mn); });
+    else if (exceptBlob) raw = raw.filter(it => { const mn = normModel(it.model); return !(mn.length >= 5 && exceptBlob.includes(mn)); });
     const items = raw.filter(it => !/contractor to proc|not in scope|^n\/a$/i.test(normalizeSupplier(it.supplier || ''))).map(it => {
       const brand = /^generic$/i.test((it.brand || '').trim()) ? '' : (it.brand || '').trim();
       const model = MODEL_JUNK.test(it.model || '') ? '' : (it.model || '').trim();
@@ -6324,7 +6330,7 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride, method
   const jobName = shortAddress(proj.full_address || proj.address);
   const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || '', method, tracking });
   await sendMail({ to: recipients.join(', '), subject, html });
-  return { ok: true, to: recipients, jobName, window, method: method || 'truck', tracking: tracking || null, groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
+  return { ok: true, to: recipients, jobName, window, method: method || 'truck', tracking: tracking || null, items: groups.flatMap(g => g.items.map(i => i.name)), groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
 }
 
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
@@ -6348,6 +6354,10 @@ async function pollFergusonEmails() {
       const subject = hv('Subject');
       const kind = /has been delivered/i.test(subject) ? 'delivered' : /out for delivery/i.test(subject) ? 'out' : /Delivery and Installation Update/i.test(subject) ? 'scheduled' : null;
       if (!kind) continue;
+      // Carrier is decided by which Ferguson system sent it — DispatchTrack = freight truck,
+      // project44/getconvey = UPS parcel. This is how Ferguson tells us a split order apart.
+      const from = hv('From');
+      const carrier = /dispatchtrack/i.test(from) ? 'truck' : 'ups';
       const chunks = [];
       (function walk(p) { if (!p) return; if (p.body && p.body.data) chunks.push(Buffer.from(String(p.body.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')); (p.parts || []).forEach(walk); })(full.payload);
       const text = chunks.join(' ').replace(/<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;|&zwnj;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ');
@@ -6430,17 +6440,25 @@ async function pollFergusonEmails() {
         : '📅 *Ferguson delivery scheduled* — ' + projLabel + (po ? ' · ' + po : '') + '\n' + schedFor + (items ? '\nItems: ' + items.slice(0, 160) + (items.length > 160 ? '…' : '') : '') + (applied ? '\n📌 ' + applied + ' on the board' : '');
       postBidsText(line, orderBase ? 'ferguson-' + orderBase : undefined);   // whole order lifecycle = one chat thread
       console.log('ferguson update: ' + kind + ' → ' + projLabel);
-      // A newly scheduled delivery on a matched project → auto-email the on-site party
-      // the branded notice (window + items). Skips if no super/contact is assigned.
-      if (kind === 'scheduled' && proj) {
+      // Auto-email the on-site party a branded notice, split correctly by carrier.
+      // Skips if no super/contact is assigned or there are no matching items.
+      if (proj) {
         const nCodes = fergusonPoCodes(po);
-        if (nCodes.length) {
-          try {
-            // DispatchTrack "Delivery and Installation Update" = the scheduled freight/appliance truck.
-            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck' });
-            console.log('delivery notice: ' + JSON.stringify(dn));
-          } catch (e) { console.error('delivery notice:', e.message); }
-        }
+        try {
+          if (kind === 'scheduled' && nCodes.length) {
+            // Freight truck: list ONLY the items on this truck's manifest.
+            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck', manifestBlob: normModel(items) || null });
+            console.log('delivery notice (truck): ' + JSON.stringify(dn));
+          } else if (kind === 'out' && carrier === 'ups' && nCodes.length) {
+            // UPS parcel: no manifest in the email, so list the bucket MINUS whatever
+            // already shipped by truck for this PO — that's the UPS half of a split order.
+            const { rows: trucked } = await pool.query(
+              "SELECT items FROM ferguson_updates WHERE project_id=$1 AND kind='scheduled' AND po=$2 AND items IS NOT NULL", [proj.id, po]);
+            const exceptBlob = trucked.map(r => normModel(r.items || '')).join('|');
+            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: 'Arriving today', method: 'ups', tracking, exceptBlob: exceptBlob || null });
+            console.log('delivery notice (ups): ' + JSON.stringify(dn));
+          }
+        } catch (e) { console.error('delivery notice:', e.message); }
       }
     }
   } catch (e) { console.error('pollFergusonEmails:', e.message); }
@@ -7196,7 +7214,9 @@ app.get('/_test/run', async (req, res) => {
     const toOverride = req.query.to || undefined;
     const method = req.query.method || 'truck';
     const tracking = req.query.tracking || undefined;
-    try { return res.json({ ok: true, job, result: await sendDeliveryNotice({ projectId, codes, window, toOverride, method, tracking }) }); }
+    const manifestBlob = req.query.manifest ? normModel(req.query.manifest) : undefined;
+    const exceptBlob = req.query.except ? normModel(req.query.except) : undefined;
+    try { return res.json({ ok: true, job, result: await sendDeliveryNotice({ projectId, codes, window, toOverride, method, tracking, manifestBlob, exceptBlob }) }); }
     catch (e) { return res.json({ ok: false, job, error: e.message }); }
   }
   if (job === 'list' || !job) return res.json({ ok: true, isolation: MAIL_REDIRECT_ALL, jobs: [...Object.keys(JOBS), 'delivery-notice (params: project,code,window,to)'] });
