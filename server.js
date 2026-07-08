@@ -2845,11 +2845,12 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
 
     // Per-item delivery states — synced from the finish schedule (5-min sheet cache),
     // shown as chips on the bucket rows and a Delivery column on each expanded item.
-    let itemsAgg = {}, itemStates = {};
+    let itemsAgg = {}, itemStates = {}, checklistItems = [];
     try {
       try { await syncProjectExpected(project.id); } catch (e) { /* sheet unreadable — use last sync */ }
       const st = await projectItemStates(project.id);
       itemsAgg = st.agg;
+      checklistItems = st.expected;   // the merged Materials & Delivery tab renders these directly
       st.expected.forEach(e => {
         const v = e.delivered ? { st: 'd' } : e.scheduled ? { st: 's', when: e.schedWhen || '' } : e.onOrder ? { st: 'o' } : null;
         if (!v) return;
@@ -2863,7 +2864,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       const { rows: strayMarks } = await pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [project.id]);
       strayMarks.forEach(m => { if (m.state && !itemStates[m.item_key]) itemStates[m.item_key] = { st: m.state[0], when: m.sched_when || '', m: 1 }; });
     } catch (e) { /* fine — chips just don't show */ }
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), itemsAgg, itemStates });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), itemsAgg, itemStates, checklistItems });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -6204,6 +6205,36 @@ app.post('/projects/:id/item-mark', requireAuth, async (req, res) => {
     const st = e
       ? (e.delivered ? { st: 'd', m: e.manual ? 1 : 0 } : e.scheduled ? { st: 's', when: e.schedWhen || '', m: e.manual ? 1 : 0 } : e.onOrder ? { st: 'o', m: e.manual ? 1 : 0 } : null)
       : (state ? { st: state[0], when: when || '', m: 1 } : null);
+    // Bridge a hand-typed checklist schedule to the bucket-level board so the Deliveries
+    // page and the day-before confirmation pick it up — the same project_items.delivery_date
+    // Ferguson sets automatically. Non-Ferguson items (windows, JEDCO, stock, etc.) are
+    // scheduled this way. project_items holds one date per category bucket, so within a
+    // bucket the most recently scheduled date wins, and a later real Ferguson delivery date
+    // supersedes a manual guess — both acceptable, since deliveries are tracked per category.
+    if (e && e.category_code) {
+      const cat = e.category_code;
+      const iso = state === 'scheduled' ? parseLooseDateISO(when) : '';
+      if (iso) {
+        await pool.query('INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT (project_id, item_code) DO NOTHING', [req.params.id, cat]);
+        await pool.query(
+          `UPDATE project_items SET delivery_date=$1
+           WHERE project_id=$2 AND item_code=$3 AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`,
+          [iso, req.params.id, cat]);
+        await pool.query(
+          `UPDATE project_items SET status='Order Placed'
+           WHERE project_id=$1 AND item_code=$2 AND status IN ('Not yet placed','RFQ sent')`,
+          [req.params.id, cat]);
+      } else if (agg[cat] && agg[cat].scheduled === 0) {
+        // Left the scheduled state and nothing else in this bucket is scheduled (manual or
+        // Ferguson) → drop the board date we may have set, so /deliveries and the day-before
+        // confirmation stop showing an item that's no longer scheduled. Never touch a
+        // delivered bucket, and never run when Ferguson still has this bucket scheduled.
+        await pool.query(
+          `UPDATE project_items SET delivery_date=NULL
+           WHERE project_id=$1 AND item_code=$2 AND status NOT IN ('Delivered','Delivered from Inv.','N/A')`,
+          [req.params.id, cat]);
+      }
+    }
     // Cascade up: every expected item in the bucket delivered → the bucket itself is
     // Delivered (forward only — never downgrades a pill someone set further along).
     let bucketStatus = null;
@@ -6593,6 +6624,32 @@ function fergusonSchedDateISO(schedFor) {
   const m = String(schedFor || '').match(/(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2})\w*,?\s+(\d{4})/i);
   if (!m) return null;
   return m[3] + '-' + String(FERG_MONTHS[m[1].toLowerCase()] + 1).padStart(2, '0') + '-' + String(Number(m[2])).padStart(2, '0');
+}
+// Lenient parse for a hand-typed checklist schedule date. Accepts "2026-07-12",
+// "7/12", "07/12/2026", "Jul 12", "July 12th 2026". Returns 'YYYY-MM-DD' or ''
+// when the text isn't a date (so a free-text note like "confirm w/ GC" is ignored).
+// A bare month/day assumes the current year, rolling to next year if that date is
+// already well in the past.
+function parseLooseDateISO(s) {
+  s = String(s || '').trim();
+  if (!s) return '';
+  const pad = n => String(n).padStart(2, '0');
+  const roll = (y, mo, d) => {
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return '';
+    if (!y) { y = new Date().getFullYear(); const cand = new Date(y, mo - 1, d); if ((new Date() - cand) > 40 * 864e5) y += 1; }
+    else if (y < 100) y += 2000;
+    return `${y}-${pad(mo)}-${pad(d)}`;
+  };
+  let m;
+  if (m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)) return roll(+m[1], +m[2], +m[3]);
+  if (m = s.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/)) return roll(m[3] ? +m[3] : 0, +m[1], +m[2]);
+  if (m = s.match(/([A-Za-z]{3,9})\.?\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(\d{4}))?/)) {
+    const pre = m[1].toLowerCase().slice(0, 3);
+    let moIdx;
+    for (const name in FERG_MONTHS) { if (name.startsWith(pre)) { moIdx = FERG_MONTHS[name]; break; } }
+    if (moIdx !== undefined) return roll(m[3] ? +m[3] : 0, moIdx + 1, +m[2]);
+  }
+  return '';
 }
 async function fergusonAutoComplete() {
   try {

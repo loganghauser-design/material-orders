@@ -92,6 +92,34 @@
     .cat-conv.open{display:block;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:.6rem .75rem;margin:.35rem 0 .7rem}
     .modal{max-height:90vh;overflow-y:auto}
     .modal-overlay{padding:2vh 0}
+    /* Item Checklist (this is the Materials tab now) */
+    .ck-toolbar{display:flex;align-items:center;gap:.55rem;flex-wrap:wrap;margin:0 0 .9rem;padding:.6rem .8rem;background:var(--bg);border:1px solid var(--border);border-radius:11px}
+    .ck-tb-label{font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-left:.35rem}
+    .ck-src{font-size:.75rem;color:var(--muted);display:inline-flex;align-items:center;gap:.32rem}
+    .ck-src select{font:inherit;font-size:.75rem;font-weight:600;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.18rem .35rem;background:var(--surface)}
+    .ck-legend{color:var(--muted);font-size:.78rem;margin:0 0 1.1rem;max-width:820px}
+    .ck-bucket{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:.85rem 1.1rem;margin-bottom:.85rem;max-width:none}
+    .ck-head{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin-bottom:.5rem}
+    .ck-head h2{font-size:.98rem;font-weight:800;margin:0;display:flex;align-items:baseline;gap:.45rem}
+    .ck-hcode{font-size:.72rem;font-weight:800;color:#fff;background:#9aa3b2;border-radius:5px;padding:.08rem .35rem}
+    .ck-bar{flex:1;min-width:120px;max-width:300px;height:10px;background:var(--bg);border:1px solid var(--border);border-radius:5px;overflow:hidden;display:flex}
+    .ck-bar > i{height:100%;display:block}
+    .ck-count{font-size:.82rem;font-weight:800;color:var(--muted);white-space:nowrap}
+    .ck-count.all{color:#16a34a}
+    .ck-count small{font-weight:600;color:var(--muted)}
+    .ck-email{margin-left:auto;border:1px solid var(--border);background:var(--surface);border-radius:8px;padding:.2rem .5rem;font-size:.9rem;cursor:pointer;line-height:1}
+    .ck-email:hover{background:var(--bg);border-color:#c7cdd8}
+    .ck-row{display:flex;align-items:baseline;gap:.6rem;padding:.34rem 0;border-bottom:1px solid var(--border);font-size:.87rem;flex-wrap:wrap}
+    .ck-row:last-child{border-bottom:none}
+    .ck-check{flex:none;width:22px;text-align:center;cursor:pointer;user-select:none;font-size:1rem;line-height:1.2}
+    .ck-manual{outline:1px dashed #9aa3b2;outline-offset:1px;border-radius:4px}
+    .ck-code{font-weight:700;white-space:nowrap;color:var(--muted);font-size:.8rem;min-width:56px}
+    .ck-name{font-weight:600}
+    .ck-qty{font-size:.78rem;font-weight:800;color:#374151}
+    .ck-model{font-family:monospace;font-size:.78rem;color:var(--muted);white-space:nowrap}
+    .ck-when{color:#3730a3;font-size:.76rem;font-weight:600;white-space:nowrap}
+    .ck-sup{margin-left:auto;font-size:.76rem;color:var(--muted);white-space:nowrap}
+    .ck-done{opacity:.6}
   </style>
   <div class="tabs">
     <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">Materials</button>
@@ -239,90 +267,82 @@
     <% }) %>
   </div>
   <% } %>
-  <div id="bulkStockBar" style="display:none;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0 0 1rem;padding:.6rem .8rem;background:var(--bg);border:1px solid var(--border);border-radius:10px">
-    <strong style="font-size:.85rem">Office stock (Jedco + hoods):</strong>
-    <button type="button" class="btn btn-primary btn-sm" onclick="markAllStock('all','office')">✓ Mark all delivered</button>
-    <button type="button" class="btn btn-ghost btn-sm" onclick="markAllStock('none','office')">↩ Mark all in office</button>
-    <span id="bulkStockNote" style="font-size:.78rem;color:var(--muted)"></span>
+  <!-- Sourcing controls + vendor email (project-level settings that used to live in the grid) -->
+  <div class="ck-toolbar">
+    <button type="button" class="btn btn-primary btn-sm" onclick="openRfqDialog('','','','')" title="Send an RFQ / order email to any vendor">✉ Email a vendor</button>
+    <span class="ck-tb-label">Sourcing</span>
+    <label class="ck-src">Bifold
+      <select onchange="setBifoldSource(this.value)">
+        <option value="buildoly" <%= project.bifold_source==='vendor'?'':'selected' %>>Buildoly Stock</option>
+        <option value="vendor" <%= project.bifold_source==='vendor'?'selected':'' %>>Vendor</option>
+      </select>
+    </label>
+    <label class="ck-src">Sliding Door
+      <select onchange="setSlidingSource(this.value)">
+        <option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Vendor</option>
+        <option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
+      </select>
+    </label>
+    <label class="ck-src">Rec. Light
+      <select onchange="setRecSource(this.value)">
+        <option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option>
+        <option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option>
+      </select>
+    </label>
+    <label class="ck-src">Range Hood
+      <select onchange="setRangeHoodSource(this.value)">
+        <option value="default" <%= project.range_hood_source==='buildoly'?'':'selected' %>>Vendor</option>
+        <option value="buildoly" <%= project.range_hood_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
+      </select>
+    </label>
+    <label class="ck-src">Jedco
+      <select onchange="setJedcoSource(this.value)">
+        <option value="default" <%= project.jedco_source==='buildoly'?'':'selected' %>>JEDCO</option>
+        <option value="buildoly" <%= project.jedco_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
+      </select>
+    </label>
   </div>
-  <% STAGES.forEach(stage => { %>
-  <div class="stage-card">
-    <div class="stage-header" style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap">
-      <span style="display:inline-flex;align-items:center;gap:.8rem"><%= stage.name %><%
-        var _sT = 0, _sD = 0, _sS = 0, _sO = 0;
-        stage.items.forEach(function (it2) { var a2 = (typeof itemsAgg !== 'undefined') && itemsAgg[it2.code]; if (a2) { _sT += a2.total; _sD += a2.delivered; _sS += a2.scheduled; _sO += a2.ordered; } });
-      %><% if (_sT) { %><span class="stage-roll"><span class="ck-mini-bar"><i class="d" style="width:<%= Math.round(_sD/_sT*100) %>%"></i><i class="s" style="width:<%= Math.round(_sS/_sT*100) %>%"></i><i class="o" style="width:<%= Math.round(_sO/_sT*100) %>%"></i></span><%= _sD %> of <%= _sT %> items delivered<%= _sS ? ' · ' + _sS + ' scheduled' : '' %><%= _sO ? ' · ' + _sO + ' ordered' : '' %></span><% } %></span>
-      <span style="font-size:.74rem;font-weight:400;color:var(--muted);display:inline-flex;align-items:center;gap:.4rem">
-        Set whole stage →
-        <select onchange="setStageStatus(this)" title="Set every item in this stage to one status at once" style="font-size:.76rem;padding:.2rem .45rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);font-weight:600;color:var(--text)">
-          <option value="">— choose —</option>
-          <% ITEM_STATUSES.forEach(s => { %><option value="<%= s %>"><%= s %></option><% }) %>
-        </select>
-      </span>
+  <p class="ck-legend">✅ delivered &middot; 🚚 scheduled (date shown) &middot; 📦 on a confirmed order, not scheduled yet &middot; ⬜ not seen yet. Ferguson updates these automatically as orders and deliveries come in — for any other vendor, <strong>click the icon</strong> to set it by hand (⬜→📦→🚚→✅, one more click reverts to automatic). Giving a 🚚 item a real date also lists it on the <a href="/deliveries" style="color:#2563eb">Deliveries board</a> and sends a day-before confirmation.</p>
+
+  <%
+    var CK_LABEL = { '1a':'Doors & Windows','1b':'Rough Plumbing & Fans','1c':'HVAC Trim','1d':'Tile','1e':'Recessed Lighting','2a':'Millwork','2b':'Flooring','2c':'Decking','2d':'Finish Plumbing / Light / Hood','2e':'Water Heater','3a':'Countertops','3b':'Appliances','3c':'Cabinet Hardware','3d':'Misc','3e':'Shower Doors','4a':'Roofing','5a':'Solar' };
+    var _ckItems = (typeof checklistItems !== 'undefined' && checklistItems) || [];
+    var _ckBuckets = {};
+    _ckItems.forEach(function (e) { var k = e.category_code || '—'; (_ckBuckets[k] = _ckBuckets[k] || []).push(e); });
+    var _ckOrder = Object.keys(CK_LABEL).filter(function (k) { return _ckBuckets[k]; });
+    Object.keys(_ckBuckets).forEach(function (k) { if (_ckOrder.indexOf(k) < 0) _ckOrder.push(k); });
+  %>
+  <% if (!_ckItems.length) { %>
+    <div class="card" style="max-width:none;color:var(--muted)">No items on the schedule yet. Link this project's finish schedule under <strong>Edit Project</strong>, then reload.</div>
+  <% } %>
+  <% _ckOrder.forEach(function (k) {
+       var list = _ckBuckets[k];
+       var done = list.filter(function (e) { return e.delivered; }).length;
+       var sched = list.filter(function (e) { return e.scheduled; }).length;
+       var ord = list.filter(function (e) { return e.onOrder; }).length;
+       var n = list.length;
+       var _sup = (typeof suppliers !== 'undefined' && suppliers[k]) || {};
+  %>
+  <div class="ck-bucket" data-code="<%= k %>">
+    <div class="ck-head">
+      <h2><span class="ck-hcode"><%= k %></span> <%= CK_LABEL[k] || 'Uncategorized' %></h2>
+      <span class="ck-bar" title="✅ <%= done %> delivered &middot; 🚚 <%= sched %> scheduled &middot; 📦 <%= ord %> ordered &middot; ⬜ <%= n - done - sched - ord %> not seen"><i style="width:<%= Math.round(done/n*100) %>%;background:#16a34a"></i><i style="width:<%= Math.round(sched/n*100) %>%;background:#6366f1"></i><i style="width:<%= Math.round(ord/n*100) %>%;background:#f0b429"></i></span>
+      <span class="ck-count<%= done===n?' all':'' %>"><%= done %>✅<%= sched?' · '+sched+'🚚':'' %><%= ord?' · '+ord+'📦':'' %> <small>/ <%= n %></small></span>
+      <button type="button" class="ck-email" data-code="<%= k %>" data-name="<%= CK_LABEL[k] || k %>" data-supname="<%= _sup.supplier_name || '' %>" data-supemail="<%= _sup.supplier_email || '' %>" onclick="catEmail(this)" title="Email this category's vendor">✉</button>
     </div>
-    <table class="stage-table">
-      <tbody>
-        <% stage.items.forEach(item => {
-          const row = itemMap[item.code] || {};
-          const st = row.status || 'Not yet placed';
-          const stCls = 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
-          const sup = suppliers[item.code] || {};
-        %>
-        <tr class="mat-row" data-project="<%= project.id %>" data-code="<%= item.code %>">
-          <td class="mat-main"><div class="mat-title"><span style="cursor:pointer;user-select:none" onclick="toggleCategory('<%= item.code %>')"><span class="cat-caret" id="car_<%= item.code %>">▸</span> <span class="mat-code"><%= item.code %></span> <strong><%= item.name %></strong></span><% var _rq = (typeof requestedByCode !== 'undefined') && requestedByCode[item.code]; if (_rq) { %> <a href="#fieldRequests" class="req-flag" title="Requested from the field — jump to the request">📥 <%= _rq.sup %><% if (_rq.needed_by) { %> · need <%= new Date(_rq.needed_by).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %><% } %></a><% } %><% var _iss = (typeof issueByCode !== 'undefined') && issueByCode[item.code]; if (_iss) { %> <a href="/issues" class="iss-flag" title="Reported by <%= _iss.sup %><%= _iss.label ? ' (' + _iss.label + ')' : '' %><%= _iss.note ? ': ' + _iss.note : '' %>">⚠ <%= _iss.label || 'Issue' %><% if (_iss.note) { %>: <%= _iss.note.length > 30 ? _iss.note.slice(0,30) + '…' : _iss.note %><% } %></a><% } %> <span id="cnt_<%= item.code %>" style="color:var(--muted);font-size:.78rem"></span></div><% if (item.code === '1a') { %><div class="mat-srcs"><label>3-Panel Bifold: <select onchange="setBifoldSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="buildoly" <%= project.bifold_source==='vendor'?'':'selected' %>>Buildoly Stock</option><option value="vendor" <%= project.bifold_source==='vendor'?'selected':'' %>>Order from vendor</option></select></label> <label style="font-size:.7rem;color:var(--muted)">Sliding Glass Door: <select onchange="setSlidingSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Order from vendor</option><option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option></select></label></div><% } %><% if (item.code === '1e') { %><div class="mat-srcs"><label>Source: <select onchange="setRecSource(this.value)" style="font-size:.7rem;border:1px solid var(--border);border-radius:5px;padding:.1rem .3rem"><option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option><option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option></select></label></div><% } %>
-            <% var _ia = (typeof itemsAgg !== 'undefined') && itemsAgg[item.code]; %>
-            <% if (_ia && _ia.total) { %>
-            <a href="/projects/<%= project.id %>/checklist" class="ck-mini mat-prog" title="Item checklist: <%= _ia.delivered %> delivered · <%= _ia.scheduled %> scheduled · <%= _ia.ordered %> ordered · of <%= _ia.total %> expected">
-              <span class="ck-mini-bar" id="bar_<%= item.code %>"><i class="d" style="width:<%= Math.round(_ia.delivered/_ia.total*100) %>%"></i><i class="s" style="width:<%= Math.round(_ia.scheduled/_ia.total*100) %>%"></i><i class="o" style="width:<%= Math.round(_ia.ordered/_ia.total*100) %>%"></i></span>
-              <span class="ck-mini-txt" id="chip_<%= item.code %>"<%= _ia.delivered === _ia.total ? ' style=color:#176b3a' : '' %>><%= _ia.delivered %>/<%= _ia.total %> delivered<%= _ia.scheduled ? ' · ' + _ia.scheduled + ' scheduled' : '' %><%= _ia.ordered ? ' · ' + _ia.ordered + ' ordered' : '' %></span>
-            </a>
-            <% } %>
-          </td>
-          <td class="mat-side">
-            <span class="sched-sum" id="sum_<%= item.code %>"><%
-              var _fmt = function (d) { return d ? new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''; };
-              var _parts = [];
-              if (row.order_date) _parts.push('Ordered ' + _fmt(row.order_date));
-              var _de = row.delivery_date_end && _fmt(row.delivery_date_end) !== _fmt(row.delivery_date) ? _fmt(row.delivery_date_end) : '';
-              if (row.delivery_date) _parts.push('Delivery ' + _fmt(row.delivery_date) + (_de ? ' – ' + _de : ''));
-            %><%= _parts.join(' · ') %><% if (row.notes) { %> <span title="<%= row.notes %>" style="cursor:default;border-bottom:1px dotted var(--muted)">note</span><% } %></span>
-            <select class="status-select item-status <%= stCls %>" onchange="saveItem(this)">
-              <% ITEM_STATUSES.forEach(s => { %>
-                <option value="<%= s %>" <%- st===s?'selected':'' %>><%= s %></option>
-              <% }) %>
-            </select>
-            <span class="mat-actions">
-              <button type="button" class="notify-btn" onclick="notifyDelivery(this)" title="Send the delivery alert to chat">Notify</button>
-              <button type="button" class="edit-btn" onclick="toggleEditor('<%= item.code %>')" title="Edit order date, delivery window &amp; notes">Edit</button>
-            </span>
-          </td>
-        </tr>
-        <tr class="edit-row" id="edit_<%= item.code %>" data-project="<%= project.id %>" data-code="<%= item.code %>" style="display:none">
-          <td colspan="2">
-            <div style="display:flex;align-items:center;gap:1.1rem;flex-wrap:wrap">
-              <label class="edit-lbl">Ordered <input type="date" class="item-order-date" value="<%= row.order_date ? new Date(row.order_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)"></label>
-              <label class="edit-lbl">Delivery <input type="date" class="item-date" value="<%= row.delivery_date ? new Date(row.delivery_date).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Delivery date — leave the 'to' box blank for a single day"> <span style="color:var(--muted)">to</span> <input type="date" class="item-date-end" value="<%= row.delivery_date_end ? new Date(row.delivery_date_end).toISOString().slice(0,10) : '' %>" onchange="saveItem(this)" title="Optional window end (for an estimated delivery window)"></label>
-              <label class="edit-lbl" style="flex:1;min-width:230px">Notes <input type="text" class="item-notes" value="<%= row.notes || '' %>" placeholder="Notes…" onblur="saveItem(this)" style="flex:1"></label>
-            </div>
-          </td>
-        </tr>
-        <tr class="sched-sub" id="sub_<%= item.code %>" style="display:none">
-          <td colspan="2" style="padding:0">
-            <div class="cat-emails" style="padding:.55rem .9rem;background:var(--bg);border-bottom:1px dashed var(--border)">
-              <div style="display:flex;align-items:center;gap:.7rem;flex-wrap:wrap">
-                <button type="button" class="btn btn-primary btn-sm" data-code="<%= item.code %>" data-name="<%= item.name %>" data-supname="<%= sup.supplier_name || '' %>" data-supemail="<%= sup.supplier_email || '' %>" onclick="catEmail(this)">✉ Email vendor</button>
-                <span style="font-size:.78rem;color:var(--muted)"><%= (sup.supplier_name || sup.supplier_email) ? 'Default vendor: ' + (sup.supplier_name || sup.supplier_email) : 'No default vendor set for this category (add one in Settings)' %></span>
-              </div>
-              <div class="cat-threads" id="catthreads_<%= item.code %>" style="margin-top:.45rem"><span style="font-size:.78rem;color:var(--muted)">Loading emails…</span></div>
-            </div>
-            <div class="sched-items" style="padding:.4rem .9rem;background:var(--bg)"></div>
-          </td>
-        </tr>
-        <% }) %>
-      </tbody>
-    </table>
+    <% list.forEach(function (e) { %>
+    <div class="ck-row<%= e.delivered ? ' ck-done' : '' %>">
+      <span class="ck-check<%= e.manual ? ' ck-manual' : '' %>" data-key="<%= e.key %>" data-cur="<%= e.delivered ? 'd' : e.scheduled ? 's' : e.onOrder ? 'o' : '' %>" onclick="markItem(this)" title="<%= e.delivered ? 'Delivered' : e.scheduled ? ('Delivery scheduled' + (e.schedWhen ? ': ' + e.schedWhen : '')) : e.onOrder ? 'On a confirmed order — not scheduled yet' : 'Not yet seen on an order or delivery' %><%= e.manual ? ' (set by hand)' : '' %> — click to change: ⬜→📦→🚚→✅→auto"><%= e.delivered ? '✅' : e.scheduled ? '🚚' : e.onOrder ? '📦' : '⬜' %></span>
+      <span class="ck-code"><%= e.prod_code || '' %></span>
+      <span class="ck-name"><%= e.name %><% if (e.qty > 1) { %> <span class="ck-qty">×<%= e.qty %></span><% } %></span>
+      <% if (e.model_no) { %><span class="ck-model"><%= e.model_no %></span><% } %>
+      <% if (e.scheduled && e.schedWhen) { %><span class="ck-when">🗓 <%= e.schedWhen.length > 44 ? e.schedWhen.slice(0,44) + '…' : e.schedWhen %></span><% } %>
+      <span class="ck-sup"><%= e.supplier || '' %></span>
+    </div>
+    <% }) %>
   </div>
   <% }) %>
+
   </div><!-- /materials -->
 </div>
 
@@ -621,7 +641,6 @@ function showTab(tab) {
   document.querySelectorAll('.tab-panel').forEach(p => { p.style.display = (p.dataset.tab === tab) ? 'block' : 'none'; });
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   if (tab === 'schedule') loadFinishSchedule();
-  if (tab === 'materials') loadMaterialsSchedule();
 }
 
 // Per-item delivery state, keyed by item key (PC:/MN:/NM:) and normalized model #
@@ -693,6 +712,49 @@ function updateBucketBar(code, c) {
   seg[2].style.width = Math.round(c.ordered / c.total * 100) + '%';
   chip.textContent = c.delivered + '/' + c.total + ' delivered' + (c.scheduled ? ' · ' + c.scheduled + ' scheduled' : '') + (c.ordered ? ' · ' + c.ordered + ' ordered' : '');
   chip.style.color = c.delivered === c.total ? '#176b3a' : '';
+}
+
+// ── Item Checklist (this is the Materials tab) ──────────────────────────────
+// Click a ⬜/📦/🚚/✅ icon to set an item's state by hand; Ferguson fills these
+// in automatically as orders/deliveries arrive. Updates the row + bucket bar in
+// place from the server's authoritative reply (no reload → no sheet re-sync).
+async function markItem(el) {
+  const cur = el.dataset.cur || '';
+  const next = cur === '' ? 'ordered' : cur === 'o' ? 'scheduled' : cur === 's' ? 'delivered' : '';
+  let when = '';
+  if (next === 'scheduled') when = (prompt('Delivery date — e.g. 2026-07-12 or Jul 12.\n(A real date also puts it on the Deliveries board + sends a day-before confirmation. Leave blank if unknown.)') || '').trim();
+  try {
+    const r = await fetch(`/projects/<%= project.id %>/item-mark`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: el.dataset.key, state: next, when }),
+    });
+    const data = await r.json();
+    if (!data.ok) throw new Error(data.error || 'save failed');
+    const s = data.st ? data.st.st : '';
+    el.dataset.cur = s || '';
+    el.textContent = s === 'd' ? '✅' : s === 's' ? '🚚' : s === 'o' ? '📦' : '⬜';
+    el.classList.toggle('ck-manual', !!(data.st && data.st.m));
+    const row = el.closest('.ck-row');
+    if (row) row.classList.toggle('ck-done', s === 'd');
+    if (data.agg && data.agg.counts) ckUpdateBucket(el.closest('.ck-bucket'), data.agg.counts);
+    if (data.bucketStatus) showToast('🎉 All ' + data.bucketStatus.code + ' items delivered — bucket marked Delivered');
+    else showToast(next ? 'Marked ' + (next === 'delivered' ? '✅ delivered' : next === 'scheduled' ? '🚚 scheduled' : '📦 ordered') : '↩ Back to automatic');
+  } catch (e) { showToast('Not saved — please try again', true); }
+}
+function ckUpdateBucket(bucket, c) {
+  if (!bucket || !c || !c.total) return;
+  const n = c.total;
+  const seg = bucket.querySelectorAll('.ck-bar > i');
+  if (seg.length >= 3) {
+    seg[0].style.width = Math.round(c.delivered / n * 100) + '%';
+    seg[1].style.width = Math.round(c.scheduled / n * 100) + '%';
+    seg[2].style.width = Math.round(c.ordered / n * 100) + '%';
+  }
+  const cnt = bucket.querySelector('.ck-count');
+  if (cnt) {
+    cnt.classList.toggle('all', c.delivered === n);
+    cnt.innerHTML = c.delivered + '✅' + (c.scheduled ? ' · ' + c.scheduled + '🚚' : '') + (c.ordered ? ' · ' + c.ordered + '📦' : '') + ' <small>/ ' + n + '</small>';
+  }
 }
 
 let MAT_SCHED_LOADED = false;
