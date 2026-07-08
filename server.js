@@ -2705,8 +2705,78 @@ app.get('/projects', requireAuth, async (req, res) => {
       projects.sort((a, b) => (deliveredCounts[b.id] || 0) - (deliveredCounts[a.id] || 0));
     }
 
+    // ── Pipeline card data: per-project stage progress + what it needs next ──
+    const { rows: _ruleRows } = await pool.query('SELECT * FROM order_rules');
+    const _ruleMap = {}; _ruleRows.forEach(r => _ruleMap[r.item_code] = r);
+    const _reqCount = {}, _issCount = {};
+    if (projectIds.length) {
+      try { const { rows } = await pool.query('SELECT project_id, COUNT(*) c FROM material_requests WHERE fulfilled=FALSE AND project_id = ANY($1) GROUP BY project_id', [projectIds]); rows.forEach(r => _reqCount[r.project_id] = Number(r.c)); } catch (e) {}
+      try { const { rows } = await pool.query("SELECT project_id, COUNT(*) c FROM material_issues WHERE status='pending' AND project_id = ANY($1) GROUP BY project_id", [projectIds]); rows.forEach(r => _issCount[r.project_id] = Number(r.c)); } catch (e) {}
+    }
+    const _today = new Date(); _today.setHours(0, 0, 0, 0);
+    const _DELIV = new Set(['Delivered', 'Delivered from Inv.']);
+    const _ONORDER = new Set(['Order Placed', 'In Inventory']);
+    const _SHORT = { framing: 'Framing', warehouse: 'Warehouse', oneweek: 'Post-W/O', roofing: 'Roof', solar: 'Solar' };
+    const _contactByEmail = {}; allContacts().forEach(c => { _contactByEmail[String(c.email || '').toLowerCase()] = c; });
+    const _initials = n => (String(n || '').trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?');
+    const _serverPhase = p => PROJECT_PHASES.includes(p.phase) ? p.phase : (p.overall_status === 'Fully Delivered' ? 'Complete' : ((p.overall_status === 'In Progress' || p.overall_status === 'All Delivered') ? 'Under Construction' : 'Pre-Construction'));
+    const cards = {};
+    const summary = { needAction: 0, awaiting: 0, onTrack: 0 };
+    for (const p of projects) {
+      const im = itemMaps[p.id] || {};
+      const stages = STAGES.map(g => {
+        let deliv = 0, order = 0, total = 0;
+        g.items.forEach(it => {
+          const st = (im[it.code] && im[it.code].status) || 'Not yet placed';
+          if (st === 'N/A') return;
+          total++;
+          if (_DELIV.has(st)) deliv++; else if (_ONORDER.has(st)) order++;
+        });
+        return { short: _SHORT[g.key] || g.name, deliv, order, total };
+      });
+      const pd = p.phase_dates || {};
+      let orderNow = 0, overdue = 0, late = 0, rfq = 0, notPlaced = 0;
+      ALL_ITEMS.forEach(it => {
+        const row = im[it.code] || {};
+        const st = row.status || 'Not yet placed';
+        if (st === 'N/A') return;
+        const rule = _ruleMap[it.code];
+        if (rule && (STATUS_RANK[st] ?? 0) < STATUS_RANK['Order Placed']) {
+          const aDate = pd[rule.anchor === 'precon' ? 'Pre-Construction' : 'Under Construction'];
+          if (aDate) {
+            const due = new Date(aDate + 'T00:00:00'); due.setDate(due.getDate() + rule.offset_weeks * 7);
+            const days = Math.round((due - _today) / 86400000);
+            if (days <= 7) { orderNow++; if (days < 0) overdue++; }
+          }
+        }
+        if (row.delivery_date && !_DELIV.has(st)) { const dd = new Date(row.delivery_date); dd.setHours(0, 0, 0, 0); if (dd < _today) late++; }
+        if (st === 'RFQ sent') rfq++;
+        if (st === 'Not yet placed') notPlaced++;
+      });
+      const requests = _reqCount[p.id] || 0, issues = _issCount[p.id] || 0, newReply = !!unread[p.id];
+      const noSched = !(p.finish_schedule_url && String(p.finish_schedule_url).trim());
+      const needs = [];
+      if (issues) needs.push({ text: issues + ' issue' + (issues > 1 ? 's' : ''), kind: 'bad' });
+      if (orderNow) needs.push({ text: overdue ? ('Order ' + orderNow + ' now · ' + overdue + ' overdue') : ('Order ' + orderNow + ' now'), kind: 'bad' });
+      if (late) needs.push({ text: late + (late > 1 ? ' deliveries' : ' delivery') + ' late', kind: 'warn' });
+      if (rfq) needs.push({ text: rfq + ' RFQ' + (rfq > 1 ? 's' : '') + ' awaiting quote', kind: 'warn' });
+      if (newReply) needs.push({ text: 'New vendor reply', kind: 'info' });
+      if (requests) needs.push({ text: requests + ' field request' + (requests > 1 ? 's' : ''), kind: 'mute' });
+      if (noSched) needs.push({ text: 'Link finish schedule', kind: 'warn' });
+      let urgency = 'green';
+      if (issues || overdue || late) urgency = 'red';
+      else if (orderNow || rfq || newReply || requests || noSched) urgency = 'amber';
+      if (!needs.length) needs.push(notPlaced ? { text: notPlaced + ' still to order', kind: 'mute' } : { text: 'On track', kind: 'ok' });
+      const supEmails = String(p.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+      const sup = supEmails.map(e => { const c = _contactByEmail[e]; return { initials: _initials(c ? c.name : e), name: c ? c.name : e }; });
+      cards[p.id] = { stages, needs, urgency, sup };
+      if (!['Complete', 'Under Warranty'].includes(_serverPhase(p))) {
+        if (urgency === 'red') summary.needAction++; else if (urgency === 'amber') summary.awaiting++; else summary.onTrack++;
+      }
+    }
+
     const pendingIssues = await getPendingIssueCount();
-    res.render('projects', { projects, stats, itemMaps, query: req.query, PROJECT_STATUSES, PROJECT_PHASES, ITEM_STATUSES, unread, deliveredCounts, sort, supers: allContacts(), pendingIssues, STAGES });
+    res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

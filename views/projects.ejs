@@ -7,18 +7,66 @@
   <link rel="stylesheet" href="/css/app.css?v=5">
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#000000">
+  <style>
+    .psummary { display:flex; gap:12px; margin-bottom:1.3rem; flex-wrap:wrap; }
+    .psum { border-radius:11px; padding:.7rem 1.15rem; min-width:130px; }
+    .psum .l { font-size:.78rem; font-weight:600; }
+    .psum .v { font-size:1.8rem; font-weight:700; line-height:1.1; }
+    .psum-need { background:#fdeaea; } .psum-need .l, .psum-need .v { color:#b42323; }
+    .psum-wait { background:#e6f1fb; } .psum-wait .l, .psum-wait .v { color:#185fa5; }
+    .psum-ok   { background:#eaf6ee; } .psum-ok .l, .psum-ok .v { color:#176b3a; }
+    .pcards { display:flex; flex-direction:column; gap:10px; margin-bottom:1.6rem; }
+    .pcard { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 14px; }
+    .pcard-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .drag-handle { cursor:grab; color:var(--muted); font-size:1rem; user-select:none; }
+    .urg-dot { width:10px; height:10px; border-radius:50%; flex:none; background:#4caf7d; }
+    .urg-red .urg-dot { background:#e24b4a; } .urg-amber .urg-dot { background:#e0a952; }
+    .pcard-name { font-size:1rem; color:var(--text); text-decoration:none; }
+    .pcard-name:hover { text-decoration:underline; }
+    .pcard-ver { font-size:.8rem; color:var(--muted); font-weight:400; }
+    .reply-dot { color:#e5484d; font-size:1rem; text-decoration:none; }
+    .pcard-right { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .pc-avatars { display:flex; align-items:center; gap:4px; }
+    .pc-avatar { width:24px; height:24px; border-radius:50%; background:#e6f1fb; color:#185fa5; font-size:.7rem; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
+    .pc-nosup { font-size:.72rem; color:var(--muted); }
+    .pc-phase { font-size:.76rem; border:1px solid var(--border); border-radius:7px; padding:2px 6px; background:var(--bg); cursor:pointer; color:var(--text); }
+    .pc-del { background:none; border:none; cursor:pointer; font-size:.9rem; opacity:.5; }
+    .pc-del:hover { opacity:1; }
+    .pipe { display:flex; gap:5px; margin:11px 0 9px; }
+    .pipe-seg { flex:1; min-width:0; }
+    .pipe-lbl { font-size:.66rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:3px; }
+    .pipe-bar { height:9px; border-radius:3px; background:var(--bg); border:1px solid var(--border); overflow:hidden; display:flex; }
+    .pipe-fill-d { background:#4caf7d; } .pipe-fill-o { background:#378add; }
+    .pipe-cnt { font-size:.66rem; color:var(--muted); margin-top:2px; }
+    .needs { display:flex; gap:6px; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:9px; }
+    .need { font-size:.74rem; font-weight:600; border-radius:999px; padding:3px 10px; white-space:nowrap; }
+    .need-bad { background:#fdeaea; color:#b42323; } .need-warn { background:#fff4dd; color:#8a6100; }
+    .need-info { background:#e6f1fb; color:#185fa5; } .need-mute { background:var(--bg); color:var(--muted); }
+    .need-ok { background:#eaf6ee; color:#176b3a; }
+    .pipe-legend { display:flex; gap:14px; font-size:.72rem; color:var(--muted); margin-left:auto; }
+    .pipe-legend span { display:inline-flex; align-items:center; gap:5px; }
+    .lg-sw { width:10px; height:10px; border-radius:2px; display:inline-block; }
+    .row-dragging { opacity:.5; }
+    @media (max-width:760px){ .pipe-lbl,.pipe-cnt{ font-size:.6rem; } }
+  </style>
 </head>
 <body>
 <%- include('_nav', { active: 'projects' }) %>
 
 <div class="container wide">
   <% const sortedNow = (typeof sort !== 'undefined' && sort === 'delivered'); %>
-  <div class="page-header" style="margin:.2rem 0 1rem"><h1 style="margin:0">Projects</h1></div>
-  <div class="stats">
-    <div class="stat-card"><div class="stat-label">Total</div><div class="stat-value"><%= stats.total %></div></div>
-    <div class="stat-card in-progress"><div class="stat-label">In Progress</div><div class="stat-value"><%= stats.in_progress %></div></div>
-    <div class="stat-card delivered"><div class="stat-label">Delivered</div><div class="stat-value"><%= stats.delivered %></div></div>
-    <div class="stat-card not-yet"><div class="stat-label">Not Yet</div><div class="stat-value"><%= stats.not_yet %></div></div>
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin:.2rem 0 1rem">
+    <h1 style="margin:0">Projects</h1>
+    <div class="pipe-legend">
+      <span><span class="lg-sw" style="background:#4caf7d"></span>Delivered</span>
+      <span><span class="lg-sw" style="background:#378add"></span>On order</span>
+    </div>
+  </div>
+
+  <div class="psummary">
+    <div class="psum psum-need"><div class="l">Need action</div><div class="v"><%= summary.needAction %></div></div>
+    <div class="psum psum-wait"><div class="l">Awaiting vendor</div><div class="v"><%= summary.awaiting %></div></div>
+    <div class="psum psum-ok"><div class="l">On track</div><div class="v"><%= summary.onTrack %></div></div>
   </div>
 
   <form method="GET" action="/projects" class="toolbar">
@@ -31,23 +79,9 @@
     </select>
     <button type="submit" class="btn btn-ghost">Search</button>
     <% if (query.search || query.status) { %><a href="/projects" class="btn btn-ghost">Clear</a><% } %>
-    <%
-      const _qp = new URLSearchParams();
-      if (query.search) _qp.set('search', query.search);
-      if (query.status) _qp.set('status', query.status);
-      const _base = _qp.toString();
-      const _sortQp = new URLSearchParams(_base); _sortQp.set('sort', 'delivered');
-    %>
-    <% if (sortedNow) { %>
-      <a href="<%= _base ? '/projects?' + _base : '/projects' %>" class="btn btn-primary" title="Back to your manual drag order">✓ Most delivered — clear</a>
-    <% } else { %>
-      <a href="/projects?<%= _sortQp.toString() %>" class="btn btn-ghost" title="Order projects from most delivered to least">📦 Sort by delivered</a>
-    <% } %>
   </form>
 
   <%
-    // Lifecycle sections (same divisions as the old board). Projects without a
-    // phase fall back to one derived from their delivery status so nothing hides.
     const PHASE_CLASSES = { 'In Permitting': 'ph-ip', 'Pre-Construction': 'ph-pc', 'Under Construction': 'ph-uc', 'Complete': 'ph-co', 'Under Warranty': 'ph-uw' };
     function phaseOf(p) {
       if (PROJECT_PHASES.includes(p.phase)) return p.phase;
@@ -55,14 +89,47 @@
       if (p.overall_status === 'In Progress' || p.overall_status === 'All Delivered') return 'Under Construction';
       return 'Pre-Construction';
     }
+    var _phaseOrder = ['Under Construction', 'Pre-Construction', 'In Permitting', 'Under Warranty', 'Complete'].filter(ph => PROJECT_PHASES.includes(ph));
+    PROJECT_PHASES.forEach(ph => { if (!_phaseOrder.includes(ph)) _phaseOrder.push(ph); });
   %>
-  <% // Section display order: active work first, then upcoming, then warranty/complete.
-     var _phaseOrder = ['Under Construction', 'Pre-Construction', 'In Permitting', 'Under Warranty', 'Complete'].filter(ph => PROJECT_PHASES.includes(ph));
-     PROJECT_PHASES.forEach(ph => { if (!_phaseOrder.includes(ph)) _phaseOrder.push(ph); }); %>
   <% _phaseOrder.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
     <div class="phase-divider <%= PHASE_CLASSES[ph] %>"><span><%= ph %> (<%= rows.length %>)</span></div>
     <% if (rows.length) { %>
-      <%- include('_project-grid', { rows, emptyMsg: '', sortable: !sortedNow }) %>
+      <div class="pcards" data-phase="<%= ph %>">
+        <% rows.forEach(p => { var c = (cards && cards[p.id]) || { stages: [], needs: [], urgency: 'green', sup: [] }; %>
+          <div class="pcard urg-<%= c.urgency %>" data-id="<%= p.id %>">
+            <div class="pcard-top">
+              <span class="drag-handle" title="Drag to reorder">⠿</span>
+              <span class="urg-dot"></span>
+              <a href="/projects/<%= p.id %>" class="pcard-name"><strong><%= p.address %></strong><% if (p.version) { %> <span class="pcard-ver"><%= p.version %></span><% } %></a>
+              <% if (unread && unread[p.id]) { %><a href="/projects/<%= p.id %>?tab=emails&openUnread=1" class="reply-dot" title="New vendor reply">●</a><% } %>
+              <div class="pcard-right">
+                <div class="pc-avatars">
+                  <% (c.sup || []).forEach(s => { %><span class="pc-avatar" title="<%= s.name %>"><%= s.initials %></span><% }) %>
+                  <% if (!(c.sup || []).length) { %><span class="pc-nosup">No super</span><% } %>
+                </div>
+                <select class="pc-phase" data-project="<%= p.id %>" onchange="savePhase(this)" title="Project phase">
+                  <% PROJECT_PHASES.forEach(ph2 => { %><option value="<%= ph2 %>" <%= ph===ph2?'selected':'' %>><%= ph2 %></option><% }) %>
+                </select>
+                <a href="/projects/<%= p.id %>" class="btn btn-ghost btn-sm">Open</a>
+                <form method="POST" action="/projects/<%= p.id %>/delete" onsubmit="return confirm('Delete this project?')" style="margin:0"><button type="submit" class="pc-del" title="Delete">🗑</button></form>
+              </div>
+            </div>
+            <div class="pipe">
+              <% (c.stages || []).forEach(s => { var g = s.total ? Math.round(s.deliv / s.total * 100) : 0; var b = s.total ? Math.round(s.order / s.total * 100) : 0; %>
+                <div class="pipe-seg">
+                  <div class="pipe-lbl"><%= s.short %></div>
+                  <div class="pipe-bar"><div class="pipe-fill-d" style="width:<%= g %>%"></div><div class="pipe-fill-o" style="width:<%= b %>%"></div></div>
+                  <div class="pipe-cnt"><%= s.deliv %>/<%= s.total %></div>
+                </div>
+              <% }) %>
+            </div>
+            <div class="needs">
+              <% (c.needs || []).forEach(n => { %><span class="need need-<%= n.kind %>"><%= n.text %></span><% }) %>
+            </div>
+          </div>
+        <% }) %>
+      </div>
     <% } %>
   <% }) %>
 </div>
@@ -71,22 +138,15 @@
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
-// Drag-to-reorder within each phase section; the saved order is the DOM order
-// across all sections, so sort_order stays globally consistent.
 (function initSortable() {
   if (!window.Sortable) return;
-  document.querySelectorAll('tbody.sortable-body').forEach(sb => {
-    Sortable.create(sb, {
-      handle: '.drag-handle',
-      animation: 150,
-      ghostClass: 'row-dragging',
+  document.querySelectorAll('.pcards').forEach(box => {
+    Sortable.create(box, {
+      handle: '.drag-handle', animation: 150, ghostClass: 'row-dragging',
       onEnd: async () => {
-        const ids = Array.from(document.querySelectorAll('tbody.sortable-body tr[data-id]')).map(tr => tr.dataset.id);
+        const ids = Array.from(document.querySelectorAll('.pcards .pcard[data-id]')).map(el => el.dataset.id);
         try {
-          await fetch('/reorder-projects', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ order: ids }),
-          });
+          await fetch('/reorder-projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order: ids }) });
           showToast('Order saved');
         } catch (e) { showToast('Could not save order', true); }
       },
@@ -94,7 +154,6 @@
   });
 })();
 
-// Move a project to another lifecycle section — refresh keeps the scroll position
 async function savePhase(sel) {
   try {
     await postJson('/projects/' + sel.dataset.project + '/phase', { phase: sel.value });
@@ -103,101 +162,22 @@ async function savePhase(sel) {
   } catch (e) { handleSaveError(e); }
 }
 window.addEventListener('DOMContentLoaded', function () {
-  try {
-    const y = sessionStorage.getItem('projScroll');
-    if (y) { sessionStorage.removeItem('projScroll'); window.scrollTo(0, parseInt(y, 10) || 0); }
-  } catch (e) {}
+  try { const y = sessionStorage.getItem('projScroll'); if (y) { sessionStorage.removeItem('projScroll'); window.scrollTo(0, parseInt(y, 10) || 0); } } catch (e) {}
 });
-
-const STATUS_CLASSES = ['cell-not_yet_placed','cell-delivery_requested','cell-rfq_sent','cell-order_placed','cell-in_inventory','cell-delivered','cell-delivered_from_inv','cell-n_a','cell-issue'];
-
-function statusToClass(st) {
-  return 'cell-' + st.toLowerCase().replace(/[\s./]+/g,'_').replace(/[^a-z0-9_]/g,'').replace(/^_+|_+$/g,'');
-}
-
-// POST JSON and verify the save actually succeeded (catches "logged out" too)
 async function postJson(url, body) {
-  const r = await fetch(url, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  });
+  const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   if (r.redirected && /\/login/.test(r.url)) throw new Error('LOGGED_OUT');
-  let data = null;
-  try { data = await r.json(); } catch (e) { throw new Error('LOGGED_OUT'); }
+  let data = null; try { data = await r.json(); } catch (e) { throw new Error('LOGGED_OUT'); }
   if (!r.ok || !data.ok) throw new Error((data && data.error) || 'SAVE_FAILED');
   return data;
 }
 function handleSaveError(e) {
-  if (e && e.message === 'LOGGED_OUT') {
-    showToast('Not saved — you were signed out. Reloading…', true);
-    setTimeout(() => location.href = '/login', 1300);
-  } else {
-    showToast('Not saved — please try again', true);
-  }
+  if (e && e.message === 'LOGGED_OUT') { showToast('Not saved — you were signed out. Reloading…', true); setTimeout(() => location.href = '/login', 1300); }
+  else { showToast('Not saved — please try again', true); }
 }
-
-async function saveGridItem(sel) {
-  const projectId = sel.dataset.project;
-  const code = sel.dataset.code;
-  const status = sel.value;
-  // recolor immediately
-  STATUS_CLASSES.forEach(c => sel.classList.remove(c));
-  sel.classList.add(statusToClass(status));
-  try {
-    const data = await postJson(`/projects/${projectId}/items/${code}`, { status, statusOnly: true });
-    if (data.inv && data.inv.drewDown) showToast('✓ Drew down ' + data.inv.drewDown + ' from inventory');
-    else if (data.inv && data.inv.restored) showToast('↩ Restored ' + data.inv.restored + ' to inventory');
-    else showToast('Saved');
-  } catch(e) {
-    handleSaveError(e);
-  }
-}
-
 function showToast(msg, err) {
-  const t = document.getElementById('toast');
-  t.textContent = msg;
-  t.className = 'toast show' + (err ? ' error' : '');
-  setTimeout(() => t.className = 'toast', 1500);
-}
-
-async function editFinishSchedule(id, el) {
-  const cur = el.dataset.url || '';
-  const url = prompt('Paste the finish-schedule Google Sheet link (leave blank to clear):', cur);
-  if (url === null) return; // cancelled
-  const trimmed = url.trim();
-  try {
-    const r = await fetch('/projects/' + id + '/finish-schedule-url', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: trimmed }),
-    });
-    const data = await r.json();
-    if (data.ok) {
-      el.dataset.url = trimmed;
-      el.style.color = trimmed ? '#16a34a' : '#d97706';
-      el.innerHTML = 'Finish schedule: ' + (trimmed ? 'Yes' : 'No') + ' ✎';
-      showToast(trimmed ? 'Finish schedule linked' : 'Finish schedule cleared');
-    } else {
-      showToast(data.error || 'Could not save', true);
-    }
-  } catch (e) { showToast('Could not save', true); }
-}
-
-// Assign/unassign a super for a project right from the grid (multiple allowed).
-async function toggleRowSuper(event, el) {
-  event.stopPropagation();
-  el.classList.toggle('on');
-  const pid = el.dataset.pid;
-  const chips = Array.from(document.querySelectorAll('.rsuper[data-pid="' + pid + '"]'));
-  const emails = chips.filter(c => c.classList.contains('on')).map(c => c.dataset.email);
-  chips.forEach(c => c.style.pointerEvents = 'none');
-  try {
-    const r = await fetch('/projects/' + pid + '/super', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails }),
-    });
-    const data = await r.json();
-    if (data.ok) showToast(emails.length ? 'Supers updated (' + emails.length + ')' : 'No supers assigned');
-    else { el.classList.toggle('on'); showToast(data.error || 'Could not save', true); }
-  } catch (e) { el.classList.toggle('on'); showToast('Could not save', true); }
-  finally { chips.forEach(c => c.style.pointerEvents = ''); }
+  const t = document.getElementById('toast'); t.textContent = msg;
+  t.className = 'toast show' + (err ? ' error' : ''); setTimeout(() => t.className = 'toast', 1500);
 }
 </script>
 </body>
