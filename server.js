@@ -2739,6 +2739,12 @@ app.get('/projects', requireAuth, async (req, res) => {
         });
         return { short: _SHORT[g.key] || g.name, deliv, order, total };
       });
+      // Per-category delivery state (1a, 1b, …) for the individual delivery dots.
+      const dotState = {};
+      STAGES.forEach(g => g.items.forEach(it => {
+        const st = (im[it.code] && im[it.code].status) || 'Not yet placed';
+        dotState[it.code] = { state: (st === 'N/A') ? 'na' : (_DELIV.has(st) ? 'full' : (_ONORDER.has(st) ? 'order' : 'none')), status: st };
+      }));
       const pd = p.phase_dates || {};
       let orderNow = 0, overdue = 0, late = 0, rfq = 0, notPlaced = 0;
       ALL_ITEMS.forEach(it => {
@@ -2774,7 +2780,7 @@ app.get('/projects', requireAuth, async (req, res) => {
       if (!needs.length) needs.push(notPlaced ? { text: notPlaced + ' still to order', kind: 'mute' } : { text: 'On track', kind: 'ok' });
       const supEmails = String(p.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
       const sup = supEmails.map(e => { const c = _contactByEmail[e]; return { email: e, initials: _initials(c ? c.name : e), name: c ? c.name : e, role: c ? (c.role || 'super') : 'unknown' }; });
-      cards[p.id] = { stages, needs, urgency, sup };
+      cards[p.id] = { stages, needs, urgency, sup, dotState };
       if (!['Complete', 'Under Warranty'].includes(_serverPhase(p))) {
         if (urgency === 'red') summary.needAction++; else if (urgency === 'amber') summary.awaiting++; else summary.onTrack++;
       }

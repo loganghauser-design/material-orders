@@ -24,7 +24,7 @@
     .dlegend span { display:inline-flex; align-items:center; gap:4px; }
     .lg-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
     /* Table rows */
-    .ptable-head, .pcard { display:grid; grid-template-columns: 16px minmax(0,1.7fr) 44px minmax(0,1.5fr) 128px minmax(0,1.6fr) 148px; gap:10px; align-items:center; }
+    .ptable-head, .pcard { display:grid; grid-template-columns: 16px minmax(0,1.5fr) 38px minmax(0,1.35fr) 250px minmax(0,1.35fr) 138px; gap:10px; align-items:center; }
     .ptable-head { padding:2px 14px 4px; font-size:.64rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
     .pcards { display:flex; flex-direction:column; gap:6px; margin:7px 0 1.4rem; }
     .pcard { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 14px; }
@@ -39,13 +39,16 @@
     .col-team { display:flex; flex-direction:column; gap:3px; min-width:0; align-items:flex-start; }
     .pm-line { font-size:.73rem; color:var(--muted); display:flex; align-items:center; gap:5px; white-space:nowrap; }
     .pm-badge { background:#e6f1fb; color:#185fa5; font-size:.56rem; font-weight:800; letter-spacing:.03em; padding:1px 5px; border-radius:5px; }
-    /* Delivery dots (one per stage) */
-    .col-dots { display:flex; gap:6px; align-items:center; }
-    .ddot { width:11px; height:11px; border-radius:50%; background:var(--bg); border:1px solid var(--border); flex:none; }
+    /* Delivery dots — one per category code (1a, 1b, …), aligned under header labels */
+    .col-dots, .dhead { display:flex; align-items:center; gap:0; }
+    .dcell { width:13px; text-align:center; flex:none; }
+    .dgap { width:6px; flex:none; }
+    .dhead .dcell { font-size:.52rem; color:var(--muted); font-weight:700; letter-spacing:-.02em; }
+    .ddot { width:10px; height:10px; border-radius:50%; background:var(--bg); border:1px solid var(--border); margin:0 auto; }
     .ddot-full { background:#16a34a; border-color:#16a34a; }
-    .ddot-part { background:#86e0ac; border-color:#4caf7d; }
     .ddot-order { background:#378add; border-color:#378add; }
-    .ddot-na { opacity:.25; }
+    .ddot-none { background:var(--bg); }
+    .ddot-na { opacity:.22; }
     .col-needs { display:flex; gap:5px; flex-wrap:wrap; min-width:0; }
     .need { font-size:.7rem; font-weight:600; border-radius:999px; padding:2px 8px; white-space:nowrap; }
     .need-bad { background:#fdeaea; color:#b42323; } .need-warn { background:#fff4dd; color:#8a6100; }
@@ -145,7 +148,7 @@
     PROJECT_PHASES.forEach(ph => { if (!_phaseOrder.includes(ph)) _phaseOrder.push(ph); });
   %>
   <div class="ptable-head">
-    <span></span><span>Address / Client</span><span>Ver</span><span>Team</span><span>Delivery</span><span>Action items</span><span style="text-align:right">Phase</span>
+    <span></span><span>Address / Client</span><span>Ver</span><span>Team</span><div class="dhead"><% STAGES.forEach(function(g,gi){ g.items.forEach(function(it){ %><span class="dcell"><%= it.code %></span><% }); if(gi<STAGES.length-1){ %><span class="dgap"></span><% } }) %></div><span>Action items</span><span style="text-align:right">Phase</span>
   </div>
   <% _phaseOrder.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
     <div class="phase-divider <%= PHASE_CLASSES[ph] %>"><span><%= ph %> (<%= rows.length %>)</span></div>
@@ -179,7 +182,7 @@
               </button>
             </div>
             <div class="col-dots">
-              <% (c.stages || []).forEach(function(s){ var st = s.total ? (s.deliv === s.total ? 'full' : (s.deliv > 0 ? 'part' : (s.order > 0 ? 'order' : 'none'))) : 'na'; %><span class="ddot ddot-<%= st %>" title="<%= s.short %>: <%= s.deliv %>/<%= s.total %> delivered<%= s.order ? (' · ' + s.order + ' on order') : '' %>"></span><% }) %>
+              <% STAGES.forEach(function(g,gi){ g.items.forEach(function(it){ var d = (c.dotState && c.dotState[it.code]) || { state:'na', status:'N/A' }; %><span class="dcell"><span class="ddot ddot-<%= d.state %>" title="<%= it.code %> <%= it.name %>: <%= d.status %>"></span></span><% }); if(gi<STAGES.length-1){ %><span class="dgap"></span><% } }) %>
             </div>
             <div class="col-needs">
               <% _needs.slice(0, 3).forEach(function(n){ %><span class="need need-<%= n.kind %>"><%= n.text %></span><% }) %>
