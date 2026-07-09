@@ -4023,12 +4023,60 @@ app.post('/contacts', requireAuth, async (req, res) => {
     res.json({ ok: true, contact: { id: row.id, name, email, phone, role } });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
+// Edit an added contact (name/email/phone/role). If the email changes, cascade it
+// onto every project's super_email so existing assignments don't orphan.
+app.post('/contacts/:id/edit', requireAuth, async (req, res) => {
+  try {
+    const id = req.params.id;
+    const name = String(req.body.name || '').replace(/[<>]/g, '').trim();
+    const email = String(req.body.email || '').trim().toLowerCase();
+    const phone = String(req.body.phone || '').replace(/[<>]/g, '').trim();
+    const role = req.body.role === 'gc' ? 'gc' : 'super';
+    if (!name || !email) return res.status(400).json({ ok: false, error: 'Name and email are both required.' });
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ ok: false, error: 'Enter a valid email address.' });
+    const { rows: [cur] } = await pool.query('SELECT id, email FROM people WHERE id=$1 AND active=TRUE', [id]);
+    if (!cur) return res.status(404).json({ ok: false, error: 'Contact not found.' });
+    const oldEmail = String(cur.email || '').toLowerCase();
+    if (email !== oldEmail) {
+      const { rows: dup } = await pool.query('SELECT id FROM people WHERE active=TRUE AND lower(email)=lower($1) AND id<>$2', [email, id]);
+      const superClash = SUPERS.some(s => s.email.toLowerCase() === email);
+      if (dup.length || superClash) return res.status(400).json({ ok: false, error: 'That email is already used by another contact.' });
+    }
+    await pool.query('UPDATE people SET name=$1, email=$2, phone=$3, role=$4 WHERE id=$5', [name, email, phone || null, role, id]);
+    let reassigned = 0;
+    if (email !== oldEmail) {
+      const { rows: projs } = await pool.query("SELECT id, super_email FROM projects WHERE super_email ILIKE $1", ['%' + oldEmail + '%']);
+      for (const p of projs) {
+        const list = String(p.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+        if (!list.includes(oldEmail)) continue;   // ILIKE substring guard — only touch exact-token matches
+        const next = [...new Set(list.map(e => e === oldEmail ? email : e))].join(',');
+        await pool.query('UPDATE projects SET super_email=$1 WHERE id=$2', [next || null, p.id]);
+        reassigned++;
+      }
+    }
+    await loadPeople();
+    res.json({ ok: true, contact: { id: Number(id), name, email, phone, role }, reassigned });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 app.post('/contacts/:id/delete', requireAuth, async (req, res) => {
   try {
     await pool.query('UPDATE people SET active = FALSE WHERE id = $1', [req.params.id]);
     await loadPeople();
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Contacts manager — view/edit added supers & GCs (and their emails).
+app.get('/contacts', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const people = DYNAMIC_PEOPLE.slice().sort((a, b) => (a.role === b.role ? String(a.name).localeCompare(String(b.name)) : (a.role === 'gc' ? 1 : -1)));
+    const builtins = SUPERS.map(s => ({ name: s.name, email: s.email }));
+    const { rows } = await pool.query("SELECT super_email FROM projects WHERE super_email IS NOT NULL AND super_email <> ''");
+    const counts = {};
+    rows.forEach(r => String(r.super_email).split(',').map(e => e.trim().toLowerCase()).filter(Boolean).forEach(e => counts[e] = (counts[e] || 0) + 1));
+    res.render('contacts', { people, builtins, counts });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
 // ── PDF exports ───────────────────────────────────────────────────────────────

@@ -73,6 +73,8 @@
     .tp-addform { display:flex; flex-direction:column; gap:6px; padding:6px 8px 8px; }
     .tp-addform input, .tp-addform select { font-size:.82rem; padding:7px 8px; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); }
     .tp-addactions { display:flex; gap:6px; }
+    .tp-manage { display:block; padding:8px; font-size:.78rem; color:var(--muted); text-decoration:none; border-radius:8px; }
+    .tp-manage:hover { background:var(--bg); color:var(--text); }
     @media (max-width:760px){ .pipe-lbl,.pipe-cnt{ font-size:.6rem; } }
   </style>
 </head>
@@ -275,6 +277,7 @@ function renderTeamPop(assigned) {
      + `<select class="tp-role"><option value="super">In-house super</option><option value="gc">Outside GC</option></select>`
      + `<div class="tp-addactions"><button type="button" class="btn btn-primary btn-sm" onclick="tpSaveAdd()">Add &amp; assign</button>`
      + `<button type="button" class="btn btn-ghost btn-sm" onclick="tpHideAdd()">Cancel</button></div></div>`;
+  h += `<a class="tp-manage" href="/contacts">⚙ Manage contacts &amp; emails</a>`;
   document.querySelector('#teamPop .tp-list').innerHTML = h;
 }
 function tpShowAdd() {

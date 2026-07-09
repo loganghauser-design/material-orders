@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contacts — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css?v=5">
+  <style>
+    .cx-intro { color:var(--muted); font-size:.9rem; margin:.1rem 0 1.4rem; max-width:720px; line-height:1.5; }
+    .cx-sec { font-size:.72rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:1.6rem 0 .6rem; }
+    .cx-list { display:flex; flex-direction:column; gap:8px; }
+    .cxrow { display:grid; grid-template-columns: 1.4fr 1.9fr 1fr auto auto auto; gap:8px; align-items:center;
+             background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:9px 11px; }
+    .cxrow input, .cxrow select { font-size:.86rem; padding:7px 9px; border:1px solid var(--border); border-radius:8px; background:var(--bg); color:var(--text); width:100%; }
+    .cxrow input:focus, .cxrow select:focus { outline:2px solid #4f8ef7; outline-offset:-1px; }
+    .cx-count { font-size:.74rem; color:var(--muted); white-space:nowrap; text-align:center; }
+    .cx-badge { font-size:.56rem; font-weight:800; letter-spacing:.03em; padding:2px 6px; border-radius:6px; margin-left:6px; vertical-align:middle; }
+    .cx-badge-ph { background:#fff4dd; color:#8a6100; }
+    .cx-save { background:#2563eb; color:#fff; border:none; border-radius:8px; padding:7px 13px; font-size:.82rem; font-weight:600; cursor:pointer; white-space:nowrap; }
+    .cx-save:hover { background:#1d4fd0; }
+    .cx-del { background:none; border:1px solid var(--border); border-radius:8px; padding:7px 10px; font-size:.9rem; cursor:pointer; opacity:.7; }
+    .cx-del:hover { opacity:1; border-color:#e5484d; }
+    .cx-builtins { display:flex; flex-wrap:wrap; gap:8px; }
+    .cx-builtin { background:var(--bg); border:1px solid var(--border); border-radius:10px; padding:8px 12px; font-size:.86rem; }
+    .cx-builtin b { font-weight:700; } .cx-builtin span { color:var(--muted); }
+    .cx-add { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:.9rem; background:var(--bg); border:1px dashed var(--border); border-radius:11px; padding:11px; }
+    .cx-add input, .cx-add select { font-size:.86rem; padding:7px 9px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); }
+    .cx-add .an { width:150px; } .cx-add .ae { width:210px; } .cx-add .ap { width:130px; }
+    @media (max-width:760px){ .cxrow { grid-template-columns: 1fr 1fr; } .cx-count { grid-column:1/-1; text-align:left; } }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'contacts' }) %>
+
+<div class="container">
+  <div class="page-header"><h1 style="margin:0">Contacts</h1></div>
+  <p class="cx-intro">
+    Edit the supers and outside GCs you can assign to a project. Changing an email here updates it everywhere the
+    contact is already assigned — no re-assigning needed. A <span class="cx-badge cx-badge-ph">placeholder</span> tag
+    means the email is a stand-in and won't receive delivery notices until you replace it with a real one.
+  </p>
+
+  <div class="cx-sec">Outside GCs &amp; added supers</div>
+  <% if (!people.length) { %>
+    <p style="color:var(--muted)">No added contacts yet.</p>
+  <% } else { %>
+    <div class="cx-list">
+      <% people.forEach(p => { var n = counts[p.email.toLowerCase()] || 0; var ph = /@placeholder\.buildoly\.com$/i.test(p.email); %>
+        <div class="cxrow" data-id="<%= p.id %>">
+          <input class="cx-name" value="<%= p.name %>" placeholder="Name / company" autocomplete="off">
+          <input class="cx-email" type="email" value="<%= p.email %>" placeholder="Email" autocomplete="off">
+          <input class="cx-phone" value="<%= p.phone || '' %>" placeholder="Phone (optional)" autocomplete="off">
+          <select class="cx-role">
+            <option value="super" <%= p.role !== 'gc' ? 'selected' : '' %>>In-house super</option>
+            <option value="gc" <%= p.role === 'gc' ? 'selected' : '' %>>Outside GC</option>
+          </select>
+          <span class="cx-count"><%= n %> project<%= n === 1 ? '' : 's' %><% if (ph) { %><br><span class="cx-badge cx-badge-ph">placeholder</span><% } %></span>
+          <button type="button" class="cx-save" onclick="saveRow(this)">Save</button>
+          <button type="button" class="cx-del" title="Remove contact" onclick="delRow(this)">🗑</button>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+
+  <div class="cx-add">
+    <input class="an" id="acName" placeholder="Name / company" autocomplete="off">
+    <input class="ae" id="acEmail" type="email" placeholder="Email" autocomplete="off">
+    <input class="ap" id="acPhone" placeholder="Phone (optional)" autocomplete="off">
+    <select id="acRole"><option value="super">In-house super</option><option value="gc">Outside GC</option></select>
+    <button type="button" class="cx-save" onclick="addRow()">+ Add contact</button>
+  </div>
+
+  <div class="cx-sec">In-house supers (built-in)</div>
+  <p style="color:var(--muted);font-size:.84rem;margin:.1rem 0 .6rem">These have their own logins and delivery-alert @mentions. Their phone numbers are set on the <a href="/settings#supers">Settings</a> page.</p>
+  <div class="cx-builtins">
+    <% builtins.forEach(b => { %><div class="cx-builtin"><b><%= b.name %></b> <span><%= b.email %></span></div><% }) %>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script>
+function showToast(msg, err) {
+  const t = document.getElementById('toast'); t.textContent = msg;
+  t.className = 'toast show' + (err ? ' error' : ''); setTimeout(() => t.className = 'toast', 1800);
+}
+async function post(url, body) {
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  let d = null; try { d = await r.json(); } catch (e) {}
+  if (!r.ok || !d || !d.ok) throw new Error((d && d.error) || 'Save failed');
+  return d;
+}
+async function saveRow(btn) {
+  const row = btn.closest('.cxrow'); const id = row.dataset.id;
+  const name = row.querySelector('.cx-name').value.trim();
+  const email = row.querySelector('.cx-email').value.trim();
+  const phone = row.querySelector('.cx-phone').value.trim();
+  const role = row.querySelector('.cx-role').value;
+  btn.disabled = true;
+  try {
+    const d = await post('/contacts/' + id + '/edit', { name, email, phone, role });
+    let msg = 'Saved';
+    if (d.reassigned) msg += ' — updated on ' + d.reassigned + ' project' + (d.reassigned === 1 ? '' : 's');
+    showToast(msg);
+    // Refresh the placeholder tag state
+    const cnt = row.querySelector('.cx-count');
+    const isPh = /@placeholder\.buildoly\.com$/i.test(email);
+    const tag = cnt.querySelector('.cx-badge');
+    if (isPh && !tag) cnt.insertAdjacentHTML('beforeend', '<br><span class="cx-badge cx-badge-ph">placeholder</span>');
+    if (!isPh && tag) tag.remove();
+  } catch (e) { showToast(e.message, true); }
+  finally { btn.disabled = false; }
+}
+async function delRow(btn) {
+  const row = btn.closest('.cxrow'); const id = row.dataset.id;
+  const name = row.querySelector('.cx-name').value.trim() || 'this contact';
+  if (!confirm('Remove ' + name + '? Projects they\'re assigned to will show them as unassigned.')) return;
+  try { await post('/contacts/' + id + '/delete', {}); row.remove(); showToast('Removed'); }
+  catch (e) { showToast(e.message, true); }
+}
+async function addRow() {
+  const name = document.getElementById('acName').value.trim();
+  const email = document.getElementById('acEmail').value.trim();
+  const phone = document.getElementById('acPhone').value.trim();
+  const role = document.getElementById('acRole').value;
+  if (!name || !email) { showToast('Name and email are required', true); return; }
+  try { await post('/contacts', { name, email, phone, role }); showToast('Added'); setTimeout(() => location.reload(), 600); }
+  catch (e) { showToast(e.message, true); }
+}
+</script>
+</body>
+</html>
