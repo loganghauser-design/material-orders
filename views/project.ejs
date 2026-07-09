@@ -1364,7 +1364,7 @@ async function loadScheduleVendors() {
       sel.innerHTML = '<option value="">— pick a vendor to auto-fill —</option>' +
         data.vendors.map(v => `<option value="${escapeHtmlJs(v.name)}">${escapeHtmlJs(v.name)} (${v.items.length})</option>`).join('');
     } else {
-      sel.innerHTML = `<option value="">${escapeHtmlJs((data && data.note) || 'No finish schedule linked')}</option>`;
+      sel.innerHTML = `<option value="">${escapeHtmlJs((data && (data.note || data.error)) || 'No vendors found in the schedule')}</option>`;
     }
   } catch (e) {
     sel.innerHTML = '<option value="">(could not load schedule)</option>';

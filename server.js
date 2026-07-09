@@ -619,16 +619,9 @@ function isRangeHoodRow(row) {
 }
 // Read the "Fin Sched" tab and group orderable items by their Supplier
 async function readScheduleVendors(scheduleUrl, opts = {}) {
-  if (!SHEETS_API_KEY) throw new Error('Google Sheets API key not configured.');
-  const id = sheetIdFromUrl(scheduleUrl);
-  if (!id) throw new Error('Invalid finish-schedule link.');
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${id}/values/Fin%20Sched!A1:S400?key=${SHEETS_API_KEY}`;
-  const r = await fetch(url);
-  if (!r.ok) {
-    if (r.status === 403) throw new Error('Sheet not shared — set it to "Anyone with the link → Viewer".');
-    throw new Error('Could not read the schedule (HTTP ' + r.status + ').');
-  }
-  const rows = ((await r.json()).values) || [];
+  // Read via the same authenticated + cached path as every other schedule reader
+  // (works for sheets shared to logan@buildoly.com; doesn't require a public API key).
+  const rows = await fetchScheduleValues(scheduleUrl);
   const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
   const SKIP = /contractor to proc|^n\/a$|^#/i;  // skip contractor-procured / N/A / spreadsheet errors (#N/A, #REF!, …) — keep Buildoly Stock (ships from the warehouse)
   const vendors = {};
