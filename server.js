@@ -2481,11 +2481,15 @@ app.get('/delivery-notices/:id/preview', requireAuth, async (req, res) => {
 });
 app.post('/delivery-notices/:id/approve', requireAuth, async (req, res) => {
   try {
-    const { rows: [n] } = await pool.query("SELECT * FROM pending_delivery_notices WHERE id=$1 AND status='pending'", [req.params.id]);
+    // Atomically claim the row so a double-submit / two operators can't send twice.
+    const { rows: [n] } = await pool.query("UPDATE pending_delivery_notices SET status='sending' WHERE id=$1 AND status='pending' RETURNING *", [req.params.id]);
     if (!n) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
     const codes = String(n.codes || '').split(',').map(c => c.trim()).filter(Boolean);
     const dn = await sendDeliveryNotice({ projectId: n.project_id, codes, window: n.delivery_window, method: n.method, tracking: n.tracking, manifestBlob: n.manifest_blob, exceptBlob: n.except_blob });
-    if (!dn || !dn.ok) return res.json({ ok: false, error: (dn && dn.reason) || 'Could not send the notice.' });
+    if (!dn || !dn.ok) {
+      await pool.query("UPDATE pending_delivery_notices SET status='pending' WHERE id=$1", [n.id]);  // release so it can be retried/rejected
+      return res.json({ ok: false, error: (dn && dn.reason) || 'Could not send the notice.' });
+    }
     await pool.query("UPDATE pending_delivery_notices SET status='sent', decided_at=NOW() WHERE id=$1", [n.id]);
     if (n.method === 'truck') { try { await postDeliveryScheduled(n.project_id, dn.jobName); } catch (e) {} }  // now ping the super in chat
     res.json({ ok: true, to: dn.to });
@@ -2493,7 +2497,8 @@ app.post('/delivery-notices/:id/approve', requireAuth, async (req, res) => {
 });
 app.post('/delivery-notices/:id/reject', requireAuth, async (req, res) => {
   try {
-    await pool.query("UPDATE pending_delivery_notices SET status='rejected', decided_at=NOW() WHERE id=$1 AND status='pending'", [req.params.id]);
+    const r = await pool.query("UPDATE pending_delivery_notices SET status='rejected', decided_at=NOW() WHERE id=$1 AND status='pending'", [req.params.id]);
+    if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -6751,6 +6756,10 @@ async function sendDeliveryNotice(params) {
 // Queue a delivery notice for the office to approve before it emails the on-site contact.
 async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName }) {
   try {
+    // Only queue notices that can actually be built + sent (recipient + schedule + items),
+    // so the approval queue and its badge don't fill with permanently un-sendable rows.
+    const b = await buildDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob });
+    if (!b.ok) { console.log('delivery notice NOT queued (' + b.reason + ') — project ' + projectId + ' (' + (codes || []).join(',') + ')'); return { ok: false, reason: b.reason }; }
     await pool.query(
       `INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, manifest_blob, except_blob, job_name)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
