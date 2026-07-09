@@ -1789,13 +1789,16 @@ async function initDb() {
       except_blob TEXT,
       job_name TEXT,
       status VARCHAR(12) DEFAULT 'pending',
-      source VARCHAR(12) DEFAULT 'email',
+      source VARCHAR(12),
       source_date DATE,
+      reminded_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       decided_at TIMESTAMPTZ
     );
-    ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS source VARCHAR(12) DEFAULT 'email';
+    -- No DEFAULT on source: backfilling old pending rows as 'email' would wrongly arm reminders.
+    ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS source VARCHAR(12);
     ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS source_date DATE;
+    ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS reminded_at TIMESTAMPTZ;
 
     CREATE TABLE IF NOT EXISTS bids (
       id SERIAL PRIMARY KEY,
@@ -6896,36 +6899,40 @@ async function dayBeforeDeliveryReminders() {
     const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const [ty, tm, td] = todayLA.split('-').map(Number);
     const tomorrowLA = new Date(Date.UTC(ty, tm - 1, td) + 86400000).toISOString().slice(0, 10);
-    const { rows } = await pool.query(
+    // Categories physically arriving tomorrow, grouped by project.
+    const { rows: due } = await pool.query(
       `SELECT pi.project_id, pi.item_code
          FROM project_items pi JOIN projects p ON p.id = pi.project_id
         WHERE pi.delivery_date = $1
           AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A','Issue')
           AND COALESCE(p.super_email,'') <> '' AND COALESCE(p.finish_schedule_url,'') <> ''`,
       [tomorrowLA]);
+    const dueByProj = {};
+    for (const r of due) { (dueByProj[r.project_id] = dueByProj[r.project_id] || new Set()).add(r.item_code); }
     const sent = [];
-    for (const r of rows) {
-      // Already reminded for this category + delivery date?
-      const { rows: done } = await pool.query(
-        "SELECT 1 FROM pending_delivery_notices WHERE project_id=$1 AND codes=$2 AND source='reminder' AND source_date=$3 LIMIT 1",
-        [r.project_id, r.item_code, tomorrowLA]);
-      if (done.length) continue;
-      // Only auto-remind when Logan already approved the initial email notice covering this code.
-      const { rows: init } = await pool.query(
-        "SELECT method, tracking FROM pending_delivery_notices WHERE project_id=$1 AND $2 = ANY(string_to_array(codes, ',')) AND source='email' AND status='sent' ORDER BY created_at DESC LIMIT 1",
-        [r.project_id, r.item_code]);
-      if (!init.length) continue;
-      const win = 'Arriving tomorrow, ' + chatDate(tomorrowLA);
-      const dn = await sendDeliveryNotice({ projectId: r.project_id, codes: [r.item_code], window: win, method: init[0].method || 'truck', tracking: init[0].tracking || null });
-      if (!dn || !dn.ok) { console.log('day-before reminder NOT sent (' + (dn && dn.reason) + ') — project ' + r.project_id + ' ' + r.item_code); continue; }
-      // Marker row: idempotency + audit trail (never shows in the pending queue).
-      await pool.query(
-        "INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, job_name, source, source_date, status, decided_at) VALUES ($1,$2,$3,$4,$5,$6,'reminder',$7,'sent',NOW())",
-        [r.project_id, r.item_code, win, init[0].method || 'truck', init[0].tracking || null, dn.jobName || null, tomorrowLA]);
-      sent.push({ projectId: r.project_id, code: r.item_code });
+    const win = 'Arriving tomorrow, ' + chatDate(tomorrowLA);
+    for (const projectId of Object.keys(dueByProj)) {
+      const dueCodes = dueByProj[projectId];
+      // Approved, not-yet-used, recent email initials — one reminder per initial (mirrors the email
+      // Logan approved), consumed after firing so a re-scheduled delivery can't silently reuse it.
+      const { rows: inits } = await pool.query(
+        "SELECT id, codes, method, tracking FROM pending_delivery_notices WHERE project_id=$1 AND source='email' AND status='sent' AND reminded_at IS NULL AND decided_at > NOW() - INTERVAL '90 days' ORDER BY created_at",
+        [projectId]);
+      for (const init of inits) {
+        const codesForTomorrow = String(init.codes || '').split(',').map(c => c.trim()).filter(c => c && dueCodes.has(c));
+        if (!codesForTomorrow.length) continue;
+        let dn;
+        try {
+          dn = await sendDeliveryNotice({ projectId, codes: codesForTomorrow, window: win, method: init.method || 'truck', tracking: init.tracking || null });
+        } catch (e) { console.error('day-before reminder send (project ' + projectId + '):', e.message); continue; }
+        if (!dn || !dn.ok) { console.log('day-before reminder NOT sent (' + (dn && dn.reason) + ') — project ' + projectId + ' ' + codesForTomorrow.join(',')); continue; }
+        // Consume this initial so a future re-scheduled delivery of the same code can't reuse it.
+        try { await pool.query("UPDATE pending_delivery_notices SET reminded_at=NOW() WHERE id=$1", [init.id]); } catch (e) { /* non-fatal */ }
+        sent.push({ projectId, codes: codesForTomorrow });
+      }
     }
     if (sent.length) await postRemindersSentSummary(sent, tomorrowLA);
-    console.log('dayBeforeDeliveryReminders: ' + sent.length + ' auto-sent for ' + tomorrowLA);
+    console.log('dayBeforeDeliveryReminders: ' + sent.length + ' reminder(s) auto-sent for ' + tomorrowLA);
   } catch (e) { console.error('dayBeforeDeliveryReminders:', e.message); }
 }
 // FYI to the private Bids chat noting which day-before reminders auto-sent (visibility only — no
@@ -6935,11 +6942,11 @@ async function postRemindersSentSummary(items, dateISO) {
     const url = process.env.BIDS_WEBHOOK_URL;
     if (!url || !items.length) return;
     const byProj = {};
-    for (const it of items) { (byProj[it.projectId] = byProj[it.projectId] || []).push(CODE_NAME[it.code] || it.code); }
+    for (const it of items) { const cs = it.codes || [it.code]; (byProj[it.projectId] = byProj[it.projectId] || []).push(...cs.map(c => CODE_NAME[c] || c)); }
     const ids = Object.keys(byProj);
     const { rows } = await pool.query('SELECT id, address, full_address FROM projects WHERE id = ANY($1)', [ids]);
     const nameById = {}; rows.forEach(r => { nameById[r.id] = shortAddress(r.full_address || r.address); });
-    const lines = ids.map(id => `• *${nameById[id] || ('Project ' + id)}* — ${byProj[id].join(', ')}`);
+    const lines = ids.map(id => `• *${nameById[id] || ('Project ' + id)}* — ${[...new Set(byProj[id])].join(', ')}`);
     const text = `📨 *Day-before reminder auto-sent* to the on-site contact (delivery ${chatDate(dateISO)})\n` + lines.join('\n');
     await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
     console.log('reminders-sent summary → bids (' + items.length + ')');
