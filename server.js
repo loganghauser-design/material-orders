@@ -639,6 +639,7 @@ async function readScheduleVendors(scheduleUrl, opts = {}) {
       finishColor: (row[8] || '').trim(),
       qty: (row[9] || '').trim() || '1', code: (cat.match(CATRE) || [])[1].toLowerCase(),
       planTag: (row[1] || '').trim(), prodCode,
+      itemKey: itemKeyFor(prodCode, (row[7] || '').trim(), name),   // matches the Materials checklist key
     };
     if (!vendors[supplier]) vendors[supplier] = { name: supplier, items: [] };
     vendors[supplier].items.push(item);
@@ -1729,6 +1730,14 @@ async function initDb() {
       filename VARCHAR(255),
       gmail_message_id VARCHAR(255),
       created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    -- Per-item "ordered" marks from vendor order emails, keyed by the same item key the
+    -- Materials checklist uses, so 📦 lights up on exactly the items ordered (not the category).
+    CREATE TABLE IF NOT EXISTS project_item_orders (
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      item_key TEXT,
+      ordered_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (project_id, item_key)
     );
 
     CREATE TABLE IF NOT EXISTS ferguson_updates (
@@ -3489,6 +3498,15 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       if (stamp.length) {
         const guard = emailType === 'quote' ? ' AND order_date IS NULL' : '';
         await pool.query(`UPDATE project_items SET order_date=CURRENT_DATE WHERE project_id=$1 AND item_code = ANY($2)${guard}`, [req.params.id, stamp]);
+      }
+    }
+
+    // Per-item order marks: 📦 on exactly the schedule items this order covered (orders only).
+    if (emailType === 'order') {
+      let orderedKeys = req.body.orderedKeys;
+      if (!Array.isArray(orderedKeys)) orderedKeys = orderedKeys ? [orderedKeys] : [];
+      for (const k of orderedKeys) {
+        if (k) { try { await pool.query('INSERT INTO project_item_orders (project_id, item_key) VALUES ($1,$2) ON CONFLICT (project_id, item_key) DO UPDATE SET ordered_at=NOW()', [req.params.id, String(k).slice(0, 120)]); } catch (e) {} }
       }
     }
 
@@ -6415,7 +6433,10 @@ async function projectItemStates(projectId) {
   // tab looks stale versus the main project page. Explicit manual marks still win.
   const { rows: boardRows } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [projectId]);
   const boardDelivered = new Set(boardRows.filter(r => r.status === 'Delivered' || r.status === 'Delivered from Inv.').map(r => r.item_code));
-  const boardOrdered = new Set(boardRows.filter(r => r.status === 'Order Placed' || r.status === 'In Inventory').map(r => r.item_code));
+  // Per-ITEM "ordered" records from order emails — 📦 on exactly the items ordered, not the
+  // whole category (items within a category get ordered separately / by different vendors).
+  const { rows: oi } = await pool.query('SELECT item_key FROM project_item_orders WHERE project_id=$1', [projectId]);
+  const orderedKeys = new Set(oi.map(r => r.item_key));
   expected.forEach(e => {
     e.key = itemKeyFor(e.prod_code, e.model_no, e.name);
     const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
@@ -6429,7 +6450,7 @@ async function projectItemStates(projectId) {
     e.delivered = explicitlyDelivered || (!explicitlyScheduled && onOrder && e.category_code && completedCodes.has(e.category_code));
     e.scheduled = !e.delivered && (explicitlyScheduled || (onOrder && e.category_code && (e.category_code in schedInfo)));
     e.schedWhen = e.scheduled ? (schedInfo[e.category_code] || '') : '';
-    e.onOrder = !e.delivered && !e.scheduled && onOrder;
+    e.onOrder = !e.delivered && !e.scheduled && (onOrder || orderedKeys.has(e.key));
     // A manual mark (clicked in the UI) beats automatic evidence — vendors other than
     // Ferguson don't self-confirm, so this is how those items get tracked.
     const m = marks[e.key];
@@ -6440,13 +6461,11 @@ async function projectItemStates(projectId) {
       e.onOrder = m.state === 'ordered';
       e.schedWhen = e.scheduled ? (m.sched_when || e.schedWhen || '') : '';
     }
-    // Board floor: reflect the main-page board status here so the Materials tab doesn't
-    // lag it. Delivered → ✅; Order Placed / In Inventory → 📦 (e.g. after an order email).
+    // Board floor: a whole category being Delivered on the main page rolls down to ✅ here
+    // (deliveries land as a unit). Ordering is per-item (orderedKeys above), NOT category-wide.
     // Explicit per-item evidence (manual marks, Ferguson) still wins.
     if (!e.manual && e.category_code && boardDelivered.has(e.category_code) && !e.delivered) {
       e.delivered = true; e.scheduled = false; e.onOrder = false; e.fromBoard = true;
-    } else if (!e.manual && e.category_code && boardOrdered.has(e.category_code) && !e.delivered && !e.scheduled && !e.onOrder) {
-      e.onOrder = true; e.fromBoard = true;
     }
     const k = e.category_code || '—';
     const a = agg[k] = agg[k] || { total: 0, delivered: 0, scheduled: 0, ordered: 0 };
