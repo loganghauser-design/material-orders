@@ -39,11 +39,14 @@
     .col-team { display:flex; flex-direction:column; gap:3px; min-width:0; align-items:flex-start; }
     .pm-line { font-size:.73rem; color:var(--muted); display:flex; align-items:center; gap:5px; white-space:nowrap; }
     .pm-badge { background:#e6f1fb; color:#185fa5; font-size:.56rem; font-weight:800; letter-spacing:.03em; padding:1px 5px; border-radius:5px; }
-    /* Delivery dots — one per category code (1a, 1b, …), aligned under header labels */
-    .col-dots, .dhead { display:flex; align-items:center; gap:0; }
-    .dcell { width:13px; text-align:center; flex:none; }
+    /* Delivery dots — one per category (1a…), with vertical stage-name labels in the header */
+    .ptable-head { align-items:end; }
+    .col-dots { display:flex; align-items:center; gap:0; }
+    .dhead { display:flex; align-items:flex-end; gap:0; }
+    .dcell { width:14px; text-align:center; flex:none; }
     .dgap { width:6px; flex:none; }
-    .dhead .dcell { font-size:.52rem; color:var(--muted); font-weight:700; letter-spacing:-.02em; }
+    .dhead .dcell { display:flex; justify-content:center; align-items:flex-end; }
+    .dhead .dcell > span { writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; font-size:.58rem; color:var(--muted); font-weight:600; line-height:14px; padding-bottom:2px; }
     .ddot { width:10px; height:10px; border-radius:50%; background:var(--bg); border:1px solid var(--border); margin:0 auto; }
     .ddot-full { background:#16a34a; border-color:#16a34a; }
     .ddot-order { background:#378add; border-color:#378add; }
@@ -148,7 +151,7 @@
     PROJECT_PHASES.forEach(ph => { if (!_phaseOrder.includes(ph)) _phaseOrder.push(ph); });
   %>
   <div class="ptable-head">
-    <span></span><span>Address / Client</span><span>Ver</span><span>Team</span><div class="dhead"><% STAGES.forEach(function(g,gi){ g.items.forEach(function(it){ %><span class="dcell"><%= it.code %></span><% }); if(gi<STAGES.length-1){ %><span class="dgap"></span><% } }) %></div><span>Action items</span><span style="text-align:right">Phase</span>
+    <span></span><span>Address / Client</span><span>Ver</span><span>Team</span><div class="dhead"><% STAGES.forEach(function(g,gi){ g.items.forEach(function(it){ %><span class="dcell"><span><%= it.name %></span></span><% }); if(gi<STAGES.length-1){ %><span class="dgap"></span><% } }) %></div><span>Action items</span><span style="text-align:right">Phase</span>
   </div>
   <% _phaseOrder.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
     <div class="phase-divider <%= PHASE_CLASSES[ph] %>"><span><%= ph %> (<%= rows.length %>)</span></div>
