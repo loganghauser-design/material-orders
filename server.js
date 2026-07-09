@@ -2940,7 +2940,14 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       const { rows: strayMarks } = await pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [project.id]);
       strayMarks.forEach(m => { if (m.state && !itemStates[m.item_key]) itemStates[m.item_key] = { st: m.state[0], when: m.sched_when || '', m: 1 }; });
     } catch (e) { /* fine — chips just don't show */ }
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), itemsAgg, itemStates, checklistItems });
+    // Detect which door type this project actually has from its finish schedule, so the
+    // Materials tab only shows the relevant sourcing toggle (bifold OR sliding, not both).
+    const _hasBifold = checklistItems.some(e => /bi[-\s]?fold/i.test(e.name || ''));
+    const _hasSliding = checklistItems.some(e => /slid/i.test(e.name || ''));
+    const _doorDetected = checklistItems.length > 0 && (_hasBifold || _hasSliding);
+    const showBifold = _doorDetected ? _hasBifold : true;    // can't detect → show both (safe fallback)
+    const showSliding = _doorDetected ? _hasSliding : true;
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), itemsAgg, itemStates, checklistItems, showBifold, showSliding });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -6279,6 +6286,11 @@ async function projectItemStates(projectId) {
   const { rows: mk } = await pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [projectId]);
   const marks = {};
   mk.forEach(m => marks[m.item_key] = m);
+  // The project board (project_items) is the source of truth for delivery. If a category
+  // bucket is Delivered there, reflect it on this checklist too — otherwise the Materials
+  // tab looks stale versus the main project page. Explicit manual marks still win.
+  const { rows: boardRows } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [projectId]);
+  const boardDelivered = new Set(boardRows.filter(r => r.status === 'Delivered' || r.status === 'Delivered from Inv.').map(r => r.item_code));
   expected.forEach(e => {
     e.key = itemKeyFor(e.prod_code, e.model_no, e.name);
     const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
@@ -6302,6 +6314,11 @@ async function projectItemStates(projectId) {
       e.scheduled = m.state === 'scheduled';
       e.onOrder = m.state === 'ordered';
       e.schedWhen = e.scheduled ? (m.sched_when || e.schedWhen || '') : '';
+    }
+    // Board floor: category Delivered on the main page → show its items delivered here too,
+    // unless the user manually set a different state for this specific item.
+    if (!e.manual && e.category_code && boardDelivered.has(e.category_code) && !e.delivered) {
+      e.delivered = true; e.scheduled = false; e.onOrder = false; e.fromBoard = true;
     }
     const k = e.category_code || '—';
     const a = agg[k] = agg[k] || { total: 0, delivered: 0, scheduled: 0, ordered: 0 };

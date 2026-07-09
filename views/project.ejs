@@ -271,18 +271,22 @@
   <div class="ck-toolbar">
     <button type="button" class="btn btn-primary btn-sm" onclick="openRfqDialog('','','','')" title="Send an RFQ / order email to any vendor">✉ Email a vendor</button>
     <span class="ck-tb-label">Sourcing</span>
+    <% if (typeof showBifold === 'undefined' || showBifold) { %>
     <label class="ck-src">Bifold
       <select onchange="setBifoldSource(this.value)">
         <option value="buildoly" <%= project.bifold_source==='vendor'?'':'selected' %>>Buildoly Stock</option>
         <option value="vendor" <%= project.bifold_source==='vendor'?'selected':'' %>>Vendor</option>
       </select>
     </label>
+    <% } %>
+    <% if (typeof showSliding === 'undefined' || showSliding) { %>
     <label class="ck-src">Sliding Door
       <select onchange="setSlidingSource(this.value)">
         <option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Vendor</option>
         <option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
       </select>
     </label>
+    <% } %>
     <label class="ck-src">Rec. Light
       <select onchange="setRecSource(this.value)">
         <option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option>
