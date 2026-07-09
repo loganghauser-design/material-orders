@@ -2487,8 +2487,47 @@ app.get('/delivery-notices', requireAuth, async (req, res) => {
         noRecipient: !sups.some(s => s.email),
       };
     });
-    res.render('delivery-notices', { notices });
+    // Delivery requests still waiting on the vendor's date (no parseable reply yet).
+    const { rows: awaitRows } = await pool.query(
+      `SELECT v.id, v.project_id, v.subject, v.supplier_name, v.supplier_email, v.item_codes, v.item_code,
+              v.sent_at, v.has_unread, p.address, p.full_address
+         FROM vendor_emails v LEFT JOIN projects p ON p.id = v.project_id
+        WHERE v.awaiting_delivery_date=true AND v.notice_created=false
+        ORDER BY v.has_unread DESC, v.sent_at DESC`);
+    const awaiting = awaitRows.map(v => {
+      const codes = String(v.item_codes || v.item_code || '').split(',').map(c => c.trim()).filter(Boolean);
+      return {
+        id: v.id, jobName: shortAddress(v.full_address || v.address) || ('Project ' + v.project_id),
+        vendor: v.supplier_name || v.supplier_email || 'vendor', hasReply: !!v.has_unread,
+        codeLabels: codes.map(c => _cn[c] || c), sentAt: v.sent_at,
+      };
+    });
+    res.render('delivery-notices', { notices, awaiting });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+// Manually create the initial notice for an awaiting delivery request (parser couldn't read the
+// reply, or Logan got the date by text/phone). He supplies the confirmed date; it queues for review.
+app.post('/delivery-notices/awaiting/:id/create', requireAuth, async (req, res) => {
+  try {
+    const { date } = req.body;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ ok: false, error: 'Enter a valid date.' });
+    const { rows: [v] } = await pool.query('SELECT * FROM vendor_emails WHERE id=$1 AND awaiting_delivery_date=true AND notice_created=false', [req.params.id]);
+    if (!v) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
+    const codes = String(v.item_codes || v.item_code || '').split(',').map(c => c.trim()).filter(Boolean);
+    if (!codes.length) return res.status(400).json({ ok: false, error: 'This thread has no linked materials.' });
+    const q = await enqueueDeliveryNotice({ projectId: v.project_id, codes, window: chatDate(date), method: 'truck', source: 'email', sourceDate: date });
+    if (!q.ok) return res.json({ ok: false, error: q.reason || 'Could not create the notice.' });
+    await pool.query("UPDATE project_items SET delivery_date=$3 WHERE project_id=$1 AND item_code = ANY($2) AND status NOT IN ('Delivered','Delivered from Inv.','N/A')", [v.project_id, codes, date]);
+    await pool.query('UPDATE vendor_emails SET notice_created=true, awaiting_delivery_date=false WHERE id=$1', [v.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+// Stop watching an awaiting delivery request (e.g. cancelled) without creating a notice.
+app.post('/delivery-notices/awaiting/:id/dismiss', requireAuth, async (req, res) => {
+  try {
+    await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=false WHERE id=$1', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 app.get('/delivery-notices/:id/preview', requireAuth, async (req, res) => {
   try {

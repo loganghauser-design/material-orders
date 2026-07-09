@@ -46,12 +46,35 @@
 <div class="container">
   <div class="page-header"><h1 style="margin:0">Delivery Notices</h1></div>
   <p class="dn-intro">
-    When you send a vendor a <strong>delivery request</strong> (or Ferguson sends an alert), an initial notice is
-    created here for <strong>your</strong> approval. Fix the method / window / tracking if needed, <strong>Preview</strong>
-    the exact email, then <strong>Approve &amp; send</strong> to email the on-site contact (truck deliveries also ping
-    the super in chat), or <strong>Reject</strong> to discard it. Once you approve, the <strong>day-before reminder
-    auto-sends</strong> the morning before the delivery date you set — no second approval needed.
+    Send a vendor a <strong>delivery request</strong> and it waits under <strong>awaiting vendor date</strong> until they
+    reply — the app reads the date from their reply (or you enter it) and creates an initial notice here for
+    <strong>your</strong> approval. Fix the details if needed, <strong>Preview</strong>, then <strong>Approve &amp; send</strong>
+    to email the on-site contact. Once approved, the <strong>day-before reminder auto-sends</strong> the morning before
+    the confirmed delivery date — no second approval. (Ferguson runs its own path.)
   </p>
+
+  <% if (typeof awaiting !== 'undefined' && awaiting.length) { %>
+    <h2 style="font-size:1rem;margin:.2rem 0 .6rem">Awaiting vendor date <span style="color:var(--muted);font-weight:400">(<%= awaiting.length %>)</span></h2>
+    <div class="dn-list" style="margin-bottom:1.6rem">
+      <% awaiting.forEach(function(a){ %>
+        <div class="dn-card" data-await="<%= a.id %>">
+          <div class="dn-top">
+            <span class="dn-name"><%= a.jobName %></span>
+            <span class="dn-method dn-method-<%= a.hasReply ? 'truck' : 'ups' %>"><%= a.hasReply ? 'vendor replied' : 'no reply yet' %></span>
+            <span class="dn-when"><%= a.vendor %></span>
+          </div>
+          <% if (a.codeLabels.length) { %><div class="dn-cats"><% a.codeLabels.forEach(function(c){ %><span class="dn-cat"><%= c %></span><% }) %></div><% } %>
+          <div class="dn-edit">
+            <label class="dn-fld"><span class="lbl">Confirmed date</span>
+              <input class="dn-in aw-date" type="date">
+            </label>
+            <button type="button" class="dn-approve" onclick="awCreate(this, <%= a.id %>)">Create notice</button>
+            <button type="button" class="dn-reject" onclick="awDismiss(this, <%= a.id %>)">Dismiss</button>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
 
   <% if (!notices.length) { %>
     <div class="dn-empty">Nothing waiting for approval. New delivery notices will appear here.</div>
@@ -154,6 +177,27 @@ async function dnReject(btn, id){
     if (!d.ok) { showToast(d.error || 'Could not reject', true); return; }
     showToast('Notice discarded'); dnRemove(id);
   } catch (e) { showToast('Could not reject', true); }
+}
+async function awCreate(btn, id){
+  const card = btn.closest('.dn-card');
+  const date = card.querySelector('.aw-date').value;
+  if (!date) { showToast('Pick the confirmed delivery date', true); return; }
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const r = await fetch('/delivery-notices/awaiting/' + id + '/create', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ date }) });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not create', true); btn.disabled = false; btn.textContent = 'Create notice'; return; }
+    showToast('Notice created — review it below'); card.remove(); setTimeout(() => location.reload(), 700);
+  } catch (e) { showToast('Could not create', true); btn.disabled = false; btn.textContent = 'Create notice'; }
+}
+async function awDismiss(btn, id){
+  if (!confirm('Stop waiting on this delivery request?')) return;
+  try {
+    const r = await fetch('/delivery-notices/awaiting/' + id + '/dismiss', { method:'POST' });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not dismiss', true); return; }
+    showToast('Dismissed'); btn.closest('.dn-card').remove();
+  } catch (e) { showToast('Could not dismiss', true); }
 }
 function dnRemove(id){
   const card = document.querySelector('.dn-card[data-id="' + id + '"]');
