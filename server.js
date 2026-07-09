@@ -2947,7 +2947,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     const _doorDetected = checklistItems.length > 0 && (_hasBifold || _hasSliding);
     const showBifold = _doorDetected ? _hasBifold : true;    // can't detect → show both (safe fallback)
     const showSliding = _doorDetected ? _hasSliding : true;
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), itemsAgg, itemStates, checklistItems, showBifold, showSliding });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), contacts: allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' })), itemsAgg, itemStates, checklistItems, showBifold, showSliding });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

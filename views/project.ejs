@@ -25,22 +25,13 @@
     <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost btn-sm" title="Edit address, client name/email, status, notes">✎ Edit project</a>
     <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
     <% const _assigned = (project.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean); %>
-    <div style="margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:.4rem">
-      <div style="display:flex;align-items:center;gap:.4rem;flex-wrap:wrap;justify-content:flex-end" title="The assigned site contact receives this project's delivery notices (supers are also tagged in chat)">
-        <span style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-right:.2rem">Site contacts</span>
-        <% supers.forEach(s => { const on = _assigned.includes(s.email.toLowerCase()); %>
-          <button type="button" class="super-chip<%= on ? ' on' : '' %>" data-email="<%= s.email %>" onclick="toggleSuper(this)"><%= s.name %><% if (s.role === 'gc') { %> <span class="chip-role">GC</span><% } %></button>
-        <% }) %>
-        <button type="button" class="super-chip add-contact" onclick="openAddContact()">+ Add</button>
-      </div>
-      <div id="addContactBox">
-        <input id="acName" placeholder="Full name" autocomplete="off">
-        <input id="acEmail" type="email" placeholder="Email" autocomplete="off">
-        <input id="acPhone" placeholder="Phone (optional)" autocomplete="off">
-        <select id="acRole"><option value="super">Super</option><option value="gc">GC / outsourced</option></select>
-        <button type="button" class="btn btn-primary btn-sm" onclick="saveContact()">Add &amp; assign</button>
-        <button type="button" class="btn btn-ghost btn-sm" onclick="closeAddContact()">Cancel</button>
-      </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:.5rem" title="Assigned site contacts receive this project's delivery notices (in-house supers are also tagged in chat)">
+      <span style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Site contacts</span>
+      <% var _asg = supers.filter(function(s){ return _assigned.includes(s.email.toLowerCase()); }); %>
+      <button type="button" class="dt-team" data-assigned="<%= JSON.stringify(_asg.map(function(s){ return { email: s.email, name: s.name, role: s.role }; })) %>" onclick="dtOpen(this)">
+        <% if (_asg.length) { %><span class="dt-names"><%= _asg.map(function(s){ return s.name; }).join(', ') %></span><% } else { %><span class="dt-none">Assign…</span><% } %>
+        <span class="dt-caret">▾</span>
+      </button>
     </div>
   </div>
 
@@ -120,6 +111,30 @@
     .ck-when{color:#3730a3;font-size:.76rem;font-weight:600;white-space:nowrap}
     .ck-sup{margin-left:auto;font-size:.76rem;color:var(--muted);white-space:nowrap}
     .ck-done{opacity:.6}
+    /* Site-contacts dropdown picker */
+    .dt-team{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:var(--bg);border-radius:999px;padding:4px 11px;cursor:pointer;font-size:.86rem;max-width:340px;color:var(--text)}
+    .dt-team:hover{border-color:#4f8ef7}
+    .dt-names{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+    .dt-none{color:var(--muted);font-weight:600}
+    .dt-caret{color:var(--muted);font-size:.6rem;flex:none}
+    .teampop{position:fixed;z-index:1000;width:252px;max-height:360px;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 14px 38px rgba(0,0,0,.20);padding:6px}
+    .teampop[hidden]{display:none}
+    .tp-group{font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:9px 8px 3px}
+    .tp-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:.86rem;color:var(--text)}
+    .tp-row:hover{background:var(--bg)}
+    .tp-row.sel{background:#e6f1fb;color:#185fa5;font-weight:700}
+    .tp-row .tp-check{margin-left:auto;color:#185fa5;font-weight:700}
+    .tp-dot{width:8px;height:8px;border-radius:50%;flex:none}
+    .tp-dot-super{background:#3b82f6}.tp-dot-gc{background:#8b5cf6}
+    .tp-row .tm-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .tp-sep{height:1px;background:var(--border);margin:5px 2px}
+    .tp-addbtn{display:block;width:100%;text-align:left;background:none;border:none;padding:8px;font-size:.84rem;font-weight:700;color:#4f8ef7;cursor:pointer;border-radius:8px}
+    .tp-addbtn:hover{background:var(--bg)}
+    .tp-addform{display:flex;flex-direction:column;gap:6px;padding:6px 8px 8px}
+    .tp-addform input,.tp-addform select{font-size:.82rem;padding:7px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)}
+    .tp-addactions{display:flex;gap:6px}
+    .tp-manage{display:block;padding:8px;font-size:.78rem;color:var(--muted);text-decoration:none;border-radius:8px}
+    .tp-manage:hover{background:var(--bg);color:var(--text)}
   </style>
   <div class="tabs">
     <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">Materials</button>
@@ -583,9 +598,109 @@
 </div>
 
 <div id="toast" class="toast"></div>
+<div id="dtPop" class="teampop" hidden><div class="tp-list"></div></div>
 
 <script>
 const PROJECT_ID = '<%= project.id %>';
+
+// ── Site-contacts dropdown (multi-select; grouped In-house supers / Outside GCs) ──
+const CONTACTS_DT = <%- JSON.stringify(contacts || []).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026') %>;
+let dtBtn = null, dtAssigned = [];
+function dtEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function dtOpen(btn){
+  if (dtBtn === btn) { dtClose(); return; }
+  dtBtn = btn;
+  try { dtAssigned = JSON.parse(btn.dataset.assigned || '[]'); } catch (e) { dtAssigned = []; }
+  dtRender();
+  const pop = document.getElementById('dtPop');
+  pop.hidden = false;
+  dtPosition(pop, btn);
+}
+function dtClose(){ document.getElementById('dtPop').hidden = true; dtBtn = null; }
+function dtPosition(pop, btn){
+  const r = btn.getBoundingClientRect();
+  const pw = pop.offsetWidth || 252, ph = pop.offsetHeight || 300;
+  let left = Math.max(10, Math.min(r.left, window.innerWidth - pw - 10));
+  let top = r.bottom + 6;
+  if (top + ph > window.innerHeight - 10) top = Math.max(10, r.top - ph - 6);
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+}
+function dtRender(){
+  const selSet = new Set(dtAssigned.map(a => String(a.email).toLowerCase()));
+  const sup = CONTACTS_DT.filter(c => c.role !== 'gc'), gcs = CONTACTS_DT.filter(c => c.role === 'gc');
+  let h = '';
+  const grp = (label, list, dotCls) => {
+    if (!list.length) return '';
+    let g = `<div class="tp-group">${dtEsc(label)}</div>`;
+    list.forEach(c => {
+      const on = selSet.has(String(c.email).toLowerCase());
+      g += `<div class="tp-row${on?' sel':''}" data-val="${dtEsc(c.email)}"><span class="tp-dot ${dotCls}"></span><span class="tm-name">${dtEsc(c.name)}</span>${on?'<span class="tp-check">✓</span>':''}</div>`;
+    });
+    return g;
+  };
+  h += grp('In-house supers', sup, 'tp-dot-super');
+  h += grp('Outside GCs', gcs, 'tp-dot-gc');
+  const known = new Set(CONTACTS_DT.map(c => String(c.email).toLowerCase()));
+  const orphans = dtAssigned.filter(a => a.email && !known.has(String(a.email).toLowerCase()));
+  if (orphans.length){
+    h += `<div class="tp-group">Currently assigned</div>`;
+    orphans.forEach(a => { h += `<div class="tp-row sel" data-val="${dtEsc(a.email)}"><span class="tp-dot" style="background:#9aa0aa"></span><span class="tm-name">${dtEsc(a.name||a.email)}</span><span class="tp-check">✓</span></div>`; });
+  }
+  h += `<div class="tp-sep"></div>`;
+  h += `<button type="button" class="tp-addbtn" onclick="dtShowAdd()">+ Add new…</button>`;
+  h += `<div class="tp-addform" hidden>`
+     + `<input class="tp-name" placeholder="Full name / company" autocomplete="off">`
+     + `<input class="tp-email" type="email" placeholder="Email" autocomplete="off">`
+     + `<input class="tp-phone" placeholder="Phone (optional)" autocomplete="off">`
+     + `<select class="tp-role"><option value="super">In-house super</option><option value="gc">Outside GC</option></select>`
+     + `<div class="tp-addactions"><button type="button" class="btn btn-primary btn-sm" onclick="dtSaveAdd()">Add &amp; assign</button>`
+     + `<button type="button" class="btn btn-ghost btn-sm" onclick="dtHideAdd()">Cancel</button></div></div>`;
+  h += `<a class="tp-manage" href="/contacts">⚙ Manage contacts &amp; emails</a>`;
+  document.querySelector('#dtPop .tp-list').innerHTML = h;
+}
+function dtShowAdd(){ const p=document.getElementById('dtPop'); p.querySelector('.tp-addform').hidden=false; p.querySelector('.tp-addbtn').style.display='none'; p.querySelector('.tp-name').focus(); if(dtBtn) dtPosition(p,dtBtn); }
+function dtHideAdd(){ const p=document.getElementById('dtPop'); p.querySelector('.tp-addform').hidden=true; p.querySelector('.tp-addbtn').style.display='block'; }
+async function dtSaveAdd(){
+  const p = document.getElementById('dtPop');
+  const name=p.querySelector('.tp-name').value.trim(), email=p.querySelector('.tp-email').value.trim(), phone=p.querySelector('.tp-phone').value.trim(), role=p.querySelector('.tp-role').value;
+  if(!name||!email){ showToast('Name and email are required', true); return; }
+  try {
+    const r = await fetch('/contacts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, email, phone, role }) });
+    const d = await r.json();
+    if(!d.ok){ showToast(d.error || 'Could not add contact', true); return; }
+    CONTACTS_DT.push({ email:d.contact.email, name:d.contact.name, role:d.contact.role });
+    await dtToggle(d.contact.email, true);   // add the new contact on
+  } catch(e){ showToast('Could not add contact', true); }
+}
+// Toggle a contact on/off (multi-select). forceOn=true only adds. Saves the full set.
+async function dtToggle(email, forceOn){
+  if(!dtBtn) return;
+  const lc = String(email).toLowerCase();
+  const has = dtAssigned.some(a => String(a.email).toLowerCase() === lc);
+  let next;
+  if(has && !forceOn) next = dtAssigned.filter(a => String(a.email).toLowerCase() !== lc);
+  else if(has) next = dtAssigned.slice();
+  else { const entry = CONTACTS_DT.find(c => String(c.email).toLowerCase() === lc) || { email, name: email, role: 'unknown' }; next = dtAssigned.concat([entry]); }
+  const emails = next.map(a => a.email);
+  try {
+    const r = await fetch('/projects/' + PROJECT_ID + '/super', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails }) });
+    const d = await r.json();
+    if(!d.ok){ showToast(d.error || 'Could not save', true); return; }
+    const accepted = Array.isArray(d.emails) ? d.emails.map(String) : emails;
+    dtAssigned = accepted.map(e => { const l = e.toLowerCase(); return next.find(a => String(a.email).toLowerCase()===l) || CONTACTS_DT.find(c => String(c.email).toLowerCase()===l) || { email:e, name:e, role:'unknown' }; });
+    dtBtn.dataset.assigned = JSON.stringify(dtAssigned.map(a => ({ email:a.email, name:a.name, role:a.role })));
+    dtUpdateBtn(); dtRender();
+    showToast(dtAssigned.length ? (dtAssigned.length + ' site contact' + (dtAssigned.length>1?'s':'') + ' assigned') : 'No site contact assigned');
+  } catch(e){ showToast('Could not save', true); }
+}
+function dtUpdateBtn(){
+  const names = dtAssigned.map(a => a.name).join(', ');
+  dtBtn.innerHTML = (dtAssigned.length ? `<span class="dt-names">${dtEsc(names)}</span>` : `<span class="dt-none">Assign…</span>`) + `<span class="dt-caret">▾</span>`;
+}
+document.getElementById('dtPop').addEventListener('click', (e) => { const row = e.target.closest('.tp-row'); if(row) dtToggle(row.dataset.val || ''); });
+document.addEventListener('click', (e) => { const pop = document.getElementById('dtPop'); if(pop.hidden) return; if(pop.contains(e.target) || e.target.closest('.dt-team')) return; dtClose(); });
+document.addEventListener('keydown', (e) => { if(e.key === 'Escape') dtClose(); });
+window.addEventListener('resize', () => { const p = document.getElementById('dtPop'); if(!p.hidden && dtBtn) dtPosition(p, dtBtn); });
 const ALL_MATERIALS = <%- JSON.stringify(STAGES.flatMap(s => s.items)) %>;
 const STAGES_DATA = <%- JSON.stringify(STAGES) %>;
 const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
