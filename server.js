@@ -1190,6 +1190,10 @@ function parseRecipients(to) {
 const MAIL_REDIRECT_ALL = (process.env.MAIL_REDIRECT_ALL || '').trim();
 const ISOLATION_ON = !!MAIL_REDIRECT_ALL;
 if (ISOLATION_ON) console.log('⚠ ISOLATION MODE ON — all outbound email redirected to ' + MAIL_REDIRECT_ALL);
+// Global pause for ALL Google Chat posts (delivery alerts + Bids space). Set CHAT_PAUSED=on
+// to silence every chat message app-wide; unset (or =off) to resume. Email is unaffected.
+const CHAT_PAUSED = String(process.env.CHAT_PAUSED || '').toLowerCase() === 'on';
+if (CHAT_PAUSED) console.log('⏸ CHAT PAUSED — all Google Chat posts suppressed (CHAT_PAUSED=on)');
 
 async function sendMail({ to, cc, subject, text, html, attachments, threadId, inReplyTo, references }) {
   if (MAIL_REDIRECT_ALL) {
@@ -1416,6 +1420,7 @@ function shortAddress(addr) {
 // Post to Google Chat. Pass a threadKey to group messages into one thread
 // (e.g. an issue + its responses) — works in spaces that are organized by thread.
 async function postToChat(text, threadKey) {
+  if (CHAT_PAUSED) return;
   if (MAIL_REDIRECT_ALL) { return postBidsText('[TEST · would post to delivery chat]\n' + text, threadKey); }
   if (!CHAT_WEBHOOK_URL) { console.log('postToChat: no CHAT_WEBHOOK_URL set'); return; }
   try {
@@ -6088,6 +6093,7 @@ function fergusonPoCodes(po) {
 // Plain-text post to the Bids space — the testing ground for all notifications for now.
 // (The material delivery chat stays quiet unless Logan explicitly asks for something there.)
 async function postBidsText(text, threadKey) {
+  if (CHAT_PAUSED) return;
   if (!process.env.BIDS_WEBHOOK_URL) return;
   try {
     let url = process.env.BIDS_WEBHOOK_URL;
@@ -6981,6 +6987,7 @@ async function licenseWatchdog() {
 // and insurance, and the bids that came in during the week.
 const COVERAGE_AREAS = ['LA County', 'Orange County', 'Riverside County', 'San Diego County', 'Ventura County', 'San Bernardino County', 'The Valley'];
 async function coverageDigest() {
+  if (CHAT_PAUSED) return;
   if (!process.env.BIDS_WEBHOOK_URL) return;
   try {
     const COV_MIN = 4;
@@ -7111,6 +7118,7 @@ async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyTe
 }
 // Post a bid to the Bids chat space — Chat API with the real file attached, webhook links as fallback
 async function postBidToBidsSpace(header, subjectLine, docs, messageId) {
+  if (CHAT_PAUSED) return;
   if (!(process.env.BIDS_SPACE || process.env.BIDS_WEBHOOK_URL)) return;
   let posted = false;
   if (process.env.BIDS_SPACE && gOauth2) {
@@ -7365,7 +7373,7 @@ async function ingestOneQb(messageId) {
   // Estimates post to the dedicated "Bids" chat space — never the delivery chat.
   // Preferred: Chat API as the Gmail user with the real PDF(s) attached (needs BIDS_SPACE
   // + a refresh token carrying chat.messages.create). Fallback: webhook with PDF links.
-  if (kind === 'estimate' && (process.env.BIDS_SPACE || process.env.BIDS_WEBHOOK_URL)) {
+  if (kind === 'estimate' && !CHAT_PAUSED && (process.env.BIDS_SPACE || process.env.BIDS_WEBHOOK_URL)) {
     const header = '📥 *' + (sub.company || bizClean) + '*' + (amt ? ' — *$' + amt + '*' : '');
     const pdfs = atts.filter(a => /pdf/i.test(a.mime || a.filename)).slice(0, 3);
     let posted = false;
