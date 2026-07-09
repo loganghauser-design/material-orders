@@ -3311,7 +3311,7 @@ ${signoff}
   } else {
     const subjectLine = `${fullAddress} RFQ`;
     const TYPES = {
-      order: { subject: subjectLine, intro: `I'd like to place an order for delivery to <strong>${addr}</strong>. Please see the items below:`, closing: 'Please confirm pricing, availability, and lead time.' },
+      order: { subject: subjectLine, intro: `I'd like to place an order for delivery to <strong>${addr}</strong>. Please see the items below:`, closing: '' },
       delivery: { subject: subjectLine, intro: `We're ready for delivery to <strong>${addr}</strong> on the following items:`, closing: 'Please confirm the delivery date.' },
       quote: { subject: subjectLine, intro: `I'd like to request an RFQ for delivery to <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time at your earliest convenience.' },
     };
@@ -3324,8 +3324,8 @@ ${signoff}
 <p>${t.intro}</p>
 ${table || '<p><em>(items below)</em></p>'}
 ${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
-<p>${t.closing}</p>
-${contact}
+${t.closing ? `<p>${t.closing}</p>` : ''}
+${emailType === 'delivery' ? contact : ''}
 ${replyNote}
 ${signoff}
 </div>`;
@@ -3797,7 +3797,7 @@ app.post('/projects/:id/category-request', requireAuth, async (req, res) => {
 
     const TYPES = {
       delivery: { verb: 'Delivery Request', intro: `We're ready for delivery of the following <strong>${escapeHtml(catName)}</strong> items to <strong>${addr}</strong>:`, closing: 'Please confirm the delivery date.' },
-      order: { verb: 'Order', intro: `We'd like to order the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: 'Please confirm pricing, availability, and lead time.' },
+      order: { verb: 'Order', intro: `We'd like to order the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: '' },
       quote: { verb: 'RFQ', intro: `Please quote the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time.' },
     };
     const t = TYPES[emailType] || TYPES.delivery;
@@ -3813,7 +3813,7 @@ app.post('/projects/:id/category-request', requireAuth, async (req, res) => {
 <p>${t.intro}</p>
 ${itemsHtml}
 ${note ? `<p>${escapeHtml(note).replace(/\n/g, '<br>')}</p>` : ''}
-<p>${t.closing}</p>
+${t.closing ? `<p>${t.closing}</p>` : ''}
 ${signoff}
 </div>`;
 
@@ -6332,6 +6332,7 @@ async function projectItemStates(projectId) {
   // tab looks stale versus the main project page. Explicit manual marks still win.
   const { rows: boardRows } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [projectId]);
   const boardDelivered = new Set(boardRows.filter(r => r.status === 'Delivered' || r.status === 'Delivered from Inv.').map(r => r.item_code));
+  const boardOrdered = new Set(boardRows.filter(r => r.status === 'Order Placed' || r.status === 'In Inventory').map(r => r.item_code));
   expected.forEach(e => {
     e.key = itemKeyFor(e.prod_code, e.model_no, e.name);
     const mn = e.model_norm && e.model_norm.length >= 5 ? e.model_norm : null;
@@ -6356,10 +6357,13 @@ async function projectItemStates(projectId) {
       e.onOrder = m.state === 'ordered';
       e.schedWhen = e.scheduled ? (m.sched_when || e.schedWhen || '') : '';
     }
-    // Board floor: category Delivered on the main page → show its items delivered here too,
-    // unless the user manually set a different state for this specific item.
+    // Board floor: reflect the main-page board status here so the Materials tab doesn't
+    // lag it. Delivered → ✅; Order Placed / In Inventory → 📦 (e.g. after an order email).
+    // Explicit per-item evidence (manual marks, Ferguson) still wins.
     if (!e.manual && e.category_code && boardDelivered.has(e.category_code) && !e.delivered) {
       e.delivered = true; e.scheduled = false; e.onOrder = false; e.fromBoard = true;
+    } else if (!e.manual && e.category_code && boardOrdered.has(e.category_code) && !e.delivered && !e.scheduled && !e.onOrder) {
+      e.onOrder = true; e.fromBoard = true;
     }
     const k = e.category_code || '—';
     const a = agg[k] = agg[k] || { total: 0, delivered: 0, scheduled: 0, ordered: 0 };
