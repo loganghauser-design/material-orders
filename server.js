@@ -6558,6 +6558,23 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride, method
 // appliance deliveries) carry the job address, PO (material stage), and schedule.
 // Match each to the project by address, log it, and ping the delivery chat —
 // threaded per Ferguson order so "out for delivery" and "delivered" stack together.
+// The one Delivery Alerts message we agreed on: "Delivery scheduled" → @super → check
+// email. Routed to the private Bids chat until DELIVERY_ALERT_LIVE=on flips it to the real
+// Delivery Alerts space. Posts directly, bypassing the global CHAT_PAUSED — the one alert.
+async function postDeliveryScheduled(projectId, jobName) {
+  try {
+    const { rows: [proj] } = await pool.query('SELECT address, full_address, super_email FROM projects WHERE id=$1', [projectId]);
+    if (!proj) return;
+    const name = jobName || shortAddress(proj.full_address || proj.address);
+    const mentions = parseSuperEmails(proj.super_email).map(s => s.chatId ? `<users/${s.chatId}>` : (s.name || '')).filter(Boolean).join(' ');
+    const text = `🚚 *Delivery scheduled* — *${name}*` + (mentions ? `\n${mentions}` : '') + `\nCheck your email for the delivery details.`;
+    const live = String(process.env.DELIVERY_ALERT_LIVE || '').toLowerCase() === 'on';
+    const url = live ? CHAT_WEBHOOK_URL : process.env.BIDS_WEBHOOK_URL;
+    if (!url) return;
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
+    console.log('delivery-scheduled alert → ' + (live ? 'delivery-alerts' : 'bids') + ' (project ' + projectId + ')');
+  } catch (e) { console.error('postDeliveryScheduled:', e.message); }
+}
 async function pollFergusonEmails() {
   if (!useGmail) return;
   try {
@@ -6669,6 +6686,7 @@ async function pollFergusonEmails() {
             // Freight truck: list ONLY the items on this truck's manifest.
             const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck', manifestBlob: normModel(items) || null });
             console.log('delivery notice (truck): ' + JSON.stringify(dn));
+            if (dn && dn.ok) await postDeliveryScheduled(proj.id, dn.jobName);   // ping the super in chat: delivery scheduled → check email
           } else if (kind === 'out' && carrier === 'ups' && nCodes.length) {
             // UPS parcel: no manifest in the email, so list the bucket MINUS whatever
             // already shipped by truck for this PO — that's the UPS half of a split order.
