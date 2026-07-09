@@ -47,6 +47,32 @@
     .pipe-legend span { display:inline-flex; align-items:center; gap:5px; }
     .lg-sw { width:10px; height:10px; border-radius:2px; display:inline-block; }
     .row-dragging { opacity:.5; }
+    /* Team picker chip on each card */
+    .pc-team { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--bg); border-radius:999px; padding:3px 9px 3px 9px; cursor:pointer; font-size:.8rem; max-width:210px; color:var(--text); }
+    .pc-team:hover { border-color:#4f8ef7; }
+    .tm-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+    .tm-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
+    .tm-badge { font-size:.56rem; font-weight:800; letter-spacing:.03em; padding:1px 5px; border-radius:5px; flex:none; }
+    .tm-badge-gc { background:#efe8fb; color:#6b3fc2; } .tm-badge-sup { background:#e6f1fb; color:#185fa5; }
+    .tm-more { font-size:.68rem; color:var(--muted); flex:none; }
+    .tm-none { color:var(--muted); font-weight:600; }
+    .tm-caret { color:var(--muted); font-size:.58rem; margin-left:1px; flex:none; }
+    /* Shared grouped dropdown popover */
+    .teampop { position:fixed; z-index:1000; width:252px; max-height:360px; overflow:auto; background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 14px 38px rgba(0,0,0,.20); padding:6px; }
+    .teampop[hidden] { display:none; }
+    .tp-group { font-size:.66rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:9px 8px 3px; }
+    .tp-row { display:flex; align-items:center; gap:8px; padding:7px 8px; border-radius:8px; cursor:pointer; font-size:.86rem; color:var(--text); }
+    .tp-row:hover { background:var(--bg); }
+    .tp-row.sel { background:#e6f1fb; color:#185fa5; font-weight:700; }
+    .tp-row .tp-check { margin-left:auto; color:#185fa5; font-weight:700; }
+    .tp-dot { width:8px; height:8px; border-radius:50%; flex:none; }
+    .tp-dot-super { background:#3b82f6; } .tp-dot-gc { background:#8b5cf6; }
+    .tp-sep { height:1px; background:var(--border); margin:5px 2px; }
+    .tp-addbtn { display:block; width:100%; text-align:left; background:none; border:none; padding:8px; font-size:.84rem; font-weight:700; color:#4f8ef7; cursor:pointer; border-radius:8px; }
+    .tp-addbtn:hover { background:var(--bg); }
+    .tp-addform { display:flex; flex-direction:column; gap:6px; padding:6px 8px 8px; }
+    .tp-addform input, .tp-addform select { font-size:.82rem; padding:7px 8px; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); }
+    .tp-addactions { display:flex; gap:6px; }
     @media (max-width:760px){ .pipe-lbl,.pipe-cnt{ font-size:.6rem; } }
   </style>
 </head>
@@ -104,10 +130,18 @@
               <a href="/projects/<%= p.id %>" class="pcard-name"><strong><%= p.address %></strong><% if (p.version) { %> <span class="pcard-ver"><%= p.version %></span><% } %></a>
               <% if (unread && unread[p.id]) { %><a href="/projects/<%= p.id %>?tab=emails&openUnread=1" class="reply-dot" title="New vendor reply">●</a><% } %>
               <div class="pcard-right">
-                <div class="pc-avatars">
-                  <% (c.sup || []).forEach(s => { %><span class="pc-avatar" title="<%= s.name %>"><%= s.initials %></span><% }) %>
-                  <% if (!(c.sup || []).length) { %><span class="pc-nosup">No super</span><% } %>
-                </div>
+                <% var _t0 = (c.sup || [])[0]; %>
+                <button type="button" class="pc-team" data-id="<%= p.id %>" data-email="<%= _t0 ? _t0.email : '' %>" onclick="openTeam(this)" title="Assign in-house super or outside GC">
+                  <% if (_t0) { %>
+                    <span class="tm-dot" style="background:<%= _t0.role === 'gc' ? '#8b5cf6' : '#3b82f6' %>"></span>
+                    <span class="tm-name"><%= _t0.name %></span>
+                    <span class="tm-badge <%= _t0.role === 'gc' ? 'tm-badge-gc' : 'tm-badge-sup' %>"><%= _t0.role === 'gc' ? 'GC' : 'IH' %></span>
+                    <% if ((c.sup || []).length > 1) { %><span class="tm-more">+<%= c.sup.length - 1 %></span><% } %>
+                  <% } else { %>
+                    <span class="tm-none">Assign team</span>
+                  <% } %>
+                  <span class="tm-caret">▾</span>
+                </button>
                 <select class="pc-phase" data-project="<%= p.id %>" onchange="savePhase(this)" title="Project phase">
                   <% PROJECT_PHASES.forEach(ph2 => { %><option value="<%= ph2 %>" <%= ph===ph2?'selected':'' %>><%= ph2 %></option><% }) %>
                 </select>
@@ -135,6 +169,8 @@
 </div>
 
 <div id="toast" class="toast"></div>
+
+<div id="teamPop" class="teampop" hidden><div class="tp-list"></div></div>
 
 <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script>
@@ -179,6 +215,119 @@ function showToast(msg, err) {
   const t = document.getElementById('toast'); t.textContent = msg;
   t.className = 'toast show' + (err ? ' error' : ''); setTimeout(() => t.className = 'toast', 1500);
 }
+
+// ── Team picker (grouped In-house supers / Outside GCs, + Add new) ──────────────
+const CONTACTS = <%- JSON.stringify(contacts || []) %>;
+let tpBtn = null;   // the .pc-team button currently being edited
+function tpEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function openTeam(btn) {
+  if (tpBtn === btn) { closeTeam(); return; }
+  tpBtn = btn;
+  renderTeamPop(btn.dataset.email || '');
+  const pop = document.getElementById('teamPop');
+  pop.hidden = false;
+  positionPop(pop, btn);
+}
+function closeTeam() { document.getElementById('teamPop').hidden = true; tpBtn = null; }
+function positionPop(pop, btn) {
+  const r = btn.getBoundingClientRect();
+  const pw = pop.offsetWidth || 252, ph = pop.offsetHeight || 300;
+  let left = Math.max(10, Math.min(r.left, window.innerWidth - pw - 10));
+  let top = r.bottom + 6;
+  if (top + ph > window.innerHeight - 10) top = Math.max(10, r.top - ph - 6);
+  pop.style.left = left + 'px'; pop.style.top = top + 'px';
+}
+function renderTeamPop(selEmail) {
+  const sel = String(selEmail || '').toLowerCase();
+  const supers = CONTACTS.filter(c => c.role !== 'gc');
+  const gcs = CONTACTS.filter(c => c.role === 'gc');
+  let h = '';
+  h += `<div class="tp-row${!sel?' sel':''}" data-val=""><span class="tm-none">— Unassigned —</span>${!sel?'<span class="tp-check">✓</span>':''}</div>`;
+  const grp = (label, list, dotCls) => {
+    if (!list.length) return '';
+    let g = `<div class="tp-group">${tpEsc(label)}</div>`;
+    list.forEach(c => {
+      const on = String(c.email).toLowerCase() === sel;
+      g += `<div class="tp-row${on?' sel':''}" data-val="${tpEsc(c.email)}"><span class="tp-dot ${dotCls}"></span><span class="tm-name">${tpEsc(c.name)}</span>${on?'<span class="tp-check">✓</span>':''}</div>`;
+    });
+    return g;
+  };
+  h += grp('In-house supers', supers, 'tp-dot-super');
+  h += grp('Outside GCs', gcs, 'tp-dot-gc');
+  h += `<div class="tp-sep"></div>`;
+  h += `<button type="button" class="tp-addbtn" onclick="tpShowAdd()">+ Add new…</button>`;
+  h += `<div class="tp-addform" hidden>`
+     + `<input class="tp-name" placeholder="Full name / company" autocomplete="off">`
+     + `<input class="tp-email" type="email" placeholder="Email" autocomplete="off">`
+     + `<input class="tp-phone" placeholder="Phone (optional)" autocomplete="off">`
+     + `<select class="tp-role"><option value="super">In-house super</option><option value="gc">Outside GC</option></select>`
+     + `<div class="tp-addactions"><button type="button" class="btn btn-primary btn-sm" onclick="tpSaveAdd()">Add &amp; assign</button>`
+     + `<button type="button" class="btn btn-ghost btn-sm" onclick="tpHideAdd()">Cancel</button></div></div>`;
+  document.querySelector('#teamPop .tp-list').innerHTML = h;
+}
+function tpShowAdd() {
+  const pop = document.getElementById('teamPop');
+  pop.querySelector('.tp-addform').hidden = false;
+  pop.querySelector('.tp-addbtn').style.display = 'none';
+  pop.querySelector('.tp-name').focus();
+  if (tpBtn) positionPop(pop, tpBtn);
+}
+function tpHideAdd() {
+  const pop = document.getElementById('teamPop');
+  pop.querySelector('.tp-addform').hidden = true;
+  pop.querySelector('.tp-addbtn').style.display = 'block';
+}
+async function tpSaveAdd() {
+  const pop = document.getElementById('teamPop');
+  const name = pop.querySelector('.tp-name').value.trim();
+  const email = pop.querySelector('.tp-email').value.trim();
+  const phone = pop.querySelector('.tp-phone').value.trim();
+  const role = pop.querySelector('.tp-role').value;
+  if (!name || !email) { showToast('Name and email are required', true); return; }
+  try {
+    const r = await fetch('/contacts', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, email, phone, role }) });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not add contact', true); return; }
+    CONTACTS.push({ email: d.contact.email, name: d.contact.name, role: d.contact.role });
+    await pickTeam(d.contact.email);
+  } catch (e) { showToast('Could not add contact', true); }
+}
+async function pickTeam(email) {
+  if (!tpBtn) return;
+  const btn = tpBtn, id = btn.dataset.id;
+  try {
+    const r = await fetch('/projects/' + id + '/super', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails: email ? [email] : [] }) });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not save', true); return; }
+    updateTeamBtn(btn, email);
+    showToast(email ? 'Team updated' : 'Unassigned');
+    closeTeam();
+  } catch (e) { showToast('Could not save', true); }
+}
+function updateTeamBtn(btn, email) {
+  btn.dataset.email = email || '';
+  const c = CONTACTS.find(x => String(x.email).toLowerCase() === String(email).toLowerCase());
+  let inner;
+  if (c) {
+    const gc = c.role === 'gc';
+    inner = `<span class="tm-dot" style="background:${gc?'#8b5cf6':'#3b82f6'}"></span><span class="tm-name">${tpEsc(c.name)}</span><span class="tm-badge ${gc?'tm-badge-gc':'tm-badge-sup'}">${gc?'GC':'IH'}</span>`;
+  } else {
+    inner = `<span class="tm-none">Assign team</span>`;
+  }
+  btn.innerHTML = inner + `<span class="tm-caret">▾</span>`;
+}
+document.getElementById('teamPop').addEventListener('click', (e) => {
+  const row = e.target.closest('.tp-row');
+  if (row) pickTeam(row.dataset.val || '');
+});
+document.addEventListener('click', (e) => {
+  const pop = document.getElementById('teamPop');
+  if (pop.hidden) return;
+  if (pop.contains(e.target) || e.target.closest('.pc-team')) return;
+  closeTeam();
+});
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeTeam(); });
+window.addEventListener('resize', () => { const p = document.getElementById('teamPop'); if (!p.hidden && tpBtn) positionPop(p, tpBtn); });
 </script>
 </body>
 </html>

@@ -2773,7 +2773,7 @@ app.get('/projects', requireAuth, async (req, res) => {
       else if (orderNow || rfq || newReply || requests || noSched) urgency = 'amber';
       if (!needs.length) needs.push(notPlaced ? { text: notPlaced + ' still to order', kind: 'mute' } : { text: 'On track', kind: 'ok' });
       const supEmails = String(p.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-      const sup = supEmails.map(e => { const c = _contactByEmail[e]; return { initials: _initials(c ? c.name : e), name: c ? c.name : e }; });
+      const sup = supEmails.map(e => { const c = _contactByEmail[e]; return { email: e, initials: _initials(c ? c.name : e), name: c ? c.name : e, role: (c && c.role) || 'super' }; });
       cards[p.id] = { stages, needs, urgency, sup };
       if (!['Complete', 'Under Warranty'].includes(_serverPhase(p))) {
         if (urgency === 'red') summary.needAction++; else if (urgency === 'amber') summary.awaiting++; else summary.onTrack++;
@@ -2781,7 +2781,8 @@ app.get('/projects', requireAuth, async (req, res) => {
     }
 
     const pendingIssues = await getPendingIssueCount();
-    res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES });
+    const contacts = allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' }));
+    res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES, contacts });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
