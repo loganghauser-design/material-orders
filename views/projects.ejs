@@ -130,13 +130,13 @@
               <a href="/projects/<%= p.id %>" class="pcard-name"><strong><%= p.address %></strong><% if (p.version) { %> <span class="pcard-ver"><%= p.version %></span><% } %></a>
               <% if (unread && unread[p.id]) { %><a href="/projects/<%= p.id %>?tab=emails&openUnread=1" class="reply-dot" title="New vendor reply">●</a><% } %>
               <div class="pcard-right">
-                <% var _t0 = (c.sup || [])[0]; %>
-                <button type="button" class="pc-team" data-id="<%= p.id %>" data-email="<%= _t0 ? _t0.email : '' %>" onclick="openTeam(this)" title="Assign in-house super or outside GC">
+                <% var _sup = (c.sup || []); var _t0 = _sup[0]; %>
+                <button type="button" class="pc-team" data-id="<%= p.id %>" data-assigned="<%= JSON.stringify(_sup.map(function(s){ return { email: s.email, name: s.name, role: s.role }; })) %>" onclick="openTeam(this)" title="Assign in-house super or outside GC">
                   <% if (_t0) { %>
-                    <span class="tm-dot" style="background:<%= _t0.role === 'gc' ? '#8b5cf6' : '#3b82f6' %>"></span>
+                    <span class="tm-dot" style="background:<%= _t0.role === 'gc' ? '#8b5cf6' : (_t0.role === 'unknown' ? '#9aa0aa' : '#3b82f6') %>"></span>
                     <span class="tm-name"><%= _t0.name %></span>
-                    <span class="tm-badge <%= _t0.role === 'gc' ? 'tm-badge-gc' : 'tm-badge-sup' %>"><%= _t0.role === 'gc' ? 'GC' : 'IH' %></span>
-                    <% if ((c.sup || []).length > 1) { %><span class="tm-more">+<%= c.sup.length - 1 %></span><% } %>
+                    <% if (_t0.role !== 'unknown') { %><span class="tm-badge <%= _t0.role === 'gc' ? 'tm-badge-gc' : 'tm-badge-sup' %>"><%= _t0.role === 'gc' ? 'GC' : 'IH' %></span><% } %>
+                    <% if (_sup.length > 1) { %><span class="tm-more">+<%= _sup.length - 1 %></span><% } %>
                   <% } else { %>
                     <span class="tm-none">Assign team</span>
                   <% } %>
@@ -217,13 +217,16 @@ function showToast(msg, err) {
 }
 
 // ── Team picker (grouped In-house supers / Outside GCs, + Add new) ──────────────
-const CONTACTS = <%- JSON.stringify(contacts || []) %>;
-let tpBtn = null;   // the .pc-team button currently being edited
+// JSON is emitted raw (unescaped by EJS), so neutralize the closing-script sequence and HTML-context breakout.
+const CONTACTS = <%- JSON.stringify(contacts || []).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026') %>;
+let tpBtn = null;        // the .pc-team button currently being edited
+let tpAssigned = [];     // [{email,name,role}] currently assigned on the open card
 function tpEsc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function openTeam(btn) {
   if (tpBtn === btn) { closeTeam(); return; }
   tpBtn = btn;
-  renderTeamPop(btn.dataset.email || '');
+  try { tpAssigned = JSON.parse(btn.dataset.assigned || '[]'); } catch (e) { tpAssigned = []; }
+  renderTeamPop(tpAssigned);
   const pop = document.getElementById('teamPop');
   pop.hidden = false;
   positionPop(pop, btn);
@@ -237,23 +240,32 @@ function positionPop(pop, btn) {
   if (top + ph > window.innerHeight - 10) top = Math.max(10, r.top - ph - 6);
   pop.style.left = left + 'px'; pop.style.top = top + 'px';
 }
-function renderTeamPop(selEmail) {
-  const sel = String(selEmail || '').toLowerCase();
+function renderTeamPop(assigned) {
+  const selSet = new Set((assigned || []).map(a => String(a.email).toLowerCase()));
   const supers = CONTACTS.filter(c => c.role !== 'gc');
   const gcs = CONTACTS.filter(c => c.role === 'gc');
   let h = '';
-  h += `<div class="tp-row${!sel?' sel':''}" data-val=""><span class="tm-none">— Unassigned —</span>${!sel?'<span class="tp-check">✓</span>':''}</div>`;
+  h += `<div class="tp-row${selSet.size===0?' sel':''}" data-val=""><span class="tm-none">— Unassigned —</span>${selSet.size===0?'<span class="tp-check">✓</span>':''}</div>`;
   const grp = (label, list, dotCls) => {
     if (!list.length) return '';
     let g = `<div class="tp-group">${tpEsc(label)}</div>`;
     list.forEach(c => {
-      const on = String(c.email).toLowerCase() === sel;
+      const on = selSet.has(String(c.email).toLowerCase());
       g += `<div class="tp-row${on?' sel':''}" data-val="${tpEsc(c.email)}"><span class="tp-dot ${dotCls}"></span><span class="tm-name">${tpEsc(c.name)}</span>${on?'<span class="tp-check">✓</span>':''}</div>`;
     });
     return g;
   };
   h += grp('In-house supers', supers, 'tp-dot-super');
   h += grp('Outside GCs', gcs, 'tp-dot-gc');
+  // Anyone assigned who's no longer in the contact list (e.g. deactivated) — keep them visible.
+  const known = new Set(CONTACTS.map(c => String(c.email).toLowerCase()));
+  const orphans = (assigned || []).filter(a => a.email && !known.has(String(a.email).toLowerCase()));
+  if (orphans.length) {
+    h += `<div class="tp-group">Currently assigned</div>`;
+    orphans.forEach(a => {
+      h += `<div class="tp-row sel" data-val="${tpEsc(a.email)}"><span class="tp-dot" style="background:#9aa0aa"></span><span class="tm-name">${tpEsc(a.name || a.email)}</span><span class="tp-check">✓</span></div>`;
+    });
+  }
   h += `<div class="tp-sep"></div>`;
   h += `<button type="button" class="tp-addbtn" onclick="tpShowAdd()">+ Add new…</button>`;
   h += `<div class="tp-addform" hidden>`
@@ -289,28 +301,44 @@ async function tpSaveAdd() {
     const d = await r.json();
     if (!d.ok) { showToast(d.error || 'Could not add contact', true); return; }
     CONTACTS.push({ email: d.contact.email, name: d.contact.name, role: d.contact.role });
+    renderTeamPop(tpAssigned);   // refresh list so the new contact is a selectable row even if the assign below fails
     await pickTeam(d.contact.email);
   } catch (e) { showToast('Could not add contact', true); }
 }
 async function pickTeam(email) {
   if (!tpBtn) return;
   const btn = tpBtn, id = btn.dataset.id;
+  const lc = String(email).toLowerCase();
+  const entry = email ? (CONTACTS.find(c => String(c.email).toLowerCase() === lc) || tpAssigned.find(a => String(a.email).toLowerCase() === lc) || null) : null;
+  // Don't silently drop a multi-person assignment — the grid picker is single-select.
+  if (tpAssigned.length > 1) {
+    if (!confirm('This project has ' + tpAssigned.length + ' people assigned. Replace all of them with ' + (entry ? entry.name : 'no one') + '?')) return;
+  }
   try {
     const r = await fetch('/projects/' + id + '/super', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ emails: email ? [email] : [] }) });
     const d = await r.json();
     if (!d.ok) { showToast(d.error || 'Could not save', true); return; }
-    updateTeamBtn(btn, email);
-    showToast(email ? 'Team updated' : 'Unassigned');
+    // Reflect what the server actually accepted (it drops emails that aren't a live contact).
+    const accepted = Array.isArray(d.emails) ? d.emails : (email ? [email] : []);
+    const acceptedEntry = accepted.length
+      ? (CONTACTS.find(c => String(c.email).toLowerCase() === String(accepted[0]).toLowerCase())
+         || tpAssigned.find(a => String(a.email).toLowerCase() === String(accepted[0]).toLowerCase())
+         || { email: accepted[0], name: accepted[0], role: 'unknown' })
+      : null;
+    tpAssigned = acceptedEntry ? [acceptedEntry] : [];
+    btn.dataset.assigned = JSON.stringify(tpAssigned);
+    updateTeamBtn(btn, acceptedEntry);
+    showToast(accepted.length ? 'Team updated' : 'Unassigned');
     closeTeam();
   } catch (e) { showToast('Could not save', true); }
 }
-function updateTeamBtn(btn, email) {
-  btn.dataset.email = email || '';
-  const c = CONTACTS.find(x => String(x.email).toLowerCase() === String(email).toLowerCase());
+function updateTeamBtn(btn, entry) {
   let inner;
-  if (c) {
-    const gc = c.role === 'gc';
-    inner = `<span class="tm-dot" style="background:${gc?'#8b5cf6':'#3b82f6'}"></span><span class="tm-name">${tpEsc(c.name)}</span><span class="tm-badge ${gc?'tm-badge-gc':'tm-badge-sup'}">${gc?'GC':'IH'}</span>`;
+  if (entry) {
+    const gc = entry.role === 'gc', unknown = entry.role === 'unknown';
+    const color = gc ? '#8b5cf6' : (unknown ? '#9aa0aa' : '#3b82f6');
+    inner = `<span class="tm-dot" style="background:${color}"></span><span class="tm-name">${tpEsc(entry.name)}</span>`
+          + (unknown ? '' : `<span class="tm-badge ${gc?'tm-badge-gc':'tm-badge-sup'}">${gc?'GC':'IH'}</span>`);
   } else {
     inner = `<span class="tm-none">Assign team</span>`;
   }

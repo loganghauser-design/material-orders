@@ -2773,7 +2773,7 @@ app.get('/projects', requireAuth, async (req, res) => {
       else if (orderNow || rfq || newReply || requests || noSched) urgency = 'amber';
       if (!needs.length) needs.push(notPlaced ? { text: notPlaced + ' still to order', kind: 'mute' } : { text: 'On track', kind: 'ok' });
       const supEmails = String(p.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
-      const sup = supEmails.map(e => { const c = _contactByEmail[e]; return { email: e, initials: _initials(c ? c.name : e), name: c ? c.name : e, role: (c && c.role) || 'super' }; });
+      const sup = supEmails.map(e => { const c = _contactByEmail[e]; return { email: e, initials: _initials(c ? c.name : e), name: c ? c.name : e, role: c ? (c.role || 'super') : 'unknown' }; });
       cards[p.id] = { stages, needs, urgency, sup };
       if (!['Complete', 'Under Warranty'].includes(_serverPhase(p))) {
         if (urgency === 'red') summary.needAction++; else if (urgency === 'amber') summary.awaiting++; else summary.onTrack++;
@@ -4010,9 +4010,9 @@ app.post('/projects/:id/super', requireAuth, async (req, res) => {
 // the delivery notice. Contacts only — no login, no Chat mention.
 app.post('/contacts', requireAuth, async (req, res) => {
   try {
-    const name = String(req.body.name || '').trim();
+    const name = String(req.body.name || '').replace(/[<>]/g, '').trim();   // strip angle brackets — never let markup into the name
     const email = String(req.body.email || '').trim().toLowerCase();
-    const phone = String(req.body.phone || '').trim();
+    const phone = String(req.body.phone || '').replace(/[<>]/g, '').trim();
     const role = req.body.role === 'gc' ? 'gc' : 'super';
     if (!name || !email) return res.status(400).json({ ok: false, error: 'Name and email are both required.' });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return res.status(400).json({ ok: false, error: 'Enter a valid email address.' });
