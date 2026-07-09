@@ -1800,6 +1800,7 @@ async function initDb() {
     ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS source VARCHAR(12);
     ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS source_date DATE;
     ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS reminded_at TIMESTAMPTZ;
+    ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS vendor_email_id INTEGER;
 
     CREATE TABLE IF NOT EXISTS bids (
       id SERIAL PRIMARY KEY,
@@ -2482,6 +2483,7 @@ app.get('/delivery-notices', requireAuth, async (req, res) => {
         id: n.id, address: n.address || ('Project ' + n.project_id),
         jobName: n.job_name || n.address || ('Project ' + n.project_id),
         method: n.method, window: n.delivery_window, tracking: n.tracking, createdAt: n.created_at,
+        sourceDate: n.source_date ? new Date(n.source_date).toISOString().slice(0, 10) : '',
         codeLabels: codes.map(c => _cn[c] || c),
         recipients: sups.filter(s => s.email).map(s => s.name),
         noRecipient: !sups.some(s => s.email),
@@ -2515,9 +2517,9 @@ app.post('/delivery-notices/awaiting/:id/create', requireAuth, async (req, res) 
     if (!v) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
     const codes = String(v.item_codes || v.item_code || '').split(',').map(c => c.trim()).filter(Boolean);
     if (!codes.length) return res.status(400).json({ ok: false, error: 'This thread has no linked materials.' });
-    const q = await enqueueDeliveryNotice({ projectId: v.project_id, codes, window: chatDate(date), method: 'truck', source: 'email', sourceDate: date });
+    const q = await enqueueDeliveryNotice({ projectId: v.project_id, codes, window: chatDate(date), method: 'truck', source: 'email', sourceDate: date, vendorEmailId: v.id });
     if (!q.ok) return res.json({ ok: false, error: q.reason || 'Could not create the notice.' });
-    await pool.query("UPDATE project_items SET delivery_date=$3 WHERE project_id=$1 AND item_code = ANY($2) AND status NOT IN ('Delivered','Delivered from Inv.','N/A')", [v.project_id, codes, date]);
+    // Board date is written on approval, not here (so an unreviewed notice never mutates it).
     await pool.query('UPDATE vendor_emails SET notice_created=true, awaiting_delivery_date=false WHERE id=$1', [v.id]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -2543,11 +2545,12 @@ app.get('/delivery-notices/:id/preview', requireAuth, async (req, res) => {
 // so the email is exactly right (the auto path defaults to truck with no tracking).
 app.post('/delivery-notices/:id/update', requireAuth, async (req, res) => {
   try {
-    const { method, tracking, window } = req.body;
+    const { method, tracking, window, date } = req.body;
     const m = method === 'ups' ? 'ups' : 'truck';
+    const sd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : null;   // confirmed delivery date drives the reminder
     const r = await pool.query(
-      "UPDATE pending_delivery_notices SET method=$1, tracking=$2, delivery_window=$3 WHERE id=$4 AND status='pending' RETURNING id",
-      [m, tracking || null, window || null, req.params.id]);
+      "UPDATE pending_delivery_notices SET method=$1, tracking=$2, delivery_window=$3, source_date=COALESCE($4, source_date) WHERE id=$5 AND status='pending' RETURNING id",
+      [m, tracking || null, window || null, sd, req.params.id]);
     if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -2564,14 +2567,18 @@ app.post('/delivery-notices/:id/approve', requireAuth, async (req, res) => {
       return res.json({ ok: false, error: (dn && dn.reason) || 'Could not send the notice.' });
     }
     await pool.query("UPDATE pending_delivery_notices SET status='sent', decided_at=NOW() WHERE id=$1", [n.id]);
+    // Now that Logan approved it, write the confirmed date onto the board (never on an unreviewed parse).
+    if (n.source_date) { try { await pool.query("UPDATE project_items SET delivery_date=$3 WHERE project_id=$1 AND item_code = ANY($2) AND status NOT IN ('Delivered','Delivered from Inv.','N/A')", [n.project_id, codes, n.source_date]); } catch (e) {} }
     if (n.method === 'truck') { try { await postDeliveryScheduled(n.project_id, dn.jobName); } catch (e) {} }  // now ping the super in chat
     res.json({ ok: true, to: dn.to });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 app.post('/delivery-notices/:id/reject', requireAuth, async (req, res) => {
   try {
-    const r = await pool.query("UPDATE pending_delivery_notices SET status='rejected', decided_at=NOW() WHERE id=$1 AND status='pending'", [req.params.id]);
+    const r = await pool.query("UPDATE pending_delivery_notices SET status='rejected', decided_at=NOW() WHERE id=$1 AND status='pending' RETURNING vendor_email_id", [req.params.id]);
     if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
+    // Re-arm the source thread so a corrected vendor reply can be re-parsed (a wrong date is recoverable).
+    if (r.rows[0].vendor_email_id) { try { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=true, notice_created=false WHERE id=$1', [r.rows[0].vendor_email_id]); } catch (e) {} }
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -3552,9 +3559,9 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
     }
 
     const sent = await sendMail({ to: supplierEmail, cc: sendCc, subject, html, attachments });
-    await pool.query(
+    const { rows: [ve] } = await pool.query(
       `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [req.params.id, itemCode || null, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', sent.threadId || null, sent.messageId || null]
     );
 
@@ -3588,10 +3595,10 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       }
     }
 
-    // A delivery-request email starts the "awaiting vendor date" watch (Ferguson excluded). When the
-    // vendor replies with a date, processDeliveryReplies() parses it and creates the initial notice.
-    if (emailType === 'delivery' && sent.threadId && !/ferguson/i.test((supplierName || '') + ' ' + (supplierEmail || ''))) {
-      try { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=true, notice_created=false WHERE gmail_thread_id=$1', [sent.threadId]); } catch (e) {}
+    // A delivery-request email starts the "awaiting vendor date" watch on THIS row only (Ferguson
+    // excluded). When the vendor replies with a date, processDeliveryReplies() creates the notice.
+    if (emailType === 'delivery' && ve && !/ferguson/i.test((supplierName || '') + ' ' + (supplierEmail || ''))) {
+      try { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=true WHERE id=$1', [ve.id]); } catch (e) {}
     }
 
     res.json({ ok: true, sentTo: supplierEmail, updatedItems });
@@ -4003,19 +4010,19 @@ ${signoff}
 </div>`;
 
     const sent = await sendMail({ to, subject, html });
-    await pool.query(
+    const { rows: [ve] } = await pool.query(
       `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       [req.params.id, category || null, category || null, null, to, subject, emailType || 'delivery', sent.threadId || null, sent.messageId || null]
     );
     // Advance the category's material too — quote → "RFQ sent", order → "Order Placed"
     if (category && ALL_ITEMS.find(i => i.code === category) && TYPE_TARGET[emailType]) {
       await bumpItemsForward(req.params.id, [category], TYPE_TARGET[emailType]);
     }
-    // Delivery-request email → start the "awaiting vendor date" watch (Ferguson excluded). The
-    // vendor's reply date is parsed into the initial notice by processDeliveryReplies().
-    if (emailType === 'delivery' && category && sent.threadId && !/ferguson/i.test(to || '')) {
-      try { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=true, notice_created=false WHERE gmail_thread_id=$1', [sent.threadId]); } catch (e) {}
+    // Delivery-request email → start the "awaiting vendor date" watch on THIS row only (Ferguson
+    // excluded). The vendor's reply date is parsed into the notice by processDeliveryReplies().
+    if (emailType === 'delivery' && category && ve && !/ferguson/i.test(to || '')) {
+      try { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=true WHERE id=$1', [ve.id]); } catch (e) {}
     }
     res.json({ ok: true, sentTo: to });
   } catch (err) {
@@ -4064,6 +4071,16 @@ ${sig ? '<br>' + sig : ''}
       await pool.query('UPDATE project_items SET delivery_requested_at=NOW(), delivery_date=$3 WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, codes, deliveryDate]);
     } else {
       await pool.query('UPDATE project_items SET delivery_requested_at=NOW() WHERE project_id=$1 AND item_code = ANY($2)', [req.params.id, codes]);
+    }
+
+    // Watch this in-thread delivery request for the vendor's date reply, like the main path.
+    if (!/ferguson/i.test(replyTo || '')) {
+      try {
+        await pool.query(
+          `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_email, subject, email_type, gmail_thread_id, awaiting_delivery_date)
+           VALUES ($1,$2,$3,$4,$5,'delivery',$6,true)`,
+          [req.params.id, codes[0] || null, codes.join(','), replyTo, subject, threadId]);
+      } catch (e) { console.error('request-delivery watch:', e.message); }
     }
 
     res.json({ ok: true, sentTo: replyTo, count: codes.length });
@@ -6276,9 +6293,19 @@ async function checkUnreadThreads() {
 // Drop quoted history / signatures so the date parser only reads the vendor's NEW words.
 function stripQuotedReply(t) {
   let s = String(t || '');
-  const cut = [/\r?\nOn .{0,80}wrote:/i, /\r?\n-----\s*Original Message/i, /\r?\n________________________________/, /\r?\nFrom:\s.+\r?\nSent:/i];
+  // HTML replies: drop the quote blocks (which contain OUR original request + its dates), then
+  // reduce to plain text so the parser only sees the vendor's new words.
+  if (/<[a-z][\s\S]*>/i.test(s)) {
+    s = s.replace(/<blockquote[\s\S]*$/i, ' ')
+         .replace(/<div[^>]*class="?gmail_(quote|extra)[\s\S]*$/i, ' ')
+         .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+         .replace(/<[^>]+>/g, ' ')
+         .replace(/&nbsp;|&zwnj;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>');
+  }
+  // Cut at the first quoted-history header (no length cap on "On … wrote:", which can be long on mobile).
+  const cut = [/On .{0,300}?wrote:/i, /-----\s*Original Message/i, /________________________________/, /\r?\nFrom:\s.+\r?\nSent:/i, /\n\s*>{1,}/];
   for (const re of cut) { const i = s.search(re); if (i > 0) s = s.slice(0, i); }
-  return s.split(/\r?\n/).filter(l => !/^\s*>/.test(l)).join('\n').trim();
+  return s.split(/\r?\n/).filter(l => !/^\s*>/.test(l)).join('\n').replace(/[ \t]+/g, ' ').trim();
 }
 
 // Pull a delivery date (and time window, if given) out of a vendor's reply. Prefers a future date;
@@ -6325,9 +6352,10 @@ async function processDeliveryReplies() {
         if (!found) continue;   // leave awaiting — Logan can enter the date by hand
         const codes = String(r.item_codes || r.item_code || '').split(',').map(c => c.trim()).filter(Boolean);
         if (!codes.length) { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=false WHERE id=$1', [r.id]); continue; }
-        const q = await enqueueDeliveryNotice({ projectId: r.project_id, codes, window: found.window || chatDate(found.date), method: 'truck', source: 'email', sourceDate: found.date });
+        const q = await enqueueDeliveryNotice({ projectId: r.project_id, codes, window: found.window || chatDate(found.date), method: 'truck', source: 'email', sourceDate: found.date, vendorEmailId: r.id });
         if (q && q.ok) {
-          await pool.query("UPDATE project_items SET delivery_date=$3 WHERE project_id=$1 AND item_code = ANY($2) AND status NOT IN ('Delivered','Delivered from Inv.','N/A')", [r.project_id, codes, found.date]);
+          // Board delivery_date is written only when Logan APPROVES the notice, not on this parse,
+          // so a wrong-parse he rejects never corrupts the project's real date.
           await pool.query('UPDATE vendor_emails SET notice_created=true, awaiting_delivery_date=false WHERE id=$1', [r.id]);
           console.log('delivery reply parsed → notice queued (project ' + r.project_id + ', ' + codes.join(',') + ', ' + found.date + ')');
         }
@@ -6925,7 +6953,7 @@ async function sendDeliveryNotice(params) {
   return { ok: true, to: b.recipients, jobName: b.jobName, window: b.window, method: b.method, tracking: b.tracking, items: b.items, groups: b.groups };
 }
 // Queue a delivery notice for the office to approve before it emails the on-site contact.
-async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName, silent, source, sourceDate }) {
+async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName, silent, source, sourceDate, vendorEmailId }) {
   try {
     // Only queue notices that can actually be built + sent (recipient + schedule + items),
     // so the approval queue and its badge don't fill with permanently un-sendable rows.
@@ -6943,9 +6971,9 @@ async function enqueueDeliveryNotice({ projectId, codes, window, method, trackin
       [projectId, codesStr, window || null, m, tracking || null]);
     if (dup.length) { console.log('delivery notice already queued — skipping duplicate (project ' + projectId + ', ' + codesStr + ')'); return { ok: true, queued: false, duplicate: true }; }
     await pool.query(
-      `INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, manifest_blob, except_blob, job_name, source, source_date)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-      [projectId, codesStr, window || null, m, tracking || null, manifestBlob || null, exceptBlob || null, jobName || b.jobName || null, source || 'email', sourceDate || null]);
+      `INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, manifest_blob, except_blob, job_name, source, source_date, vendor_email_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+      [projectId, codesStr, window || null, m, tracking || null, manifestBlob || null, exceptBlob || null, jobName || b.jobName || null, source || 'email', sourceDate || null, vendorEmailId || null]);
     console.log('delivery notice QUEUED for approval — project ' + projectId + ' (' + codesStr + ')');
     // Ping Logan in the private Bids chat so he can preview + approve before it emails the super.
     // The daily cron sends one batched summary instead (silent:true) to avoid a ping per delivery.

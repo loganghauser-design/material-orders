@@ -94,8 +94,11 @@
                 <option value="ups"<%= n.method === 'ups' ? ' selected' : '' %>>📦 UPS</option>
               </select>
             </label>
-            <label class="dn-fld"><span class="lbl">Window</span>
-              <input class="dn-in dn-window" type="text" value="<%= n.window || '' %>" placeholder="e.g. Tue, Jul 14" onchange="dnSave(<%= n.id %>)">
+            <label class="dn-fld"><span class="lbl">Delivery date</span>
+              <input class="dn-in dn-date" type="date" value="<%= n.sourceDate || '' %>" onchange="dnSave(<%= n.id %>)">
+            </label>
+            <label class="dn-fld"><span class="lbl">Window text</span>
+              <input class="dn-in dn-window" type="text" value="<%= n.window || '' %>" placeholder="e.g. Tue, Jul 14, 8–12" onchange="dnSave(<%= n.id %>)">
             </label>
             <label class="dn-fld"><span class="lbl">Tracking</span>
               <input class="dn-in dn-tracking" type="text" value="<%= n.tracking || '' %>" placeholder="UPS # (optional)" onchange="dnSave(<%= n.id %>)">
@@ -135,8 +138,9 @@ async function dnSave(id){
   const method = card.querySelector('.dn-method-sel').value;
   const win = card.querySelector('.dn-window').value;
   const tracking = card.querySelector('.dn-tracking').value;
+  const date = (card.querySelector('.dn-date') || {}).value || '';
   try {
-    const r = await fetch('/delivery-notices/' + id + '/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, window: win, tracking }) });
+    const r = await fetch('/delivery-notices/' + id + '/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, window: win, tracking, date }) });
     const d = await r.json();
     if (!d.ok) { showToast(d.error || 'Could not save changes', true); return false; }
     const badge = card.querySelector('.dn-method');   // keep the top badge in sync with the chosen method
