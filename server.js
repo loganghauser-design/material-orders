@@ -1762,6 +1762,16 @@ async function initDb() {
       sent_at TIMESTAMPTZ DEFAULT NOW(),
       UNIQUE (project_item_id, delivery_date)
     );
+    -- Log of branded delivery-notice emails sent to the on-site contact (for the
+    -- "Last delivery" column on the Projects grid). Populated going forward.
+    CREATE TABLE IF NOT EXISTS delivery_notices (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      method VARCHAR(12),
+      codes TEXT,
+      items TEXT,
+      sent_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     CREATE TABLE IF NOT EXISTS bids (
       id SERIAL PRIMARY KEY,
@@ -2800,9 +2810,27 @@ app.get('/projects', requireAuth, async (req, res) => {
     });
     const totalCount = _allP.length;
 
+    // "Last delivery" column: most-recent delivered category + last delivery-notice time.
+    const _codeName = {}; STAGES.forEach(g => g.items.forEach(it => _codeName[it.code] = it.name));
+    const lastDeliv = {}, lastNotice = {};
+    if (projectIds.length) {
+      try {
+        const { rows } = await pool.query(
+          "SELECT project_id, item_code, delivery_date FROM project_items WHERE project_id = ANY($1) AND status IN ('Delivered','Delivered from Inv.') AND delivery_date IS NOT NULL ORDER BY project_id, delivery_date DESC",
+          [projectIds]);
+        rows.forEach(r => { if (!lastDeliv[r.project_id]) lastDeliv[r.project_id] = { name: _codeName[r.item_code] || r.item_code, date: r.delivery_date }; });
+      } catch (e) {}
+      try {
+        const { rows } = await pool.query(
+          'SELECT DISTINCT ON (project_id) project_id, sent_at, method FROM delivery_notices WHERE project_id = ANY($1) ORDER BY project_id, sent_at DESC',
+          [projectIds]);
+        rows.forEach(r => { lastNotice[r.project_id] = { sentAt: r.sent_at, method: r.method }; });
+      } catch (e) {}
+    }
+
     const pendingIssues = await getPendingIssueCount();
     const contacts = allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' }));
-    res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES, contacts, phaseCounts, phaseTeam, totalCount });
+    res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES, contacts, phaseCounts, phaseTeam, totalCount, lastDeliv, lastNotice });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -6636,6 +6664,8 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride, method
   const jobName = shortAddress(proj.full_address || proj.address);
   const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || '', method, tracking });
   await sendMail({ to: recipients.join(', '), subject, html });
+  // Log the send so the Projects grid can show "last delivery notice" time.
+  try { await pool.query('INSERT INTO delivery_notices (project_id, method, codes, items) VALUES ($1,$2,$3,$4)', [projectId, method || 'truck', codes.join(','), groups.map(g => g.label).join(', ').slice(0, 200)]); } catch (e) { /* non-fatal */ }
   return { ok: true, to: recipients, jobName, window, method: method || 'truck', tracking: tracking || null, items: groups.flatMap(g => g.items.map(i => i.name)), groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
 }
 

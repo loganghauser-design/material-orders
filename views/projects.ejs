@@ -24,7 +24,11 @@
     .dlegend span { display:inline-flex; align-items:center; gap:4px; }
     .lg-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
     /* Table rows */
-    .ptable-head, .pcard { display:grid; grid-template-columns: 16px minmax(0,1.5fr) 38px minmax(0,1.35fr) 250px minmax(0,1.35fr) 138px; gap:10px; align-items:center; }
+    .ptable-head, .pcard { display:grid; grid-template-columns: 16px minmax(0,1.4fr) 32px minmax(0,1.2fr) 226px 132px minmax(0,1.15fr) 116px; gap:10px; align-items:center; }
+    .col-last { min-width:0; }
+    .ll-name { font-size:.8rem; font-weight:600; color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .ll-sub { font-size:.7rem; color:var(--muted); }
+    .ll-mail { font-size:.68rem; color:#185fa5; margin-top:1px; white-space:nowrap; }
     .ptable-head { padding:2px 14px 4px; font-size:.64rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
     .pcards { display:flex; flex-direction:column; gap:6px; margin:7px 0 1.4rem; }
     .pcard { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 14px; }
@@ -43,10 +47,10 @@
     .ptable-head { align-items:end; }
     .col-dots { display:flex; align-items:center; gap:0; }
     .dhead { display:flex; align-items:flex-end; gap:0; }
-    .dcell { width:14px; text-align:center; flex:none; }
+    .dcell { width:12px; text-align:center; flex:none; }
     .dgap { width:6px; flex:none; }
     .dhead .dcell { display:flex; justify-content:center; align-items:flex-end; }
-    .dhead .dcell > span { writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; font-size:.58rem; color:var(--muted); font-weight:600; line-height:14px; padding-bottom:2px; }
+    .dhead .dcell > span { writing-mode:vertical-rl; transform:rotate(180deg); white-space:nowrap; font-size:.56rem; color:var(--muted); font-weight:600; line-height:12px; padding-bottom:2px; }
     .ddot { display:block; width:10px; height:10px; border-radius:50%; background:var(--bg); border:1px solid var(--border); margin:0 auto; box-sizing:border-box; }
     .ddot-full { background:#16a34a; border-color:#16a34a; }
     .ddot-order { background:#378add; border-color:#378add; }
@@ -94,7 +98,7 @@
       .ptable-head { display:none; }
       .pcard { grid-template-columns: 16px 1fr; grid-auto-rows:min-content; row-gap:7px; }
       .col-name { grid-column:2; } .col-ver { display:none; }
-      .col-team, .col-dots, .col-needs { grid-column:2; }
+      .col-team, .col-dots, .col-last, .col-needs { grid-column:2; }
       .col-actions { grid-column:2; justify-content:flex-start; }
     }
   </style>
@@ -151,7 +155,7 @@
     PROJECT_PHASES.forEach(ph => { if (!_phaseOrder.includes(ph)) _phaseOrder.push(ph); });
   %>
   <div class="ptable-head">
-    <span></span><span>Address / Client</span><span>Ver</span><span>Team</span><div class="dhead"><% STAGES.forEach(function(g,gi){ g.items.forEach(function(it){ %><span class="dcell"><span><%= it.name %></span></span><% }); if(gi<STAGES.length-1){ %><span class="dgap"></span><% } }) %></div><span>Action items</span><span style="text-align:right">Phase</span>
+    <span></span><span>Address / Client</span><span>Ver</span><span>Team</span><div class="dhead"><% STAGES.forEach(function(g,gi){ g.items.forEach(function(it){ %><span class="dcell"><span><%= it.name %></span></span><% }); if(gi<STAGES.length-1){ %><span class="dgap"></span><% } }) %></div><span>Last delivery</span><span>Action items</span><span style="text-align:right">Phase</span>
   </div>
   <% _phaseOrder.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
     <div class="phase-divider <%= PHASE_CLASSES[ph] %>"><span><%= ph %> (<%= rows.length %>)</span></div>
@@ -186,6 +190,18 @@
             </div>
             <div class="col-dots">
               <% STAGES.forEach(function(g,gi){ g.items.forEach(function(it){ var d = (c.dotState && c.dotState[it.code]) || { state:'na', status:'N/A' }; %><span class="dcell"><span class="ddot ddot-<%= d.state %>" title="<%= it.code %> <%= it.name %>: <%= d.status %>"></span></span><% }); if(gi<STAGES.length-1){ %><span class="dgap"></span><% } }) %>
+            </div>
+            <div class="col-last">
+              <% var _ld = lastDeliv && lastDeliv[p.id]; var _ln = lastNotice && lastNotice[p.id]; %>
+              <% if (_ld) { var _da = Math.floor((Date.now() - new Date(_ld.date).getTime()) / 86400000); %>
+                <div class="ll-name"><%= _ld.name %></div>
+                <div class="ll-sub">delivered <%= _da <= 0 ? 'today' : _da + 'd ago' %></div>
+              <% } else { %>
+                <div class="ll-sub">No deliveries yet</div>
+              <% } %>
+              <% if (_ln) { var _na = Math.floor((Date.now() - new Date(_ln.sentAt).getTime()) / 86400000); %>
+                <div class="ll-mail" title="Delivery notice emailed to the on-site contact">✉ emailed <%= _na <= 0 ? 'today' : _na + 'd ago' %></div>
+              <% } %>
             </div>
             <div class="col-needs">
               <% _needs.slice(0, 3).forEach(function(n){ %><span class="need need-<%= n.kind %>"><%= n.text %></span><% }) %>
