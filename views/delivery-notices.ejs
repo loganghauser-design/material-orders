@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Notices — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css?v=5">
+  <style>
+    .dn-intro { color:var(--muted); font-size:.9rem; margin:.1rem 0 1.3rem; max-width:760px; line-height:1.5; }
+    .dn-list { display:flex; flex-direction:column; gap:12px; }
+    .dn-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:14px 16px; }
+    .dn-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+    .dn-name { font-size:1.02rem; font-weight:700; color:var(--text); }
+    .dn-method { font-size:.68rem; font-weight:800; letter-spacing:.03em; padding:2px 8px; border-radius:6px; }
+    .dn-method-truck { background:#e6f1fb; color:#185fa5; } .dn-method-ups { background:#fff4dd; color:#8a6100; }
+    .dn-when { font-size:.76rem; color:var(--muted); margin-left:auto; }
+    .dn-meta { display:flex; flex-wrap:wrap; gap:6px 16px; margin:9px 0; font-size:.84rem; color:var(--text); }
+    .dn-meta .lbl { color:var(--muted); }
+    .dn-cats { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+    .dn-cat { font-size:.72rem; font-weight:600; background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:2px 10px; color:var(--text); }
+    .dn-warn { font-size:.8rem; color:#b42323; background:#fdeaea; border-radius:8px; padding:6px 10px; margin:6px 0; }
+    .dn-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+    .dn-approve { background:#16a34a; color:#fff; border:none; border-radius:8px; padding:8px 16px; font-weight:600; font-size:.86rem; cursor:pointer; }
+    .dn-approve:hover { background:#128a3e; } .dn-approve:disabled { opacity:.5; cursor:default; }
+    .dn-reject { background:none; border:1px solid var(--border); border-radius:8px; padding:8px 14px; font-size:.86rem; cursor:pointer; color:var(--text); }
+    .dn-reject:hover { border-color:#e5484d; color:#b42323; }
+    .dn-empty { color:var(--muted); background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:2rem; text-align:center; }
+    .dn-modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; z-index:1000; padding:20px; }
+    .dn-modal.show { display:flex; }
+    .dn-modal-box { background:var(--surface); border-radius:12px; width:760px; max-width:96vw; max-height:92vh; display:flex; flex-direction:column; overflow:hidden; }
+    .dn-modal-head { display:flex; align-items:center; gap:10px; padding:12px 16px; border-bottom:1px solid var(--border); }
+    .dn-modal-head h2 { margin:0; font-size:1rem; } .dn-modal-head .sub { font-size:.78rem; color:var(--muted); }
+    .dn-modal-close { margin-left:auto; background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--muted); }
+    .dn-frame { flex:1; border:none; width:100%; min-height:420px; background:#fff; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'notices' }) %>
+
+<div class="container">
+  <div class="page-header"><h1 style="margin:0">Delivery Notices</h1></div>
+  <p class="dn-intro">
+    When Ferguson schedules a delivery, the branded notice email waits here for your approval instead of
+    sending automatically. Review each one, then <strong>Approve &amp; send</strong> to email the on-site contact
+    (truck deliveries also ping the super in chat), or <strong>Reject</strong> to discard it.
+  </p>
+
+  <% if (!notices.length) { %>
+    <div class="dn-empty">Nothing waiting for approval. New delivery notices will appear here.</div>
+  <% } else { %>
+    <div class="dn-list">
+      <% notices.forEach(function(n){ var ago = Math.floor((Date.now() - new Date(n.createdAt).getTime())/3600000); %>
+        <div class="dn-card" data-id="<%= n.id %>">
+          <div class="dn-top">
+            <span class="dn-name"><%= n.jobName %></span>
+            <span class="dn-method dn-method-<%= n.method === 'ups' ? 'ups' : 'truck' %>"><%= n.method === 'ups' ? '📦 UPS' : '🚚 Truck' %></span>
+            <span class="dn-when"><%= ago <= 0 ? 'just now' : (ago < 24 ? ago + 'h ago' : Math.floor(ago/24) + 'd ago') %></span>
+          </div>
+          <div class="dn-meta">
+            <% if (n.window) { %><span><span class="lbl">Window:</span> <%= n.window %></span><% } %>
+            <% if (n.tracking) { %><span><span class="lbl">Tracking:</span> <%= n.tracking %></span><% } %>
+            <span><span class="lbl">To:</span> <%= n.recipients.length ? n.recipients.join(', ') : '—' %></span>
+          </div>
+          <% if (n.codeLabels.length) { %><div class="dn-cats"><% n.codeLabels.forEach(function(c){ %><span class="dn-cat"><%= c %></span><% }) %></div><% } %>
+          <% if (n.noRecipient) { %><div class="dn-warn">⚠ No on-site contact with an email is assigned to this project — assign one first, or this can't send.</div><% } %>
+          <div class="dn-actions">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="dnPreview(<%= n.id %>)">👁 Preview email</button>
+            <button type="button" class="dn-approve" onclick="dnApprove(this, <%= n.id %>)" <%= n.noRecipient ? 'disabled' : '' %>>✓ Approve &amp; send</button>
+            <button type="button" class="dn-reject" onclick="dnReject(this, <%= n.id %>)">Reject</button>
+          </div>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+
+<div id="dnModal" class="dn-modal">
+  <div class="dn-modal-box">
+    <div class="dn-modal-head">
+      <div><h2 id="dnModalSubj">Preview</h2><div class="sub" id="dnModalTo"></div></div>
+      <button type="button" class="dn-modal-close" onclick="dnCloseModal()">×</button>
+    </div>
+    <iframe id="dnFrame" class="dn-frame"></iframe>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+<script>
+function showToast(msg, err){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(err?' error':''); setTimeout(()=>t.className='toast',2000); }
+async function dnPreview(id){
+  try {
+    const r = await fetch('/delivery-notices/' + id + '/preview');
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not build preview', true); return; }
+    document.getElementById('dnModalSubj').textContent = d.subject || 'Delivery notice';
+    document.getElementById('dnModalTo').textContent = 'To: ' + ((d.to || []).join(', ') || '—');
+    document.getElementById('dnFrame').srcdoc = d.html || '';
+    document.getElementById('dnModal').classList.add('show');
+  } catch (e) { showToast('Could not load preview', true); }
+}
+function dnCloseModal(){ document.getElementById('dnModal').classList.remove('show'); document.getElementById('dnFrame').srcdoc = ''; }
+document.getElementById('dnModal').addEventListener('click', e => { if (e.target.id === 'dnModal') dnCloseModal(); });
+async function dnApprove(btn, id){
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    const r = await fetch('/delivery-notices/' + id + '/approve', { method:'POST' });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not send', true); btn.disabled = false; btn.innerHTML = '✓ Approve &amp; send'; return; }
+    showToast('Sent to ' + ((d.to || []).join(', ') || 'the on-site contact'));
+    dnRemove(id);
+  } catch (e) { showToast('Could not send', true); btn.disabled = false; btn.innerHTML = '✓ Approve &amp; send'; }
+}
+async function dnReject(btn, id){
+  if (!confirm('Discard this delivery notice without sending?')) return;
+  try {
+    const r = await fetch('/delivery-notices/' + id + '/reject', { method:'POST' });
+    const d = await r.json();
+    if (!d.ok) { showToast(d.error || 'Could not reject', true); return; }
+    showToast('Notice discarded'); dnRemove(id);
+  } catch (e) { showToast('Could not reject', true); }
+}
+function dnRemove(id){
+  const card = document.querySelector('.dn-card[data-id="' + id + '"]');
+  if (card) card.remove();
+  if (!document.querySelectorAll('.dn-card').length) {
+    const list = document.querySelector('.dn-list');
+    if (list) list.outerHTML = '<div class="dn-empty">Nothing waiting for approval. New delivery notices will appear here.</div>';
+  }
+}
+</script>
+</body>
+</html>

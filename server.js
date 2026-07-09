@@ -1280,6 +1280,7 @@ const PAGE_META = [
   { key: 'requests', label: 'Requests', path: '/requests' },
   { key: 'issues', label: 'Issues', path: '/issues' },
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
+  { key: 'notices', label: 'Delivery Notices', path: '/delivery-notices' },
   { key: 'subs', label: 'Subs', path: '/subs' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
@@ -1326,6 +1327,7 @@ function pageForPath(p) {
   if (p.startsWith('/requests')) return 'requests';
   if (p.startsWith('/issues')) return 'issues';
   if (p.startsWith('/warranty-claims')) return 'warranty';
+  if (p.startsWith('/delivery-notices')) return 'notices';
   if (p.startsWith('/suppliers')) return 'suppliers';
   if (p.startsWith('/subs') || p.startsWith('/sub-photo')) return 'subs';
   if (p.startsWith('/settings')) return 'settings';
@@ -1765,6 +1767,22 @@ async function initDb() {
       items TEXT,
       sent_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Delivery notices waiting for the office to approve before they email the on-site
+    -- contact. Ferguson triggers now queue here instead of auto-sending.
+    CREATE TABLE IF NOT EXISTS pending_delivery_notices (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER REFERENCES projects(id) ON DELETE CASCADE,
+      codes TEXT,
+      delivery_window TEXT,
+      method VARCHAR(12),
+      tracking TEXT,
+      manifest_blob TEXT,
+      except_blob TEXT,
+      job_name TEXT,
+      status VARCHAR(12) DEFAULT 'pending',
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      decided_at TIMESTAMPTZ
+    );
 
     CREATE TABLE IF NOT EXISTS bids (
       id SERIAL PRIMARY KEY,
@@ -2093,6 +2111,7 @@ app.use(async (req, res, next) => {
         res.locals.pendingIssues = await getPendingIssueCount();
         res.locals.pendingRequests = await getPendingRequestCount();
         res.locals.openWarranty = await getOpenWarrantyCount();
+        res.locals.pendingDeliveryNotices = await getPendingDeliveryNoticeCount();
       } catch (e) { /* tables may not exist yet */ }
     }
   }
@@ -2419,6 +2438,65 @@ async function getPendingIssueCount() {
   try { const { rows: [r] } = await pool.query("SELECT COUNT(*) c FROM material_issues WHERE status='pending'"); return Number(r.c) || 0; }
   catch (e) { return 0; }
 }
+async function getPendingDeliveryNoticeCount() {
+  try { const { rows: [r] } = await pool.query("SELECT COUNT(*) c FROM pending_delivery_notices WHERE status='pending'"); return Number(r.c) || 0; }
+  catch (e) { return 0; }
+}
+
+// ── Delivery-notice approval queue ─────────────────────────────────────────────
+// Ferguson triggers queue a notice here; the office previews and approves before it
+// emails the on-site contact (and, for truck deliveries, pings them in chat).
+app.get('/delivery-notices', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const { rows } = await pool.query(
+      `SELECT n.*, p.address, p.super_email
+         FROM pending_delivery_notices n LEFT JOIN projects p ON p.id = n.project_id
+        WHERE n.status='pending' ORDER BY n.created_at DESC`);
+    const _cn = {}; STAGES.forEach(g => g.items.forEach(it => _cn[it.code] = it.name));
+    const notices = rows.map(n => {
+      const codes = String(n.codes || '').split(',').map(c => c.trim()).filter(Boolean);
+      const sups = parseSuperEmails(n.super_email);
+      return {
+        id: n.id, address: n.address || ('Project ' + n.project_id),
+        jobName: n.job_name || n.address || ('Project ' + n.project_id),
+        method: n.method, window: n.delivery_window, tracking: n.tracking, createdAt: n.created_at,
+        codeLabels: codes.map(c => _cn[c] || c),
+        recipients: sups.filter(s => s.email).map(s => s.name),
+        noRecipient: !sups.some(s => s.email),
+      };
+    });
+    res.render('delivery-notices', { notices });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.get('/delivery-notices/:id/preview', requireAuth, async (req, res) => {
+  try {
+    const { rows: [n] } = await pool.query("SELECT * FROM pending_delivery_notices WHERE id=$1 AND status='pending'", [req.params.id]);
+    if (!n) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
+    const codes = String(n.codes || '').split(',').map(c => c.trim()).filter(Boolean);
+    const b = await buildDeliveryNotice({ projectId: n.project_id, codes, window: n.delivery_window, method: n.method, tracking: n.tracking, manifestBlob: n.manifest_blob, exceptBlob: n.except_blob });
+    if (!b.ok) return res.json({ ok: false, error: b.reason || 'Could not build the notice.' });
+    res.json({ ok: true, subject: b.subject, html: b.html, to: b.recipients });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/delivery-notices/:id/approve', requireAuth, async (req, res) => {
+  try {
+    const { rows: [n] } = await pool.query("SELECT * FROM pending_delivery_notices WHERE id=$1 AND status='pending'", [req.params.id]);
+    if (!n) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
+    const codes = String(n.codes || '').split(',').map(c => c.trim()).filter(Boolean);
+    const dn = await sendDeliveryNotice({ projectId: n.project_id, codes, window: n.delivery_window, method: n.method, tracking: n.tracking, manifestBlob: n.manifest_blob, exceptBlob: n.except_blob });
+    if (!dn || !dn.ok) return res.json({ ok: false, error: (dn && dn.reason) || 'Could not send the notice.' });
+    await pool.query("UPDATE pending_delivery_notices SET status='sent', decided_at=NOW() WHERE id=$1", [n.id]);
+    if (n.method === 'truck') { try { await postDeliveryScheduled(n.project_id, dn.jobName); } catch (e) {} }  // now ping the super in chat
+    res.json({ ok: true, to: dn.to });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/delivery-notices/:id/reject', requireAuth, async (req, res) => {
+  try {
+    await pool.query("UPDATE pending_delivery_notices SET status='rejected', decided_at=NOW() WHERE id=$1 AND status='pending'", [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 
 app.get('/issues', requireAuth, async (req, res) => {
   try {
@@ -6615,7 +6693,7 @@ const MODEL_JUNK = /refer to|per plan|see plan|^n\/?a$|^qty|tbd|^\-+$/i;
 // manifestBlob: normalized model#s actually on THIS shipment (from a Ferguson truck manifest)
 //   → the notice lists only those items. exceptBlob: model#s already shipped another way
 //   (e.g. by truck) → the notice lists the bucket MINUS those (the UPS half of a split order).
-async function sendDeliveryNotice({ projectId, codes, window, toOverride, method, tracking, manifestBlob, exceptBlob }) {
+async function buildDeliveryNotice({ projectId, codes, window, toOverride, method, tracking, manifestBlob, exceptBlob }) {
   const { rows: [proj] } = await pool.query(
     'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
   if (!proj) return { ok: false, reason: 'no project' };
@@ -6660,10 +6738,26 @@ async function sendDeliveryNotice({ projectId, codes, window, toOverride, method
   const contactName = (sups[0] && sups[0].name) || 'there';
   const jobName = shortAddress(proj.full_address || proj.address);
   const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || '', method, tracking });
-  await sendMail({ to: recipients.join(', '), subject, html });
-  // Log the send so the Projects grid can show "last delivery notice" time.
-  try { await pool.query('INSERT INTO delivery_notices (project_id, method, codes, items) VALUES ($1,$2,$3,$4)', [projectId, method || 'truck', codes.join(','), groups.map(g => g.label).join(', ').slice(0, 200)]); } catch (e) { /* non-fatal */ }
-  return { ok: true, to: recipients, jobName, window, method: method || 'truck', tracking: tracking || null, items: groups.flatMap(g => g.items.map(i => i.name)), groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
+  return { ok: true, subject, html, recipients, jobName, window: window || '', method: method || 'truck', tracking: tracking || null, codes, items: groups.flatMap(g => g.items.map(i => i.name)), groups: groups.map(g => g.label + ' (' + g.items.length + ')') };
+}
+// Build + send the branded delivery notice, then log the send.
+async function sendDeliveryNotice(params) {
+  const b = await buildDeliveryNotice(params);
+  if (!b.ok) return b;
+  await sendMail({ to: b.recipients.join(', '), subject: b.subject, html: b.html });
+  try { await pool.query('INSERT INTO delivery_notices (project_id, method, codes, items) VALUES ($1,$2,$3,$4)', [params.projectId, b.method, (params.codes || []).join(','), b.groups.join(', ').slice(0, 200)]); } catch (e) { /* non-fatal */ }
+  return { ok: true, to: b.recipients, jobName: b.jobName, window: b.window, method: b.method, tracking: b.tracking, items: b.items, groups: b.groups };
+}
+// Queue a delivery notice for the office to approve before it emails the on-site contact.
+async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName }) {
+  try {
+    await pool.query(
+      `INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, manifest_blob, except_blob, job_name)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+      [projectId, (codes || []).join(','), window || null, method || 'truck', tracking || null, manifestBlob || null, exceptBlob || null, jobName || null]);
+    console.log('delivery notice QUEUED for approval — project ' + projectId + ' (' + (codes || []).join(',') + ')');
+    return { ok: true, queued: true };
+  } catch (e) { console.error('enqueueDeliveryNotice:', e.message); return { ok: false, reason: e.message }; }
 }
 
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
@@ -6796,18 +6890,15 @@ async function pollFergusonEmails() {
         const nCodes = fergusonPoCodes(po);
         try {
           if (kind === 'scheduled' && nCodes.length) {
-            // Freight truck: list ONLY the items on this truck's manifest.
-            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck', manifestBlob: normModel(items) || null });
-            console.log('delivery notice (truck): ' + JSON.stringify(dn));
-            if (dn && dn.ok) await postDeliveryScheduled(proj.id, dn.jobName);   // ping the super in chat: delivery scheduled → check email
+            // Freight truck: list ONLY the items on this truck's manifest. Queue for approval.
+            await enqueueDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck', manifestBlob: normModel(items) || null, jobName: shortAddress(proj.full_address || proj.address) });
           } else if (kind === 'out' && carrier === 'ups' && nCodes.length) {
             // UPS parcel: no manifest in the email, so list the bucket MINUS whatever
             // already shipped by truck for this PO — that's the UPS half of a split order.
             const { rows: trucked } = await pool.query(
               "SELECT items FROM ferguson_updates WHERE project_id=$1 AND kind='scheduled' AND po=$2 AND items IS NOT NULL", [proj.id, po]);
             const exceptBlob = trucked.map(r => normModel(r.items || '')).join('|');
-            const dn = await sendDeliveryNotice({ projectId: proj.id, codes: nCodes, window: 'Arriving today', method: 'ups', tracking, exceptBlob: exceptBlob || null });
-            console.log('delivery notice (ups): ' + JSON.stringify(dn));
+            await enqueueDeliveryNotice({ projectId: proj.id, codes: nCodes, window: 'Arriving today', method: 'ups', tracking, exceptBlob: exceptBlob || null, jobName: shortAddress(proj.full_address || proj.address) });
           }
         } catch (e) { console.error('delivery notice:', e.message); }
       }
