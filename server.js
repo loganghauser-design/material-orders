@@ -298,6 +298,7 @@ function deliveredQtyOf(hs, allocated) {
 
 const { Resend } = require('resend');
 const { google } = require('googleapis');
+const chrono = require('chrono-node');   // natural-language date parsing of vendor replies
 
 // Prefer the Gmail API (HTTPS — works on Railway, which blocks SMTP) so mail
 // sends from the user's real address. Falls back to Resend if not configured.
@@ -1993,6 +1994,10 @@ async function initDb() {
     ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS item_codes TEXT;
     ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS last_viewed_at TIMESTAMPTZ;
     ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS has_unread BOOLEAN DEFAULT FALSE;
+    -- Delivery-request threads waiting on the vendor's confirmed date; once their reply is parsed
+    -- into an initial notice, notice_created flips true so we don't re-create it.
+    ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS awaiting_delivery_date BOOLEAN DEFAULT FALSE;
+    ALTER TABLE vendor_emails ADD COLUMN IF NOT EXISTS notice_created BOOLEAN DEFAULT FALSE;
 
     CREATE TABLE IF NOT EXISTS suppliers (
       item_code VARCHAR(10) PRIMARY KEY,
@@ -3544,15 +3549,10 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       }
     }
 
-    // A delivery-request email auto-creates an initial delivery notice for the on-site contact
-    // (any vendor except Ferguson), queued for your review. Approving it arms the day-before
-    // auto-reminder. Non-blocking.
-    if (emailType === 'delivery' && !/ferguson/i.test((supplierName || '') + ' ' + (supplierEmail || ''))) {
-      const noticeCodes = itemCodesCsv ? itemCodesCsv.split(',') : (itemCode ? [itemCode] : []);
-      if (noticeCodes.length) {
-        enqueueDeliveryNotice({ projectId: req.params.id, codes: noticeCodes, method: 'truck', source: 'email' })
-          .catch(e => console.error('email-initial notice:', e.message));
-      }
+    // A delivery-request email starts the "awaiting vendor date" watch (Ferguson excluded). When the
+    // vendor replies with a date, processDeliveryReplies() parses it and creates the initial notice.
+    if (emailType === 'delivery' && sent.threadId && !/ferguson/i.test((supplierName || '') + ' ' + (supplierEmail || ''))) {
+      try { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=true, notice_created=false WHERE gmail_thread_id=$1', [sent.threadId]); } catch (e) {}
     }
 
     res.json({ ok: true, sentTo: supplierEmail, updatedItems });
@@ -3973,11 +3973,10 @@ ${signoff}
     if (category && ALL_ITEMS.find(i => i.code === category) && TYPE_TARGET[emailType]) {
       await bumpItemsForward(req.params.id, [category], TYPE_TARGET[emailType]);
     }
-    // Delivery-request email → auto-create an initial delivery notice for the on-site contact
-    // (any vendor except Ferguson), queued for your review. Non-blocking.
-    if (emailType === 'delivery' && category && !/ferguson/i.test(to || '')) {
-      enqueueDeliveryNotice({ projectId: req.params.id, codes: [category], method: 'truck', source: 'email' })
-        .catch(e => console.error('email-initial notice:', e.message));
+    // Delivery-request email → start the "awaiting vendor date" watch (Ferguson excluded). The
+    // vendor's reply date is parsed into the initial notice by processDeliveryReplies().
+    if (emailType === 'delivery' && category && sent.threadId && !/ferguson/i.test(to || '')) {
+      try { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=true, notice_created=false WHERE gmail_thread_id=$1', [sent.threadId]); } catch (e) {}
     }
     res.json({ ok: true, sentTo: to });
   } catch (err) {
@@ -6235,6 +6234,69 @@ async function checkUnreadThreads() {
   } catch (e) { console.error('checkUnreadThreads:', e.message); }
 }
 
+// Drop quoted history / signatures so the date parser only reads the vendor's NEW words.
+function stripQuotedReply(t) {
+  let s = String(t || '');
+  const cut = [/\r?\nOn .{0,80}wrote:/i, /\r?\n-----\s*Original Message/i, /\r?\n________________________________/, /\r?\nFrom:\s.+\r?\nSent:/i];
+  for (const re of cut) { const i = s.search(re); if (i > 0) s = s.slice(0, i); }
+  return s.split(/\r?\n/).filter(l => !/^\s*>/.test(l)).join('\n').trim();
+}
+
+// Pull a delivery date (and time window, if given) out of a vendor's reply. Prefers a future date;
+// returns { date:'YYYY-MM-DD', window:'human text' } or null when nothing clear is found.
+function extractDeliveryDate(text, todayISO) {
+  const clean = stripQuotedReply(text);
+  if (!clean) return null;
+  try {
+    const ref = new Date(todayISO + 'T12:00:00');
+    const results = chrono.parse(clean, ref, { forwardDate: true });
+    if (!results.length) return null;
+    const todayStart = new Date(todayISO + 'T00:00:00');
+    const pick = results.find(r => r.start && r.start.date() >= todayStart) || results[0];
+    const d = pick.start.date();
+    const iso = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+    let window = chatDate(iso);
+    if (pick.start.isCertain('hour')) {
+      const end = pick.end && pick.end.isCertain('hour') ? pick.end.date() : null;
+      const fmt = x => x.toLocaleTimeString('en-US', { hour: 'numeric', minute: x.getMinutes() ? '2-digit' : undefined }).replace(':00', '');
+      window += ', ' + fmt(d) + (end ? '–' + fmt(end) : '');
+    }
+    return { date: iso, window };
+  } catch (e) { return null; }
+}
+
+// For each delivery-request thread awaiting the vendor's date: read their latest reply, parse the
+// date, and create the initial delivery notice (pre-filled) for Logan to review. Unparseable replies
+// stay "awaiting" so he can enter the date by hand. Runs on the same cadence as the reply check.
+async function processDeliveryReplies() {
+  if (!useGmail) return;
+  try {
+    const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const { rows } = await pool.query(
+      "SELECT id, project_id, gmail_thread_id, subject, supplier_email, item_codes, item_code FROM vendor_emails WHERE awaiting_delivery_date=true AND notice_created=false AND gmail_thread_id IS NOT NULL");
+    for (const r of rows) {
+      try {
+        const ids = new Set([r.gmail_thread_id]);
+        (await relatedThreadIds(r.subject, r.supplier_email)).forEach(id => ids.add(id));
+        let inbound = [];
+        for (const id of ids) { try { inbound.push(...(await fetchThread(id)).filter(m => !m.fromMe)); } catch (e) {} }
+        if (!inbound.length) continue;
+        inbound.sort((a, b) => new Date(b.date) - new Date(a.date));
+        const found = extractDeliveryDate(inbound[0].body || '', todayLA);
+        if (!found) continue;   // leave awaiting — Logan can enter the date by hand
+        const codes = String(r.item_codes || r.item_code || '').split(',').map(c => c.trim()).filter(Boolean);
+        if (!codes.length) { await pool.query('UPDATE vendor_emails SET awaiting_delivery_date=false WHERE id=$1', [r.id]); continue; }
+        const q = await enqueueDeliveryNotice({ projectId: r.project_id, codes, window: found.window || chatDate(found.date), method: 'truck', source: 'email', sourceDate: found.date });
+        if (q && q.ok) {
+          await pool.query("UPDATE project_items SET delivery_date=$3 WHERE project_id=$1 AND item_code = ANY($2) AND status NOT IN ('Delivered','Delivered from Inv.','N/A')", [r.project_id, codes, found.date]);
+          await pool.query('UPDATE vendor_emails SET notice_created=true, awaiting_delivery_date=false WHERE id=$1', [r.id]);
+          console.log('delivery reply parsed → notice queued (project ' + r.project_id + ', ' + codes.join(',') + ', ' + found.date + ')');
+        }
+      } catch (e) { console.error('processDeliveryReplies item:', e.message); }
+    }
+  } catch (e) { console.error('processDeliveryReplies:', e.message); }
+}
+
 // Pull subcontractor REPLIES into each sub's email log + flag an unread badge.
 // Mirrors checkUnreadThreads (the supplier version): for every email we sent a sub,
 // fetch its Gmail thread, store any inbound messages we haven't logged yet, and mark
@@ -6890,46 +6952,31 @@ async function postNoticeForReview(projectId, jobName, codeLabels, method) {
     console.log('notice-review ping → bids (project ' + projectId + ')');
   } catch (e) { console.error('postNoticeForReview:', e.message); }
 }
-// Daily (morning): auto-send the DAY-BEFORE reminder to the on-site contact for every delivery
-// scheduled for TOMORROW — but ONLY where Logan already approved the initial email-triggered notice
-// (source='email', status='sent'). No re-approval: he vetted the content once, this is the reminder.
-// Ferguson is excluded (its notices are source='ferguson'). Idempotent via a 'reminder' marker row.
+// Daily (morning): auto-send the DAY-BEFORE reminder to the on-site contact for every delivery whose
+// vendor-CONFIRMED date (source_date, parsed from the reply) is TOMORROW — but ONLY where Logan already
+// approved that specific initial notice (source='email', status='sent'). No re-approval: he vetted the
+// content once. Consumed via reminded_at; Ferguson/manual notices are excluded (different source).
 async function dayBeforeDeliveryReminders() {
   try {
     const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
     const [ty, tm, td] = todayLA.split('-').map(Number);
     const tomorrowLA = new Date(Date.UTC(ty, tm - 1, td) + 86400000).toISOString().slice(0, 10);
-    // Categories physically arriving tomorrow, grouped by project.
-    const { rows: due } = await pool.query(
-      `SELECT pi.project_id, pi.item_code
-         FROM project_items pi JOIN projects p ON p.id = pi.project_id
-        WHERE pi.delivery_date = $1
-          AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A','Issue')
-          AND COALESCE(p.super_email,'') <> '' AND COALESCE(p.finish_schedule_url,'') <> ''`,
+    const { rows: inits } = await pool.query(
+      "SELECT id, project_id, codes, method, tracking FROM pending_delivery_notices WHERE source='email' AND status='sent' AND reminded_at IS NULL AND source_date = $1 ORDER BY created_at",
       [tomorrowLA]);
-    const dueByProj = {};
-    for (const r of due) { (dueByProj[r.project_id] = dueByProj[r.project_id] || new Set()).add(r.item_code); }
     const sent = [];
     const win = 'Arriving tomorrow, ' + chatDate(tomorrowLA);
-    for (const projectId of Object.keys(dueByProj)) {
-      const dueCodes = dueByProj[projectId];
-      // Approved, not-yet-used, recent email initials — one reminder per initial (mirrors the email
-      // Logan approved), consumed after firing so a re-scheduled delivery can't silently reuse it.
-      const { rows: inits } = await pool.query(
-        "SELECT id, codes, method, tracking FROM pending_delivery_notices WHERE project_id=$1 AND source='email' AND status='sent' AND reminded_at IS NULL AND decided_at > NOW() - INTERVAL '90 days' ORDER BY created_at",
-        [projectId]);
-      for (const init of inits) {
-        const codesForTomorrow = String(init.codes || '').split(',').map(c => c.trim()).filter(c => c && dueCodes.has(c));
-        if (!codesForTomorrow.length) continue;
-        let dn;
-        try {
-          dn = await sendDeliveryNotice({ projectId, codes: codesForTomorrow, window: win, method: init.method || 'truck', tracking: init.tracking || null });
-        } catch (e) { console.error('day-before reminder send (project ' + projectId + '):', e.message); continue; }
-        if (!dn || !dn.ok) { console.log('day-before reminder NOT sent (' + (dn && dn.reason) + ') — project ' + projectId + ' ' + codesForTomorrow.join(',')); continue; }
-        // Consume this initial so a future re-scheduled delivery of the same code can't reuse it.
-        try { await pool.query("UPDATE pending_delivery_notices SET reminded_at=NOW() WHERE id=$1", [init.id]); } catch (e) { /* non-fatal */ }
-        sent.push({ projectId, codes: codesForTomorrow });
-      }
+    const done = new Set();   // project:code already reminded today — never double-send one delivery
+    for (const init of inits) {
+      const codes = String(init.codes || '').split(',').map(c => c.trim()).filter(c => c && !done.has(init.project_id + ':' + c));
+      if (!codes.length) { try { await pool.query("UPDATE pending_delivery_notices SET reminded_at=NOW() WHERE id=$1", [init.id]); } catch (e) {} continue; }
+      let dn;
+      try { dn = await sendDeliveryNotice({ projectId: init.project_id, codes, window: win, method: init.method || 'truck', tracking: init.tracking || null }); }
+      catch (e) { console.error('day-before reminder send (project ' + init.project_id + '):', e.message); continue; }
+      if (!dn || !dn.ok) { console.log('day-before reminder NOT sent (' + (dn && dn.reason) + ') — project ' + init.project_id + ' ' + codes.join(',')); continue; }
+      codes.forEach(c => done.add(init.project_id + ':' + c));
+      try { await pool.query("UPDATE pending_delivery_notices SET reminded_at=NOW() WHERE id=$1", [init.id]); } catch (e) { /* non-fatal */ }
+      sent.push({ projectId: init.project_id, codes });
     }
     if (sent.length) await postRemindersSentSummary(sent, tomorrowLA);
     console.log('dayBeforeDeliveryReminders: ' + sent.length + ' reminder(s) auto-sent for ' + tomorrowLA);
@@ -7837,6 +7884,7 @@ app.get('/_test/run', async (req, res) => {
     'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
     'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
     'bounces': pollEmailBounces, 'unread-threads': checkUnreadThreads, 'sub-replies': checkSubReplies, 'warranty': autoCompleteWarranty,
+    'delivery-replies': processDeliveryReplies,
     // Proof job: addresses a clearly-external inbox. With isolation on it must land in
     // MAIL_REDIRECT_ALL tagged "[TEST → probe-external-sub@example.com]", never actually sent out.
     'probe-external': async () => {
@@ -7875,6 +7923,7 @@ app.get('/_test/run', async (req, res) => {
 function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
+  cron.schedule('*/20 * * * *', processDeliveryReplies); // every 20 min — parse vendor delivery-date replies → queue notice
   cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
   cron.schedule('*/20 * * * *', ingestQuickBooksEmails); // every 20 min — QuickBooks bids from the inbox
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
