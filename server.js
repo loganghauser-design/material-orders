@@ -1789,9 +1789,13 @@ async function initDb() {
       except_blob TEXT,
       job_name TEXT,
       status VARCHAR(12) DEFAULT 'pending',
+      source VARCHAR(12) DEFAULT 'email',
+      source_date DATE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       decided_at TIMESTAMPTZ
     );
+    ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS source VARCHAR(12) DEFAULT 'email';
+    ALTER TABLE pending_delivery_notices ADD COLUMN IF NOT EXISTS source_date DATE;
 
     CREATE TABLE IF NOT EXISTS bids (
       id SERIAL PRIMARY KEY,
@@ -3277,13 +3281,6 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
   // Chat alert is no longer automatic — it's sent on demand via the 📢 button (/notify).
   // If this item just became delivered, auto-clear any field requests it completes.
   if (['Delivered', 'Delivered from Inv.'].includes(status)) autoFulfillRequests(req.params.id);
-  // Delivery notices are queued the MORNING OF the delivery by queueDueDeliveryNotices, not on save.
-  // But if a category's date moves (or it's marked delivered/N-A/Issue) after a notice was already
-  // queued today, cancel the now-stale pending one so it can't be approved with the wrong date.
-  if (!statusOnly) {
-    supersedeStalePendingNotices(req.params.id, req.params.code, status, delivery_date, delivery_date_end)
-      .catch(e => console.error('supersede stale notices:', e.message));
-  }
   // Keep inventory in sync: "Delivered from Inv." draws the held stock down; "In Inventory" restores it.
   let inv = null;
   if (status === 'Delivered from Inv.') { const n = await syncHeldStockForCode(req.params.id, req.params.code, true); if (n) inv = { drewDown: n }; }
@@ -3299,7 +3296,7 @@ app.post('/projects/:id/notice', requireAuth, async (req, res) => {
     if (typeof codes === 'string') codes = codes.split(',').map(c => c.trim()).filter(Boolean);
     if (!Array.isArray(codes) || !codes.length) return res.status(400).json({ ok: false, error: 'No categories given.' });
     const m = method === 'ups' ? 'ups' : 'truck';
-    const r = await enqueueDeliveryNotice({ projectId: req.params.id, codes, window: window || null, method: m, tracking: tracking || null });
+    const r = await enqueueDeliveryNotice({ projectId: req.params.id, codes, window: window || null, method: m, tracking: tracking || null, source: 'manual' });
     if (!r.ok) return res.json({ ok: false, error: r.reason || 'Could not queue the notice.' });
     res.json({ ok: true, queued: r.queued !== false, duplicate: !!r.duplicate });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -3541,6 +3538,17 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       if (!Array.isArray(orderedKeys)) orderedKeys = orderedKeys ? [orderedKeys] : [];
       for (const k of orderedKeys) {
         if (k) { try { await pool.query('INSERT INTO project_item_orders (project_id, item_key) VALUES ($1,$2) ON CONFLICT (project_id, item_key) DO UPDATE SET ordered_at=NOW()', [req.params.id, String(k).slice(0, 120)]); } catch (e) {} }
+      }
+    }
+
+    // A delivery-request email auto-creates an initial delivery notice for the on-site contact
+    // (any vendor except Ferguson), queued for your review. Approving it arms the day-before
+    // auto-reminder. Non-blocking.
+    if (emailType === 'delivery' && !/ferguson/i.test((supplierName || '') + ' ' + (supplierEmail || ''))) {
+      const noticeCodes = itemCodesCsv ? itemCodesCsv.split(',') : (itemCode ? [itemCode] : []);
+      if (noticeCodes.length) {
+        enqueueDeliveryNotice({ projectId: req.params.id, codes: noticeCodes, method: 'truck', source: 'email' })
+          .catch(e => console.error('email-initial notice:', e.message));
       }
     }
 
@@ -3961,6 +3969,12 @@ ${signoff}
     // Advance the category's material too — quote → "RFQ sent", order → "Order Placed"
     if (category && ALL_ITEMS.find(i => i.code === category) && TYPE_TARGET[emailType]) {
       await bumpItemsForward(req.params.id, [category], TYPE_TARGET[emailType]);
+    }
+    // Delivery-request email → auto-create an initial delivery notice for the on-site contact
+    // (any vendor except Ferguson), queued for your review. Non-blocking.
+    if (emailType === 'delivery' && category && !/ferguson/i.test(to || '')) {
+      enqueueDeliveryNotice({ projectId: req.params.id, codes: [category], method: 'truck', source: 'email' })
+        .catch(e => console.error('email-initial notice:', e.message));
     }
     res.json({ ok: true, sentTo: to });
   } catch (err) {
@@ -6807,7 +6821,7 @@ async function sendDeliveryNotice(params) {
   return { ok: true, to: b.recipients, jobName: b.jobName, window: b.window, method: b.method, tracking: b.tracking, items: b.items, groups: b.groups };
 }
 // Queue a delivery notice for the office to approve before it emails the on-site contact.
-async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName, silent }) {
+async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName, silent, source, sourceDate }) {
   try {
     // Only queue notices that can actually be built + sent (recipient + schedule + items),
     // so the approval queue and its badge don't fill with permanently un-sendable rows.
@@ -6825,9 +6839,9 @@ async function enqueueDeliveryNotice({ projectId, codes, window, method, trackin
       [projectId, codesStr, window || null, m, tracking || null]);
     if (dup.length) { console.log('delivery notice already queued — skipping duplicate (project ' + projectId + ', ' + codesStr + ')'); return { ok: true, queued: false, duplicate: true }; }
     await pool.query(
-      `INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, manifest_blob, except_blob, job_name)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [projectId, codesStr, window || null, m, tracking || null, manifestBlob || null, exceptBlob || null, jobName || b.jobName || null]);
+      `INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, manifest_blob, except_blob, job_name, source, source_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [projectId, codesStr, window || null, m, tracking || null, manifestBlob || null, exceptBlob || null, jobName || b.jobName || null, source || 'email', sourceDate || null]);
     console.log('delivery notice QUEUED for approval — project ' + projectId + ' (' + codesStr + ')');
     // Ping Logan in the private Bids chat so he can preview + approve before it emails the super.
     // The daily cron sends one batched summary instead (silent:true) to avoid a ping per delivery.
@@ -6873,9 +6887,50 @@ async function postNoticeForReview(projectId, jobName, codeLabels, method) {
     console.log('notice-review ping → bids (project ' + projectId + ')');
   } catch (e) { console.error('postNoticeForReview:', e.message); }
 }
-// One batched Bids-chat ping listing the day's queued notices (from the daily cron), so Logan gets
-// a single "today's deliveries — review & send" message instead of one ping per delivery.
-async function postNoticesDueSummary(items) {
+// Daily (morning): auto-send the DAY-BEFORE reminder to the on-site contact for every delivery
+// scheduled for TOMORROW — but ONLY where Logan already approved the initial email-triggered notice
+// (source='email', status='sent'). No re-approval: he vetted the content once, this is the reminder.
+// Ferguson is excluded (its notices are source='ferguson'). Idempotent via a 'reminder' marker row.
+async function dayBeforeDeliveryReminders() {
+  try {
+    const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
+    const [ty, tm, td] = todayLA.split('-').map(Number);
+    const tomorrowLA = new Date(Date.UTC(ty, tm - 1, td) + 86400000).toISOString().slice(0, 10);
+    const { rows } = await pool.query(
+      `SELECT pi.project_id, pi.item_code
+         FROM project_items pi JOIN projects p ON p.id = pi.project_id
+        WHERE pi.delivery_date = $1
+          AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A','Issue')
+          AND COALESCE(p.super_email,'') <> '' AND COALESCE(p.finish_schedule_url,'') <> ''`,
+      [tomorrowLA]);
+    const sent = [];
+    for (const r of rows) {
+      // Already reminded for this category + delivery date?
+      const { rows: done } = await pool.query(
+        "SELECT 1 FROM pending_delivery_notices WHERE project_id=$1 AND codes=$2 AND source='reminder' AND source_date=$3 LIMIT 1",
+        [r.project_id, r.item_code, tomorrowLA]);
+      if (done.length) continue;
+      // Only auto-remind when Logan already approved the initial email notice covering this code.
+      const { rows: init } = await pool.query(
+        "SELECT method, tracking FROM pending_delivery_notices WHERE project_id=$1 AND $2 = ANY(string_to_array(codes, ',')) AND source='email' AND status='sent' ORDER BY created_at DESC LIMIT 1",
+        [r.project_id, r.item_code]);
+      if (!init.length) continue;
+      const win = 'Arriving tomorrow, ' + chatDate(tomorrowLA);
+      const dn = await sendDeliveryNotice({ projectId: r.project_id, codes: [r.item_code], window: win, method: init[0].method || 'truck', tracking: init[0].tracking || null });
+      if (!dn || !dn.ok) { console.log('day-before reminder NOT sent (' + (dn && dn.reason) + ') — project ' + r.project_id + ' ' + r.item_code); continue; }
+      // Marker row: idempotency + audit trail (never shows in the pending queue).
+      await pool.query(
+        "INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, job_name, source, source_date, status, decided_at) VALUES ($1,$2,$3,$4,$5,$6,'reminder',$7,'sent',NOW())",
+        [r.project_id, r.item_code, win, init[0].method || 'truck', init[0].tracking || null, dn.jobName || null, tomorrowLA]);
+      sent.push({ projectId: r.project_id, code: r.item_code });
+    }
+    if (sent.length) await postRemindersSentSummary(sent, tomorrowLA);
+    console.log('dayBeforeDeliveryReminders: ' + sent.length + ' auto-sent for ' + tomorrowLA);
+  } catch (e) { console.error('dayBeforeDeliveryReminders:', e.message); }
+}
+// FYI to the private Bids chat noting which day-before reminders auto-sent (visibility only — no
+// approval needed since Logan pre-approved the initial notice).
+async function postRemindersSentSummary(items, dateISO) {
   try {
     const url = process.env.BIDS_WEBHOOK_URL;
     if (!url || !items.length) return;
@@ -6885,56 +6940,10 @@ async function postNoticesDueSummary(items) {
     const { rows } = await pool.query('SELECT id, address, full_address FROM projects WHERE id = ANY($1)', [ids]);
     const nameById = {}; rows.forEach(r => { nameById[r.id] = shortAddress(r.full_address || r.address); });
     const lines = ids.map(id => `• *${nameById[id] || ('Project ' + id)}* — ${byProj[id].join(', ')}`);
-    const text = `🔔 *${items.length} delivery notice${items.length > 1 ? 's' : ''} ready to review* (scheduled today)\n`
-      + lines.join('\n') + `\nPreview & approve → https://buildoly.up.railway.app/delivery-notices`;
+    const text = `📨 *Day-before reminder auto-sent* to the on-site contact (delivery ${chatDate(dateISO)})\n` + lines.join('\n');
     await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
-    console.log('notices-due summary → bids (' + items.length + ')');
-  } catch (e) { console.error('postNoticesDueSummary:', e.message); }
-}
-// Daily (morning-of): queue a delivery notice for every category whose delivery is scheduled for
-// TODAY, for Logan to review + send. Works for every vendor — the schedule IS the signal. Idempotent
-// (skips categories already handled today) and respects rejects; Ferguson keeps its own event queue.
-async function queueDueDeliveryNotices() {
-  try {
-    // "Today" in the business (LA) time zone, not UTC, so an evening-scheduled same-day delivery counts.
-    const todayLA = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Los_Angeles' });
-    const { rows } = await pool.query(
-      `SELECT pi.project_id, pi.item_code, to_char(pi.delivery_date_end,'YYYY-MM-DD') AS end_iso
-         FROM project_items pi JOIN projects p ON p.id = pi.project_id
-        WHERE pi.delivery_date = $1
-          AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A','Issue')
-          AND COALESCE(p.super_email,'') <> '' AND COALESCE(p.finish_schedule_url,'') <> ''`,
-      [todayLA]);
-    const queued = [];
-    for (const r of rows) {
-      const win = (r.end_iso && r.end_iso > todayLA) ? (chatDate(todayLA) + ' – ' + chatDate(r.end_iso)) : chatDate(todayLA);
-      // Skip if a notice for this category+window was already queued/sent/rejected/superseded today.
-      const { rows: ex } = await pool.query(
-        "SELECT 1 FROM pending_delivery_notices WHERE project_id=$1 AND codes=$2 AND COALESCE(delivery_window,'')=$3 AND status IN ('pending','sending','sent','rejected','superseded') LIMIT 1",
-        [r.project_id, r.item_code, win]);
-      if (ex.length) continue;
-      const q = await enqueueDeliveryNotice({ projectId: r.project_id, codes: [r.item_code], window: win, method: 'truck', silent: true });
-      if (q && q.ok && q.queued !== false) queued.push({ projectId: r.project_id, code: r.item_code });
-    }
-    if (queued.length) await postNoticesDueSummary(queued);
-    console.log('queueDueDeliveryNotices: ' + queued.length + ' queued for ' + todayLA);
-  } catch (e) { console.error('queueDueDeliveryNotices:', e.message); }
-}
-// When a category's schedule changes (date moved, or it's marked delivered/N-A/Issue) after a notice
-// was already queued for it, cancel the now-stale pending notice so an obsolete-dated one can't be
-// approved. Keeps at most one current pending notice per category.
-async function supersedeStalePendingNotices(projectId, code, status, deliveryDate, deliveryEnd) {
-  try {
-    const terminal = ['Delivered', 'Delivered from Inv.', 'N/A', 'Issue'].includes(status);
-    if (terminal || !deliveryDate) {
-      await pool.query("UPDATE pending_delivery_notices SET status='superseded', decided_at=NOW() WHERE project_id=$1 AND codes=$2 AND status='pending'", [projectId, code]);
-      return;
-    }
-    const start = String(deliveryDate).slice(0, 10);
-    const endW = (deliveryEnd && String(deliveryEnd).slice(0, 10) > start) ? String(deliveryEnd).slice(0, 10) : null;
-    const win = endW ? (chatDate(start) + ' – ' + chatDate(endW)) : chatDate(start);
-    await pool.query("UPDATE pending_delivery_notices SET status='superseded', decided_at=NOW() WHERE project_id=$1 AND codes=$2 AND status='pending' AND COALESCE(delivery_window,'') <> $3", [projectId, code, win]);
-  } catch (e) { console.error('supersedeStalePendingNotices:', e.message); }
+    console.log('reminders-sent summary → bids (' + items.length + ')');
+  } catch (e) { console.error('postRemindersSentSummary:', e.message); }
 }
 async function pollFergusonEmails() {
   if (!useGmail) return;
@@ -7045,14 +7054,14 @@ async function pollFergusonEmails() {
         try {
           if (kind === 'scheduled' && nCodes.length) {
             // Freight truck: list ONLY the items on this truck's manifest. Queue for approval.
-            await enqueueDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck', manifestBlob: normModel(items) || null, jobName: shortAddress(proj.full_address || proj.address) });
+            await enqueueDeliveryNotice({ projectId: proj.id, codes: nCodes, window: schedFor, method: 'truck', manifestBlob: normModel(items) || null, jobName: shortAddress(proj.full_address || proj.address), source: 'ferguson' });
           } else if (kind === 'out' && carrier === 'ups' && nCodes.length) {
             // UPS parcel: no manifest in the email, so list the bucket MINUS whatever
             // already shipped by truck for this PO — that's the UPS half of a split order.
             const { rows: trucked } = await pool.query(
               "SELECT items FROM ferguson_updates WHERE project_id=$1 AND kind='scheduled' AND po=$2 AND items IS NOT NULL", [proj.id, po]);
             const exceptBlob = trucked.map(r => normModel(r.items || '')).join('|');
-            await enqueueDeliveryNotice({ projectId: proj.id, codes: nCodes, window: 'Arriving today', method: 'ups', tracking, exceptBlob: exceptBlob || null, jobName: shortAddress(proj.full_address || proj.address) });
+            await enqueueDeliveryNotice({ projectId: proj.id, codes: nCodes, window: 'Arriving today', method: 'ups', tracking, exceptBlob: exceptBlob || null, jobName: shortAddress(proj.full_address || proj.address), source: 'ferguson' });
           }
         } catch (e) { console.error('delivery notice:', e.message); }
       }
@@ -7816,7 +7825,7 @@ app.get('/_test/run', async (req, res) => {
   const JOBS = {
     'morning-brief': sendMorningBrief, 'weekly-digest': sendWeeklyDigest, 'coverage-digest': coverageDigest,
     'delivery-reminder': sendDeliveryReminder, 'delivery-confirmations': sendDeliveryConfirmations,
-    'due-notices': queueDueDeliveryNotices,
+    'day-before-reminders': dayBeforeDeliveryReminders,
     'license-watchdog': licenseWatchdog, 'insurance-scan': insuranceScanAll,
     'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
     'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
@@ -7869,7 +7878,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
-  cron.schedule('5 15 * * *', queueDueDeliveryNotices); // daily ~7am PT — queue today's delivery notices for review
+  cron.schedule('10 15 * * *', dayBeforeDeliveryReminders); // daily ~7am PT — auto-send day-before delivery reminders
   cron.schedule('0 14 * * *', sendMorningBrief);        // daily 7am PT — the everything brief (Bids space)
   if (process.env.RUN_BRIEF_ON_BOOT === '1') sendMorningBrief();   // local testing hook
   if (process.env.AUTO_DELIVERY_CONFIRM === 'on') cron.schedule('30 15 * * *', sendDeliveryConfirmations);   // day-before vendor confirmations (opt-in)
