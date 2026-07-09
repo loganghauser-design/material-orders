@@ -6904,18 +6904,19 @@ async function buildDeliveryNotice({ projectId, codes, window, toOverride, metho
   const sups = parseSuperEmails(proj.super_email);
   const recipients = toOverride ? [toOverride] : sups.map(s => s.email).filter(Boolean);
   if (!recipients.length) return { ok: false, reason: 'no on-site contact assigned (add a super with an email)' };
-  if (!proj.finish_schedule_url) return { ok: false, reason: 'no finish schedule linked' };
-  // Group by CANONICAL code (by category text) so it matches fergusonPoCodes() and the
-  // board — the sheet's own leading numbers can disagree (e.g. it labels appliances "2d",
-  // canon is 3b). readScheduleByCategory keys by raw number, so we regroup here.
+  // Item detail comes from the project's finish schedule when one is linked. Without a schedule
+  // (or for a category the sheet doesn't list), fall back to a category-name-only line so the
+  // notice still works — the office confirms specifics on review.
   let byCanon = {};
-  try {
-    const rows = await fetchScheduleValues(proj.finish_schedule_url);
-    parseScheduleRows(rows).filter(r => r.type === 'item').forEach(it => {
-      const c = canonicalCodeFromCategory(it.category);
-      if (c) (byCanon[c] = byCanon[c] || []).push(it);
-    });
-  } catch (e) { return { ok: false, reason: 'schedule unreadable: ' + e.message }; }
+  if (proj.finish_schedule_url) {
+    try {
+      const rows = await fetchScheduleValues(proj.finish_schedule_url);
+      parseScheduleRows(rows).filter(r => r.type === 'item').forEach(it => {
+        const c = canonicalCodeFromCategory(it.category);
+        if (c) (byCanon[c] = byCanon[c] || []).push(it);
+      });
+    } catch (e) { byCanon = {}; }   // unreadable schedule → category-only notice
+  }
   const groups = []; let supplierName = '';
   for (const code of codes) {
     let raw = byCanon[code] || [];
@@ -6934,11 +6935,15 @@ async function buildDeliveryNotice({ projectId, codes, window, toOverride, metho
       if (/^(required accessory|w\/d accessory|accessory)$/i.test(name) && desc) { name = desc; desc = ''; }
       return { name, brand, model, desc, color: it.color, qty: it.qty };
     });
-    if (!items.length) continue;
-    if (!supplierName && raw[0]) supplierName = normalizeSupplier(raw[0].supplier || '');
-    groups.push({ label: CODE_NAME[code] || code.toUpperCase(), items });
+    if (items.length) {
+      if (!supplierName && raw[0]) supplierName = normalizeSupplier(raw[0].supplier || '');
+      groups.push({ label: CODE_NAME[code] || code.toUpperCase(), items });
+    } else if (!manifestBlob && !exceptBlob) {
+      // No schedule detail for this category (or no schedule at all) — list the category itself.
+      groups.push({ label: CODE_NAME[code] || code.toUpperCase(), items: [{ name: CODE_NAME[code] || code.toUpperCase() }] });
+    }
   }
-  if (!groups.length) return { ok: false, reason: 'no schedule items for ' + codes.join(', ') };
+  if (!groups.length) return { ok: false, reason: 'no items for ' + codes.join(', ') };
   const contactName = (sups[0] && sups[0].name) || 'there';
   const jobName = shortAddress(proj.full_address || proj.address);
   const { subject, html } = deliveryNoticeEmail({ contactName, jobName, stage: groups.length === 1 ? groups[0].label : 'Materials', supplier: supplierName, groups, window: window || '', method, tracking });
