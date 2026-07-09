@@ -2780,9 +2780,23 @@ app.get('/projects', requireAuth, async (req, res) => {
       }
     }
 
+    // Phase summary strip — over ALL projects (independent of the search/status filter),
+    // with an in-house vs outside-GC split per phase.
+    const { rows: _allP } = await pool.query('SELECT phase, overall_status, super_email FROM projects');
+    const phaseCounts = {}, phaseTeam = {};
+    _allP.forEach(pp => {
+      const ph = _serverPhase(pp);
+      phaseCounts[ph] = (phaseCounts[ph] || 0) + 1;
+      const em = String(pp.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+      const isGc = em.some(e => (_contactByEmail[e] || {}).role === 'gc');
+      const t = phaseTeam[ph] = phaseTeam[ph] || { inHouse: 0, gc: 0 };
+      if (isGc) t.gc++; else t.inHouse++;
+    });
+    const totalCount = _allP.length;
+
     const pendingIssues = await getPendingIssueCount();
     const contacts = allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' }));
-    res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES, contacts });
+    res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES, contacts, phaseCounts, phaseTeam, totalCount });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);

@@ -8,44 +8,53 @@
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#000000">
   <style>
-    .psummary { display:flex; gap:12px; margin-bottom:1.3rem; flex-wrap:wrap; }
-    .psum { border-radius:11px; padding:.7rem 1.15rem; min-width:130px; }
-    .psum .l { font-size:.78rem; font-weight:600; }
-    .psum .v { font-size:1.8rem; font-weight:700; line-height:1.1; }
-    .psum-need { background:#fdeaea; } .psum-need .l, .psum-need .v { color:#b42323; }
-    .psum-wait { background:#e6f1fb; } .psum-wait .l, .psum-wait .v { color:#185fa5; }
-    .psum-ok   { background:#eaf6ee; } .psum-ok .l, .psum-ok .v { color:#176b3a; }
-    .pcards { display:flex; flex-direction:column; gap:10px; margin-bottom:1.6rem; }
-    .pcard { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:11px 14px; }
-    .pcard-top { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
-    .drag-handle { cursor:grab; color:var(--muted); font-size:1rem; user-select:none; }
-    .urg-dot { width:10px; height:10px; border-radius:50%; flex:none; background:#4caf7d; }
-    .urg-red .urg-dot { background:#e24b4a; } .urg-amber .urg-dot { background:#e0a952; }
-    .pcard-name { font-size:1rem; color:var(--text); text-decoration:none; }
+    /* Summary strip */
+    .pstrip { display:flex; flex-wrap:wrap; gap:8px 30px; align-items:flex-start; padding:2px 2px 15px; border-bottom:1px solid var(--border); margin-bottom:14px; }
+    .pstat { line-height:1.12; white-space:nowrap; }
+    .pstat .v { font-size:1.5rem; font-weight:800; }
+    .pstat .l { font-size:.82rem; color:var(--muted); margin-left:5px; font-weight:600; }
+    .pstat .sub { font-size:.67rem; color:var(--muted); margin-top:2px; }
+    .pstat-total .v { color:var(--text); }
+    .ps-uc .v { color:#176b3a; } .ps-pc .v { color:#185fa5; } .ps-ip .v { color:#8a6100; }
+    .ps-uw .v { color:#7c3aed; } .ps-co .v { color:#6b7280; }
+    /* Toolbar */
+    .ptools { display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; margin-bottom:.8rem; }
+    .ptools form.toolbar { display:flex; gap:.5rem; flex:1; margin:0; }
+    .dlegend { display:flex; gap:12px; font-size:.7rem; color:var(--muted); }
+    .dlegend span { display:inline-flex; align-items:center; gap:4px; }
+    .lg-dot { width:9px; height:9px; border-radius:50%; display:inline-block; }
+    /* Table rows */
+    .ptable-head, .pcard { display:grid; grid-template-columns: 16px minmax(0,1.7fr) 44px minmax(0,1.5fr) 128px minmax(0,1.6fr) 148px; gap:10px; align-items:center; }
+    .ptable-head { padding:2px 14px 4px; font-size:.64rem; font-weight:800; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); }
+    .pcards { display:flex; flex-direction:column; gap:6px; margin:7px 0 1.4rem; }
+    .pcard { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 14px; }
+    .pcard.urg-red { box-shadow: inset 3px 0 0 #e24b4a; } .pcard.urg-amber { box-shadow: inset 3px 0 0 #e0a952; }
+    .drag-handle { cursor:grab; color:var(--muted); font-size:.9rem; user-select:none; }
+    .col-name { min-width:0; }
+    .pcard-name { font-size:.92rem; color:var(--text); text-decoration:none; font-weight:600; }
     .pcard-name:hover { text-decoration:underline; }
-    .pcard-ver { font-size:.8rem; color:var(--muted); font-weight:400; }
-    .reply-dot { color:#e5484d; font-size:1rem; text-decoration:none; }
-    .pcard-right { margin-left:auto; display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
-    .pc-avatars { display:flex; align-items:center; gap:4px; }
-    .pc-avatar { width:24px; height:24px; border-radius:50%; background:#e6f1fb; color:#185fa5; font-size:.7rem; font-weight:700; display:inline-flex; align-items:center; justify-content:center; }
-    .pc-nosup { font-size:.72rem; color:var(--muted); }
-    .pc-phase { font-size:.76rem; border:1px solid var(--border); border-radius:7px; padding:2px 6px; background:var(--bg); cursor:pointer; color:var(--text); }
-    .pc-del { background:none; border:none; cursor:pointer; font-size:.9rem; opacity:.5; }
-    .pc-del:hover { opacity:1; }
-    .pipe { display:flex; gap:5px; margin:11px 0 9px; }
-    .pipe-seg { flex:1; min-width:0; }
-    .pipe-lbl { font-size:.66rem; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; margin-bottom:3px; }
-    .pipe-bar { height:9px; border-radius:3px; background:var(--bg); border:1px solid var(--border); overflow:hidden; display:flex; }
-    .pipe-fill-d { background:#4caf7d; } .pipe-fill-o { background:#378add; }
-    .pipe-cnt { font-size:.66rem; color:var(--muted); margin-top:2px; }
-    .needs { display:flex; gap:6px; flex-wrap:wrap; border-top:1px solid var(--border); padding-top:9px; }
-    .need { font-size:.74rem; font-weight:600; border-radius:999px; padding:3px 10px; white-space:nowrap; }
+    .col-sub { font-size:.72rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .reply-dot { color:#e5484d; font-size:.85rem; text-decoration:none; margin-left:4px; }
+    .col-ver { font-size:.75rem; color:var(--muted); }
+    .col-team { display:flex; flex-direction:column; gap:3px; min-width:0; align-items:flex-start; }
+    .pm-line { font-size:.73rem; color:var(--muted); display:flex; align-items:center; gap:5px; white-space:nowrap; }
+    .pm-badge { background:#e6f1fb; color:#185fa5; font-size:.56rem; font-weight:800; letter-spacing:.03em; padding:1px 5px; border-radius:5px; }
+    /* Delivery dots (one per stage) */
+    .col-dots { display:flex; gap:6px; align-items:center; }
+    .ddot { width:11px; height:11px; border-radius:50%; background:var(--bg); border:1px solid var(--border); flex:none; }
+    .ddot-full { background:#16a34a; border-color:#16a34a; }
+    .ddot-part { background:#86e0ac; border-color:#4caf7d; }
+    .ddot-order { background:#378add; border-color:#378add; }
+    .ddot-na { opacity:.25; }
+    .col-needs { display:flex; gap:5px; flex-wrap:wrap; min-width:0; }
+    .need { font-size:.7rem; font-weight:600; border-radius:999px; padding:2px 8px; white-space:nowrap; }
     .need-bad { background:#fdeaea; color:#b42323; } .need-warn { background:#fff4dd; color:#8a6100; }
     .need-info { background:#e6f1fb; color:#185fa5; } .need-mute { background:var(--bg); color:var(--muted); }
     .need-ok { background:#eaf6ee; color:#176b3a; }
-    .pipe-legend { display:flex; gap:14px; font-size:.72rem; color:var(--muted); margin-left:auto; }
-    .pipe-legend span { display:inline-flex; align-items:center; gap:5px; }
-    .lg-sw { width:10px; height:10px; border-radius:2px; display:inline-block; }
+    .col-actions { display:flex; align-items:center; gap:6px; justify-content:flex-end; }
+    .pc-phase { font-size:.72rem; border:1px solid var(--border); border-radius:7px; padding:3px 5px; background:var(--bg); cursor:pointer; color:var(--text); max-width:118px; }
+    .pc-del { background:none; border:none; cursor:pointer; font-size:.85rem; opacity:.5; }
+    .pc-del:hover { opacity:1; }
     .row-dragging { opacity:.5; }
     /* Team picker chip on each card */
     .pc-team { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--border); background:var(--bg); border-radius:999px; padding:3px 9px 3px 9px; cursor:pointer; font-size:.8rem; max-width:210px; color:var(--text); }
@@ -75,39 +84,54 @@
     .tp-addactions { display:flex; gap:6px; }
     .tp-manage { display:block; padding:8px; font-size:.78rem; color:var(--muted); text-decoration:none; border-radius:8px; }
     .tp-manage:hover { background:var(--bg); color:var(--text); }
-    @media (max-width:760px){ .pipe-lbl,.pipe-cnt{ font-size:.6rem; } }
+    @media (max-width:900px){
+      .ptable-head { display:none; }
+      .pcard { grid-template-columns: 16px 1fr; grid-auto-rows:min-content; row-gap:7px; }
+      .col-name { grid-column:2; } .col-ver { display:none; }
+      .col-team, .col-dots, .col-needs { grid-column:2; }
+      .col-actions { grid-column:2; justify-content:flex-start; }
+    }
   </style>
 </head>
 <body>
 <%- include('_nav', { active: 'projects' }) %>
 
 <div class="container wide">
-  <% const sortedNow = (typeof sort !== 'undefined' && sort === 'delivered'); %>
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem;margin:.2rem 0 1rem">
     <h1 style="margin:0">Projects</h1>
-    <div class="pipe-legend">
-      <span><span class="lg-sw" style="background:#4caf7d"></span>Delivered</span>
-      <span><span class="lg-sw" style="background:#378add"></span>On order</span>
+    <a href="/contacts" class="btn btn-ghost btn-sm">Manage assignees</a>
+  </div>
+
+  <%
+    var _phOrder = ['Under Construction','Pre-Construction','In Permitting','Under Warranty','Complete'].filter(function(p){ return PROJECT_PHASES.includes(p); });
+    PROJECT_PHASES.forEach(function(p){ if (_phOrder.indexOf(p) < 0) _phOrder.push(p); });
+    var _psCls = { 'Under Construction':'ps-uc','Pre-Construction':'ps-pc','In Permitting':'ps-ip','Under Warranty':'ps-uw','Complete':'ps-co' };
+  %>
+  <div class="pstrip">
+    <div class="pstat pstat-total"><span class="v"><%= totalCount %></span><span class="l">Total</span></div>
+    <% _phOrder.forEach(function(ph){ var n = phaseCounts[ph] || 0; if (!n) return; var t = phaseTeam[ph] || { inHouse:0, gc:0 }; %>
+      <div class="pstat <%= _psCls[ph] || '' %>">
+        <div><span class="v"><%= n %></span><span class="l"><%= ph %></span></div>
+        <% if (ph !== 'Complete' && ph !== 'Under Warranty') { %><div class="sub"><%= t.inHouse %> in-house &middot; <%= t.gc %> GC</div><% } %>
+      </div>
+    <% }) %>
+  </div>
+
+  <div class="ptools">
+    <form method="GET" action="/projects" class="toolbar">
+      <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
+      <select name="status" onchange="this.form.submit()">
+        <option value="">All statuses</option>
+        <% PROJECT_PHASES.forEach(s => { %><option value="<%= s %>" <%- query.status===s?'selected':'' %>><%= s %></option><% }) %>
+      </select>
+      <button type="submit" class="btn btn-ghost">Search</button>
+      <% if (query.search || query.status) { %><a href="/projects" class="btn btn-ghost">Clear</a><% } %>
+    </form>
+    <div class="dlegend">
+      <span><span class="lg-dot" style="background:#16a34a"></span>Delivered</span>
+      <span><span class="lg-dot" style="background:#378add"></span>On order</span>
     </div>
   </div>
-
-  <div class="psummary">
-    <div class="psum psum-need"><div class="l">Need action</div><div class="v"><%= summary.needAction %></div></div>
-    <div class="psum psum-wait"><div class="l">Awaiting vendor</div><div class="v"><%= summary.awaiting %></div></div>
-    <div class="psum psum-ok"><div class="l">On track</div><div class="v"><%= summary.onTrack %></div></div>
-  </div>
-
-  <form method="GET" action="/projects" class="toolbar">
-    <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
-    <select name="status" onchange="this.form.submit()">
-      <option value="">All statuses</option>
-      <% PROJECT_PHASES.forEach(s => { %>
-        <option value="<%= s %>" <%- query.status===s?'selected':'' %>><%= s %></option>
-      <% }) %>
-    </select>
-    <button type="submit" class="btn btn-ghost">Search</button>
-    <% if (query.search || query.status) { %><a href="/projects" class="btn btn-ghost">Clear</a><% } %>
-  </form>
 
   <%
     const PHASE_CLASSES = { 'In Permitting': 'ph-ip', 'Pre-Construction': 'ph-pc', 'Under Construction': 'ph-uc', 'Complete': 'ph-co', 'Under Warranty': 'ph-uw' };
@@ -120,48 +144,53 @@
     var _phaseOrder = ['Under Construction', 'Pre-Construction', 'In Permitting', 'Under Warranty', 'Complete'].filter(ph => PROJECT_PHASES.includes(ph));
     PROJECT_PHASES.forEach(ph => { if (!_phaseOrder.includes(ph)) _phaseOrder.push(ph); });
   %>
+  <div class="ptable-head">
+    <span></span><span>Address / Client</span><span>Ver</span><span>Team</span><span>Delivery</span><span>Action items</span><span style="text-align:right">Phase</span>
+  </div>
   <% _phaseOrder.forEach(ph => { const rows = projects.filter(p => phaseOf(p) === ph); %>
     <div class="phase-divider <%= PHASE_CLASSES[ph] %>"><span><%= ph %> (<%= rows.length %>)</span></div>
     <% if (rows.length) { %>
       <div class="pcards" data-phase="<%= ph %>">
-        <% rows.forEach(p => { var c = (cards && cards[p.id]) || { stages: [], needs: [], urgency: 'green', sup: [] }; %>
+        <% rows.forEach(p => {
+             var c = (cards && cards[p.id]) || { stages: [], needs: [], urgency: 'green', sup: [] };
+             var _sup = (c.sup || []); var _t0 = _sup[0];
+             var _sub = (p.full_address && p.full_address.indexOf(',') >= 0) ? p.full_address.split(',').slice(1).join(',').trim() : '';
+             var _needs = (c.needs || []);
+        %>
           <div class="pcard urg-<%= c.urgency %>" data-id="<%= p.id %>">
-            <div class="pcard-top">
-              <span class="drag-handle" title="Drag to reorder">⠿</span>
-              <span class="urg-dot"></span>
-              <a href="/projects/<%= p.id %>" class="pcard-name"><strong><%= p.address %></strong><% if (p.version) { %> <span class="pcard-ver"><%= p.version %></span><% } %></a>
-              <% if (unread && unread[p.id]) { %><a href="/projects/<%= p.id %>?tab=emails&openUnread=1" class="reply-dot" title="New vendor reply">●</a><% } %>
-              <div class="pcard-right">
-                <% var _sup = (c.sup || []); var _t0 = _sup[0]; %>
-                <button type="button" class="pc-team" data-id="<%= p.id %>" data-assigned="<%= JSON.stringify(_sup.map(function(s){ return { email: s.email, name: s.name, role: s.role }; })) %>" onclick="openTeam(this)" title="Assign in-house super or outside GC">
-                  <% if (_t0) { %>
-                    <span class="tm-dot" style="background:<%= _t0.role === 'gc' ? '#8b5cf6' : (_t0.role === 'unknown' ? '#9aa0aa' : '#3b82f6') %>"></span>
-                    <span class="tm-name"><%= _t0.name %></span>
-                    <% if (_t0.role !== 'unknown') { %><span class="tm-badge <%= _t0.role === 'gc' ? 'tm-badge-gc' : 'tm-badge-sup' %>"><%= _t0.role === 'gc' ? 'GC' : 'IH' %></span><% } %>
-                    <% if (_sup.length > 1) { %><span class="tm-more">+<%= _sup.length - 1 %></span><% } %>
-                  <% } else { %>
-                    <span class="tm-none">Assign team</span>
-                  <% } %>
-                  <span class="tm-caret">▾</span>
-                </button>
-                <select class="pc-phase" data-project="<%= p.id %>" onchange="savePhase(this)" title="Project phase">
-                  <% PROJECT_PHASES.forEach(ph2 => { %><option value="<%= ph2 %>" <%= ph===ph2?'selected':'' %>><%= ph2 %></option><% }) %>
-                </select>
-                <a href="/projects/<%= p.id %>" class="btn btn-ghost btn-sm">Open</a>
-                <form method="POST" action="/projects/<%= p.id %>/delete" onsubmit="return confirm('Delete this project?')" style="margin:0"><button type="submit" class="pc-del" title="Delete">🗑</button></form>
-              </div>
+            <span class="drag-handle" title="Drag to reorder">⠿</span>
+            <div class="col-name">
+              <a href="/projects/<%= p.id %>" class="pcard-name"><%= p.address %></a><% if (unread && unread[p.id]) { %><a href="/projects/<%= p.id %>?tab=emails&openUnread=1" class="reply-dot" title="New vendor reply">●</a><% } %>
+              <div class="col-sub"><%= _sub %><% if (p.client_name) { %><%= _sub ? ' · ' : '' %><%= p.client_name %><% } %></div>
             </div>
-            <div class="pipe">
-              <% (c.stages || []).forEach(s => { var g = s.total ? Math.round(s.deliv / s.total * 100) : 0; var b = s.total ? Math.round(s.order / s.total * 100) : 0; %>
-                <div class="pipe-seg">
-                  <div class="pipe-lbl"><%= s.short %></div>
-                  <div class="pipe-bar"><div class="pipe-fill-d" style="width:<%= g %>%"></div><div class="pipe-fill-o" style="width:<%= b %>%"></div></div>
-                  <div class="pipe-cnt"><%= s.deliv %>/<%= s.total %></div>
-                </div>
-              <% }) %>
+            <div class="col-ver"><%= p.version || '' %></div>
+            <div class="col-team">
+              <div class="pm-line"><span class="pm-badge">PM</span> Aziz Ibrahim</div>
+              <button type="button" class="pc-team" data-id="<%= p.id %>" data-assigned="<%= JSON.stringify(_sup.map(function(s){ return { email: s.email, name: s.name, role: s.role }; })) %>" onclick="openTeam(this)" title="Assign in-house super or outside GC">
+                <% if (_t0) { %>
+                  <span class="tm-dot" style="background:<%= _t0.role === 'gc' ? '#8b5cf6' : (_t0.role === 'unknown' ? '#9aa0aa' : '#3b82f6') %>"></span>
+                  <span class="tm-name"><%= _t0.name %></span>
+                  <% if (_t0.role !== 'unknown') { %><span class="tm-badge <%= _t0.role === 'gc' ? 'tm-badge-gc' : 'tm-badge-sup' %>"><%= _t0.role === 'gc' ? 'GC' : 'IH' %></span><% } %>
+                  <% if (_sup.length > 1) { %><span class="tm-more">+<%= _sup.length - 1 %></span><% } %>
+                <% } else { %>
+                  <span class="tm-none">Assign team</span>
+                <% } %>
+                <span class="tm-caret">▾</span>
+              </button>
             </div>
-            <div class="needs">
-              <% (c.needs || []).forEach(n => { %><span class="need need-<%= n.kind %>"><%= n.text %></span><% }) %>
+            <div class="col-dots">
+              <% (c.stages || []).forEach(function(s){ var st = s.total ? (s.deliv === s.total ? 'full' : (s.deliv > 0 ? 'part' : (s.order > 0 ? 'order' : 'none'))) : 'na'; %><span class="ddot ddot-<%= st %>" title="<%= s.short %>: <%= s.deliv %>/<%= s.total %> delivered<%= s.order ? (' · ' + s.order + ' on order') : '' %>"></span><% }) %>
+            </div>
+            <div class="col-needs">
+              <% _needs.slice(0, 3).forEach(function(n){ %><span class="need need-<%= n.kind %>"><%= n.text %></span><% }) %>
+              <% if (_needs.length > 3) { %><span class="need need-mute" title="<%= _needs.slice(3).map(function(n){return n.text;}).join(', ') %>">+<%= _needs.length - 3 %></span><% } %>
+            </div>
+            <div class="col-actions">
+              <select class="pc-phase" data-project="<%= p.id %>" onchange="savePhase(this)" title="Project phase">
+                <% PROJECT_PHASES.forEach(ph2 => { %><option value="<%= ph2 %>" <%= ph===ph2?'selected':'' %>><%= ph2 %></option><% }) %>
+              </select>
+              <a href="/projects/<%= p.id %>" class="btn btn-ghost btn-sm">Open</a>
+              <form method="POST" action="/projects/<%= p.id %>/delete" onsubmit="return confirm('Delete this project?')" style="margin:0"><button type="submit" class="pc-del" title="Delete">🗑</button></form>
             </div>
           </div>
         <% }) %>
