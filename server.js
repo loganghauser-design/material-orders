@@ -2488,6 +2488,19 @@ app.get('/delivery-notices/:id/preview', requireAuth, async (req, res) => {
     res.json({ ok: true, subject: b.subject, html: b.html, to: b.recipients });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
+// Let Logan correct the method / tracking / window on a queued notice before approving,
+// so the email is exactly right (the auto path defaults to truck with no tracking).
+app.post('/delivery-notices/:id/update', requireAuth, async (req, res) => {
+  try {
+    const { method, tracking, window } = req.body;
+    const m = method === 'ups' ? 'ups' : 'truck';
+    const r = await pool.query(
+      "UPDATE pending_delivery_notices SET method=$1, tracking=$2, delivery_window=$3 WHERE id=$4 AND status='pending' RETURNING id",
+      [m, tracking || null, window || null, req.params.id]);
+    if (!r.rowCount) return res.status(404).json({ ok: false, error: 'Not found or already handled.' });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 app.post('/delivery-notices/:id/approve', requireAuth, async (req, res) => {
   try {
     // Atomically claim the row so a double-submit / two operators can't send twice.
@@ -3264,11 +3277,36 @@ app.post('/projects/:id/items/:code', requireAuth, async (req, res) => {
   // Chat alert is no longer automatic — it's sent on demand via the 📢 button (/notify).
   // If this item just became delivered, auto-clear any field requests it completes.
   if (['Delivered', 'Delivered from Inv.'].includes(status)) autoFulfillRequests(req.params.id);
+  // Scheduling an upcoming delivery date for a category queues a delivery notice for Logan's
+  // review — the all-vendor path (Ferguson has its own auto-queue). Deduped + non-blocking.
+  if (!statusOnly && delivery_date && !['Delivered', 'Delivered from Inv.', 'N/A', 'Issue'].includes(status)) {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    if (String(delivery_date) >= todayISO) {
+      const endW = (delivery_date_end && delivery_date_end > delivery_date) ? delivery_date_end : null;
+      const win = endW ? (chatDate(delivery_date) + ' – ' + chatDate(endW)) : chatDate(delivery_date);
+      enqueueDeliveryNotice({ projectId: req.params.id, codes: [req.params.code], window: win, method: 'truck' })
+        .catch(e => console.error('auto-enqueue notice:', e.message));
+    }
+  }
   // Keep inventory in sync: "Delivered from Inv." draws the held stock down; "In Inventory" restores it.
   let inv = null;
   if (status === 'Delivered from Inv.') { const n = await syncHeldStockForCode(req.params.id, req.params.code, true); if (n) inv = { drewDown: n }; }
   else if (status === 'In Inventory') { const n = await syncHeldStockForCode(req.params.id, req.params.code, false); if (n) inv = { restored: n }; }
   res.json({ ok: true, inv });
+});
+
+// Manually queue a delivery notice for one or more categories (any vendor) — reviewed in the
+// approval queue like the auto/Ferguson ones. For ad-hoc sends and re-sends.
+app.post('/projects/:id/notice', requireAuth, async (req, res) => {
+  try {
+    let { codes, method, tracking, window } = req.body;
+    if (typeof codes === 'string') codes = codes.split(',').map(c => c.trim()).filter(Boolean);
+    if (!Array.isArray(codes) || !codes.length) return res.status(400).json({ ok: false, error: 'No categories given.' });
+    const m = method === 'ups' ? 'ups' : 'truck';
+    const r = await enqueueDeliveryNotice({ projectId: req.params.id, codes, window: window || null, method: m, tracking: tracking || null, force: true });
+    if (!r.ok) return res.json({ ok: false, error: r.reason || 'Could not queue the notice.' });
+    res.json({ ok: true, queued: r.queued !== false, duplicate: !!r.duplicate });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Format a YYYY-MM-DD as a friendly chat date (Tue, Jun 9). Short form omits the weekday.
@@ -6773,17 +6811,28 @@ async function sendDeliveryNotice(params) {
   return { ok: true, to: b.recipients, jobName: b.jobName, window: b.window, method: b.method, tracking: b.tracking, items: b.items, groups: b.groups };
 }
 // Queue a delivery notice for the office to approve before it emails the on-site contact.
-async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName }) {
+async function enqueueDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob, jobName, force }) {
   try {
     // Only queue notices that can actually be built + sent (recipient + schedule + items),
     // so the approval queue and its badge don't fill with permanently un-sendable rows.
     const b = await buildDeliveryNotice({ projectId, codes, window, method, tracking, manifestBlob, exceptBlob });
     if (!b.ok) { console.log('delivery notice NOT queued (' + b.reason + ') — project ' + projectId + ' (' + (codes || []).join(',') + ')'); return { ok: false, reason: b.reason }; }
+    // Dedup: never queue an identical notice that's already waiting/sending. On the automatic
+    // path also skip one already SENT (so re-saving the same date doesn't re-notify); the manual
+    // route passes force:true to allow a deliberate re-send. Ferguson's truck+ups split differs
+    // by method, so it isn't blocked here.
+    const dupStatuses = force ? ['pending', 'sending'] : ['pending', 'sending', 'sent'];
+    const { rows: dup } = await pool.query(
+      "SELECT 1 FROM pending_delivery_notices WHERE project_id=$1 AND codes=$2 AND COALESCE(delivery_window,'')=COALESCE($3,'') AND method=$4 AND status = ANY($5) LIMIT 1",
+      [projectId, (codes || []).join(','), window || null, method || 'truck', dupStatuses]);
+    if (dup.length) { console.log('delivery notice already queued/sent — skipping duplicate (project ' + projectId + ', ' + (codes || []).join(',') + ')'); return { ok: true, queued: false, duplicate: true }; }
     await pool.query(
       `INSERT INTO pending_delivery_notices (project_id, codes, delivery_window, method, tracking, manifest_blob, except_blob, job_name)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [projectId, (codes || []).join(','), window || null, method || 'truck', tracking || null, manifestBlob || null, exceptBlob || null, jobName || null]);
+      [projectId, (codes || []).join(','), window || null, method || 'truck', tracking || null, manifestBlob || null, exceptBlob || null, jobName || b.jobName || null]);
     console.log('delivery notice QUEUED for approval — project ' + projectId + ' (' + (codes || []).join(',') + ')');
+    // Ping Logan in the private Bids chat so he can preview + approve before it emails the super.
+    try { await postNoticeForReview(projectId, jobName || b.jobName, (codes || []).map(c => CODE_NAME[c] || c), method || 'truck'); } catch (e) {}
     return { ok: true, queued: true };
   } catch (e) { console.error('enqueueDeliveryNotice:', e.message); return { ok: false, reason: e.message }; }
 }
@@ -6809,6 +6858,21 @@ async function postDeliveryScheduled(projectId, jobName) {
     await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
     console.log('delivery-scheduled alert → ' + (live ? 'delivery-alerts' : 'bids') + ' (project ' + projectId + ')');
   } catch (e) { console.error('postDeliveryScheduled:', e.message); }
+}
+// Ping Logan (only) in the private Bids chat when a delivery notice is queued for review, so he
+// can open it, preview the exact email, and approve before it goes to the on-site contact.
+async function postNoticeForReview(projectId, jobName, codeLabels, method) {
+  try {
+    const url = process.env.BIDS_WEBHOOK_URL;
+    if (!url) return;
+    const m = method === 'ups' ? '📦 UPS' : '🚚 Truck';
+    const cats = (codeLabels || []).filter(Boolean).join(', ');
+    const text = `🔔 *Delivery notice ready to review* — *${jobName || 'a project'}*`
+      + (cats ? `\n${cats}` : '') + `  ·  ${m}`
+      + `\nPreview & approve → https://buildoly.up.railway.app/delivery-notices`;
+    await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json; charset=UTF-8' }, body: JSON.stringify({ text }) });
+    console.log('notice-review ping → bids (project ' + projectId + ')');
+  } catch (e) { console.error('postNoticeForReview:', e.message); }
 }
 async function pollFergusonEmails() {
   if (!useGmail) return;

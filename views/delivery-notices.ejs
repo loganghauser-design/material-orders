@@ -32,6 +32,12 @@
     .dn-modal-head h2 { margin:0; font-size:1rem; } .dn-modal-head .sub { font-size:.78rem; color:var(--muted); }
     .dn-modal-close { margin-left:auto; background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--muted); }
     .dn-frame { flex:1; border:none; width:100%; min-height:420px; background:#fff; }
+    .dn-edit { display:flex; flex-wrap:wrap; gap:8px 14px; align-items:flex-end; margin:9px 0; font-size:.84rem; }
+    .dn-fld { display:flex; flex-direction:column; gap:3px; }
+    .dn-fld .lbl { color:var(--muted); font-size:.72rem; }
+    .dn-in { font-size:.84rem; padding:5px 8px; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); }
+    .dn-window { width:160px; } .dn-tracking { width:170px; }
+    .dn-to { color:var(--text); align-self:center; }
   </style>
 </head>
 <body>
@@ -40,9 +46,10 @@
 <div class="container">
   <div class="page-header"><h1 style="margin:0">Delivery Notices</h1></div>
   <p class="dn-intro">
-    When Ferguson schedules a delivery, the branded notice email waits here for your approval instead of
-    sending automatically. Review each one, then <strong>Approve &amp; send</strong> to email the on-site contact
-    (truck deliveries also ping the super in chat), or <strong>Reject</strong> to discard it.
+    Whenever a delivery is scheduled — from any vendor (you set a delivery date) or automatically from Ferguson —
+    the branded notice email waits here for <strong>your</strong> approval instead of sending automatically. Fix the
+    method / window / tracking if needed, <strong>Preview</strong> the exact email, then <strong>Approve &amp; send</strong>
+    to email the on-site contact (truck deliveries also ping the super in chat), or <strong>Reject</strong> to discard it.
   </p>
 
   <% if (!notices.length) { %>
@@ -56,10 +63,20 @@
             <span class="dn-method dn-method-<%= n.method === 'ups' ? 'ups' : 'truck' %>"><%= n.method === 'ups' ? '📦 UPS' : '🚚 Truck' %></span>
             <span class="dn-when"><%= ago <= 0 ? 'just now' : (ago < 24 ? ago + 'h ago' : Math.floor(ago/24) + 'd ago') %></span>
           </div>
-          <div class="dn-meta">
-            <% if (n.window) { %><span><span class="lbl">Window:</span> <%= n.window %></span><% } %>
-            <% if (n.tracking) { %><span><span class="lbl">Tracking:</span> <%= n.tracking %></span><% } %>
-            <span><span class="lbl">To:</span> <%= n.recipients.length ? n.recipients.join(', ') : '—' %></span>
+          <div class="dn-edit">
+            <label class="dn-fld"><span class="lbl">Method</span>
+              <select class="dn-in dn-method-sel" onchange="dnSave(<%= n.id %>)">
+                <option value="truck"<%= n.method === 'ups' ? '' : ' selected' %>>🚚 Truck</option>
+                <option value="ups"<%= n.method === 'ups' ? ' selected' : '' %>>📦 UPS</option>
+              </select>
+            </label>
+            <label class="dn-fld"><span class="lbl">Window</span>
+              <input class="dn-in dn-window" type="text" value="<%= n.window || '' %>" placeholder="e.g. Tue, Jul 14" onchange="dnSave(<%= n.id %>)">
+            </label>
+            <label class="dn-fld"><span class="lbl">Tracking</span>
+              <input class="dn-in dn-tracking" type="text" value="<%= n.tracking || '' %>" placeholder="UPS # (optional)" onchange="dnSave(<%= n.id %>)">
+            </label>
+            <span class="dn-to"><span class="lbl">To:</span> <%= n.recipients.length ? n.recipients.join(', ') : '—' %></span>
           </div>
           <% if (n.codeLabels.length) { %><div class="dn-cats"><% n.codeLabels.forEach(function(c){ %><span class="dn-cat"><%= c %></span><% }) %></div><% } %>
           <% if (n.noRecipient) { %><div class="dn-warn">⚠ No on-site contact with an email is assigned to this project — assign one first, or this can't send.</div><% } %>
@@ -87,7 +104,21 @@
 <div id="toast" class="toast"></div>
 <script>
 function showToast(msg, err){ const t=document.getElementById('toast'); t.textContent=msg; t.className='toast show'+(err?' error':''); setTimeout(()=>t.className='toast',2000); }
+// Persist any edits to method / window / tracking before preview or approve.
+async function dnSave(id){
+  const card = document.querySelector('.dn-card[data-id="' + id + '"]');
+  if (!card) return;
+  const method = card.querySelector('.dn-method-sel').value;
+  const win = card.querySelector('.dn-window').value;
+  const tracking = card.querySelector('.dn-tracking').value;
+  try {
+    const r = await fetch('/delivery-notices/' + id + '/update', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ method, window: win, tracking }) });
+    const d = await r.json();
+    if (!d.ok) showToast(d.error || 'Could not save changes', true);
+  } catch (e) { showToast('Could not save changes', true); }
+}
 async function dnPreview(id){
+  await dnSave(id);
   try {
     const r = await fetch('/delivery-notices/' + id + '/preview');
     const d = await r.json();
@@ -102,6 +133,7 @@ function dnCloseModal(){ document.getElementById('dnModal').classList.remove('sh
 document.getElementById('dnModal').addEventListener('click', e => { if (e.target.id === 'dnModal') dnCloseModal(); });
 async function dnApprove(btn, id){
   btn.disabled = true; btn.textContent = 'Sending…';
+  await dnSave(id);
   try {
     const r = await fetch('/delivery-notices/' + id + '/approve', { method:'POST' });
     const d = await r.json();
