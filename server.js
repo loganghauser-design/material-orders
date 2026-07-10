@@ -6599,15 +6599,23 @@ app.post('/catalog/sync', requireAuth, async (req, res) => {
 // Expected items = the project's finish schedule (its shopping list), resolved through
 // the catalog for buckets/models. Delivered ✓ = the model # appeared in a completed
 // Ferguson delivery for this project. Re-synced from the sheet on every view (cached 5 min).
+// The DB (project_expected_items) is the store the pages read; the Google Sheet only
+// REFRESHES it, at most every 10 min per project. The rewrite happens in ONE transaction
+// (a concurrent page load can never catch the list half-rebuilt) and a failed/empty sheet
+// read keeps the last good data instead of wiping the list.
+const EXP_SYNC_TTL_MS = 10 * 60 * 1000;
+const _expSyncAt = new Map();   // `${projectId}|${scheduleUrl}` -> last successful sync ms
 async function syncProjectExpected(projectId) {
   const { rows: [proj] } = await pool.query('SELECT id, finish_schedule_url FROM projects WHERE id=$1', [projectId]);
   if (!proj || !proj.finish_schedule_url) return { ok: false, error: 'No finish schedule linked to this project yet.' };
+  const syncKey = projectId + '|' + proj.finish_schedule_url;   // URL in the key → changing the sheet re-syncs immediately
+  const last = _expSyncAt.get(syncKey);
+  if (last && (Date.now() - last) < EXP_SYNC_TTL_MS) return { ok: true, cached: true };
   const values = await fetchScheduleValues(proj.finish_schedule_url);
   const parsed = parseScheduleRows(values).filter(r => r.type === 'item');
   const { rows: cat } = await pool.query('SELECT prod_code, category_code, model_no, model_norm, supplier FROM item_catalog');
   const catBy = {}; cat.forEach(c => { catBy[c.prod_code] = c; });
-  await pool.query('DELETE FROM project_expected_items WHERE project_id=$1', [projectId]);
-  let n = 0;
+  const rowsToInsert = [];
   for (const it of parsed) {
     const c = catBy[it.prodCode] || {};
     const supplier = normalizeSupplier(it.supplier || c.supplier || '');
@@ -6615,14 +6623,31 @@ async function syncProjectExpected(projectId) {
     const model = (it.model || c.model_no || '').trim();
     if (!it.prodCode && !model) continue;
     const catCode = canonicalCodeFromCategory(it.category) || c.category_code || null;
-    await pool.query(
-      `INSERT INTO project_expected_items (project_id, prod_code, name, category_code, model_no, model_norm, qty, supplier)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-      [projectId, (it.prodCode || '').slice(0, 40) || null, (it.name || it.product || '').slice(0, 200), catCode,
-       model.slice(0, 120), normModel(model).slice(0, 120) || null, parseInt(it.qty, 10) || 1, supplier.slice(0, 120)]);
-    n++;
+    rowsToInsert.push([
+      projectId, (it.prodCode || '').slice(0, 40) || null, (it.name || it.product || '').slice(0, 200), catCode,
+      model.slice(0, 120), normModel(model).slice(0, 120) || null, parseInt(it.qty, 10) || 1, supplier.slice(0, 120),
+    ]);
   }
-  return { ok: true, items: n };
+  if (!rowsToInsert.length) return { ok: false, error: 'Schedule parsed to 0 items — kept the previous sync.' };
+  // Atomic swap: delete + batched insert inside one transaction (readers see old rows until commit).
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query('DELETE FROM project_expected_items WHERE project_id=$1', [projectId]);
+    const cols = 8;
+    const placeholders = rowsToInsert.map((_, r) => '(' + Array.from({ length: cols }, (_, c) => '$' + (r * cols + c + 1)).join(',') + ')').join(',');
+    await client.query(
+      `INSERT INTO project_expected_items (project_id, prod_code, name, category_code, model_no, model_norm, qty, supplier)
+       VALUES ${placeholders}`, rowsToInsert.flat());
+    await client.query('COMMIT');
+  } catch (e) {
+    try { await client.query('ROLLBACK'); } catch (e2) {}
+    throw e;
+  } finally {
+    client.release();
+  }
+  _expSyncAt.set(syncKey, Date.now());
+  return { ok: true, items: rowsToInsert.length };
 }
 // Per-item state for one project: ⬜ not seen → 📦 ordered → 🚚 scheduled → ✅ delivered.
 // Sources: rep order-confirmation PDFs (ordered), pending Ferguson updates (scheduled),
