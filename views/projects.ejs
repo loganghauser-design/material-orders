@@ -129,7 +129,7 @@
 
   <div class="ptools">
     <form method="GET" action="/projects" class="toolbar">
-      <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>">
+      <input type="text" name="search" placeholder="Search address…" value="<%= query.search || '' %>" oninput="filterProjects(this.value)" autocomplete="off">
       <select name="status" onchange="this.form.submit()">
         <option value="">All statuses</option>
         <% PROJECT_PHASES.forEach(s => { %><option value="<%= s %>" <%- query.status===s?'selected':'' %>><%= s %></option><% }) %>
@@ -242,6 +242,31 @@
     });
   });
 })();
+
+// Live-filter the project list as you type (address + client), no Enter needed. Hides non-matching
+// cards and empty phase groups, and updates each phase's count.
+function filterProjects(q) {
+  q = (q || '').trim().toLowerCase();
+  document.querySelectorAll('.phase-divider').forEach(divider => {
+    const group = (divider.nextElementSibling && divider.nextElementSibling.classList.contains('pcards')) ? divider.nextElementSibling : null;
+    let shown = 0;
+    if (group) {
+      group.querySelectorAll('.pcard').forEach(card => {
+        const txt = (((card.querySelector('.pcard-name') || {}).textContent || '') + ' ' + ((card.querySelector('.col-sub') || {}).textContent || '')).toLowerCase();
+        const match = !q || txt.includes(q);
+        card.style.display = match ? '' : 'none';
+        if (match) shown++;
+      });
+    }
+    const hide = q && shown === 0;
+    divider.style.display = hide ? 'none' : '';
+    if (group) group.style.display = hide ? 'none' : '';
+    const span = divider.querySelector('span');
+    if (span) { if (!span.dataset.orig) span.dataset.orig = span.textContent; span.textContent = q ? span.dataset.orig.replace(/\(\d+\)/, '(' + shown + ')') : span.dataset.orig; }
+  });
+}
+// Apply any prefilled search value on load (e.g. back button).
+document.addEventListener('DOMContentLoaded', () => { const el = document.querySelector('input[name="search"]'); if (el && el.value) filterProjects(el.value); });
 
 async function savePhase(sel) {
   try {
