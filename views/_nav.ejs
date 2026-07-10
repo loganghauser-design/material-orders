@@ -70,6 +70,7 @@
 
   <div class="sb-bottom">
     <% if (can('projects')) { %><a href="/projects/new" class="sb-new">+ New Project</a><% } %>
+    <% if (typeof isSuperNav !== 'undefined' && isSuperNav) { %><a href="/my" class="sb-item"><%- icon('projects') %><span>My Projects</span></a><% } %>
     <a href="/account" class="sb-item <%= A==='account'?'active':'' %>"><%- icon('account') %><span>My account</span></a>
     <% if (can('settings')) { %><a href="/contacts" class="sb-item <%= A==='contacts'?'active':'' %>"><%- icon('contacts') %><span>Contacts</span></a><% } %>
     <% if (iL) { %><a href="/team" class="sb-item <%= A==='team'?'active':'' %>"><%- icon('team') %><span>Team</span></a><% } %>

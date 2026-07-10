@@ -2189,6 +2189,7 @@ app.use(async (req, res, next) => {
   if (req.method === 'GET' && req.session && req.session.authenticated) {
     const key = sessionKey(req);
     res.locals.isLogan = (key === 'logan');
+    res.locals.isSuperNav = (req.session.role === 'super');   // supers get a "My Projects" link back to their portal
     res.locals.navPages = res.locals.isLogan ? '*' : [...allowedPagesFor(key, req.session.role)];
     if (req.session.role === 'admin') {
       try {
