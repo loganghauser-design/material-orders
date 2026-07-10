@@ -2092,14 +2092,13 @@ async function initDb() {
   return _initDbPromise;
 }
 
-// Auto-create all 13 item rows for a project
+// Auto-create all item rows for a project — one batched INSERT (was 17 sequential round-trips)
 async function ensureProjectItems(projectId) {
-  for (const item of ALL_ITEMS) {
-    await pool.query(
-      `INSERT INTO project_items (project_id, item_code) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [projectId, item.code]
-    );
-  }
+  const values = ALL_ITEMS.map((_, i) => `($1, $${i + 2})`).join(',');
+  await pool.query(
+    `INSERT INTO project_items (project_id, item_code) VALUES ${values} ON CONFLICT DO NOTHING`,
+    [projectId, ...ALL_ITEMS.map(it => it.code)]
+  );
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
@@ -2146,7 +2145,10 @@ app.use((req, res, next) => {
   next();
 });
 
-// Expose pending counts to every admin page so the nav can show badges (Issues + Requests)
+// Expose pending counts to every admin page so the nav can show badges (Issues + Requests).
+// Counts are fetched in ONE parallel batch and cached ~30s — they were 4 sequential DB
+// round-trips on every single GET, which added noticeable latency to every page.
+let _navCache = { at: 0, data: null };
 app.use(async (req, res, next) => {
   if (req.method === 'GET' && req.session && req.session.authenticated) {
     const key = sessionKey(req);
@@ -2154,10 +2156,16 @@ app.use(async (req, res, next) => {
     res.locals.navPages = res.locals.isLogan ? '*' : [...allowedPagesFor(key, req.session.role)];
     if (req.session.role === 'admin') {
       try {
-        res.locals.pendingIssues = await getPendingIssueCount();
-        res.locals.pendingRequests = await getPendingRequestCount();
-        res.locals.openWarranty = await getOpenWarrantyCount();
-        res.locals.pendingDeliveryNotices = await getPendingDeliveryNoticeCount();
+        if (!_navCache.data || (Date.now() - _navCache.at) > 30000) {
+          const [pi, pr, ow, dn] = await Promise.all([
+            getPendingIssueCount(), getPendingRequestCount(), getOpenWarrantyCount(), getPendingDeliveryNoticeCount(),
+          ]);
+          _navCache = { at: Date.now(), data: { pi, pr, ow, dn } };
+        }
+        res.locals.pendingIssues = _navCache.data.pi;
+        res.locals.pendingRequests = _navCache.data.pr;
+        res.locals.openWarranty = _navCache.data.ow;
+        res.locals.pendingDeliveryNotices = _navCache.data.dn;
       } catch (e) { /* tables may not exist yet */ }
     }
   }
@@ -2862,29 +2870,35 @@ app.get('/projects', requireAuth, async (req, res) => {
     if (status) { params.push(status); where += ` AND phase = $${params.length}`; }   // toolbar filters by the single phase status
     if (search) { params.push(`%${search}%`); where += ` AND address ILIKE $${params.length}`; }
 
-    const { rows: projects } = await pool.query(
-      `SELECT * FROM projects ${where} ORDER BY sort_order ASC NULLS LAST, created_at ASC`, params
-    );
-    const { rows: [stats] } = await pool.query(`
-      SELECT
-        COUNT(*) FILTER (WHERE overall_status='In Progress') AS in_progress,
-        COUNT(*) FILTER (WHERE overall_status='All Delivered' OR overall_status='Fully Delivered') AS delivered,
-        COUNT(*) FILTER (WHERE overall_status='Not Yet') AS not_yet,
-        COUNT(*) AS total
-      FROM projects
-    `);
+    // Wave 1 — everything that doesn't need the project ids, in ONE parallel batch.
+    const [
+      { rows: projects },
+      { rows: unreadRows },
+      { rows: _ruleRows0 },
+      { rows: _allP },
+    ] = await Promise.all([
+      pool.query(`SELECT * FROM projects ${where} ORDER BY sort_order ASC NULLS LAST, created_at ASC`, params),
+      pool.query('SELECT DISTINCT project_id FROM vendor_emails WHERE has_unread=true'),
+      pool.query('SELECT * FROM order_rules'),
+      pool.query('SELECT phase, overall_status, super_email FROM projects'),
+    ]);
     const projectIds = projects.map(p => p.id);
+
+    // Wave 2 — the per-project lookups, also in ONE parallel batch.
+    const _empty = { rows: [] };
+    const [itemsQ, reqQ, issQ, lastDelivQ, lastNoticeQ] = projectIds.length ? await Promise.all([
+      pool.query('SELECT project_id, item_code, status, delivery_date FROM project_items WHERE project_id = ANY($1)', [projectIds]),
+      pool.query('SELECT project_id, COUNT(*) c FROM material_requests WHERE fulfilled=FALSE AND project_id = ANY($1) GROUP BY project_id', [projectIds]).catch(() => _empty),
+      pool.query("SELECT project_id, COUNT(*) c FROM material_issues WHERE status='pending' AND project_id = ANY($1) GROUP BY project_id", [projectIds]).catch(() => _empty),
+      pool.query("SELECT project_id, item_code, delivery_date FROM project_items WHERE project_id = ANY($1) AND status IN ('Delivered','Delivered from Inv.') AND delivery_date IS NOT NULL ORDER BY project_id, delivery_date DESC", [projectIds]).catch(() => _empty),
+      pool.query('SELECT DISTINCT ON (project_id) project_id, sent_at, method FROM delivery_notices WHERE project_id = ANY($1) ORDER BY project_id, sent_at DESC', [projectIds]).catch(() => _empty),
+    ]) : [_empty, _empty, _empty, _empty, _empty];
+
     let itemMaps = {};
-    if (projectIds.length) {
-      const { rows: allItems } = await pool.query(
-        `SELECT * FROM project_items WHERE project_id = ANY($1)`, [projectIds]
-      );
-      allItems.forEach(item => {
-        if (!itemMaps[item.project_id]) itemMaps[item.project_id] = {};
-        itemMaps[item.project_id][item.item_code] = item;
-      });
-    }
-    const { rows: unreadRows } = await pool.query('SELECT DISTINCT project_id FROM vendor_emails WHERE has_unread=true');
+    itemsQ.rows.forEach(item => {
+      if (!itemMaps[item.project_id]) itemMaps[item.project_id] = {};
+      itemMaps[item.project_id][item.item_code] = item;
+    });
     const unread = {};
     unreadRows.forEach(r => unread[r.project_id] = true);
 
@@ -2901,13 +2915,10 @@ app.get('/projects', requireAuth, async (req, res) => {
     }
 
     // ── Pipeline card data: per-project stage progress + what it needs next ──
-    const { rows: _ruleRows } = await pool.query('SELECT * FROM order_rules');
-    const _ruleMap = {}; _ruleRows.forEach(r => _ruleMap[r.item_code] = r);
+    const _ruleMap = {}; _ruleRows0.forEach(r => _ruleMap[r.item_code] = r);
     const _reqCount = {}, _issCount = {};
-    if (projectIds.length) {
-      try { const { rows } = await pool.query('SELECT project_id, COUNT(*) c FROM material_requests WHERE fulfilled=FALSE AND project_id = ANY($1) GROUP BY project_id', [projectIds]); rows.forEach(r => _reqCount[r.project_id] = Number(r.c)); } catch (e) {}
-      try { const { rows } = await pool.query("SELECT project_id, COUNT(*) c FROM material_issues WHERE status='pending' AND project_id = ANY($1) GROUP BY project_id", [projectIds]); rows.forEach(r => _issCount[r.project_id] = Number(r.c)); } catch (e) {}
-    }
+    reqQ.rows.forEach(r => _reqCount[r.project_id] = Number(r.c));
+    issQ.rows.forEach(r => _issCount[r.project_id] = Number(r.c));
     const _today = new Date(); _today.setHours(0, 0, 0, 0);
     const _DELIV = new Set(['Delivered', 'Delivered from Inv.']);
     const _ONORDER = new Set(['Order Placed', 'In Inventory']);
@@ -2977,8 +2988,7 @@ app.get('/projects', requireAuth, async (req, res) => {
     }
 
     // Phase summary strip — over ALL projects (independent of the search/status filter),
-    // with an in-house vs outside-GC split per phase.
-    const { rows: _allP } = await pool.query('SELECT phase, overall_status, super_email FROM projects');
+    // with an in-house vs outside-GC split per phase. (_allP fetched in wave 1.)
     const phaseCounts = {}, phaseTeam = {};
     _allP.forEach(pp => {
       const ph = _serverPhase(pp);
@@ -2990,25 +3000,14 @@ app.get('/projects', requireAuth, async (req, res) => {
     });
     const totalCount = _allP.length;
 
-    // "Last delivery" column: most-recent delivered category + last delivery-notice time.
+    // "Last delivery" column: most-recent delivered category + last delivery-notice time
+    // (rows fetched in wave 2).
     const _codeName = {}; STAGES.forEach(g => g.items.forEach(it => _codeName[it.code] = it.name));
     const lastDeliv = {}, lastNotice = {};
-    if (projectIds.length) {
-      try {
-        const { rows } = await pool.query(
-          "SELECT project_id, item_code, delivery_date FROM project_items WHERE project_id = ANY($1) AND status IN ('Delivered','Delivered from Inv.') AND delivery_date IS NOT NULL ORDER BY project_id, delivery_date DESC",
-          [projectIds]);
-        rows.forEach(r => { if (!lastDeliv[r.project_id]) lastDeliv[r.project_id] = { name: _codeName[r.item_code] || r.item_code, date: r.delivery_date }; });
-      } catch (e) {}
-      try {
-        const { rows } = await pool.query(
-          'SELECT DISTINCT ON (project_id) project_id, sent_at, method FROM delivery_notices WHERE project_id = ANY($1) ORDER BY project_id, sent_at DESC',
-          [projectIds]);
-        rows.forEach(r => { lastNotice[r.project_id] = { sentAt: r.sent_at, method: r.method }; });
-      } catch (e) {}
-    }
+    lastDelivQ.rows.forEach(r => { if (!lastDeliv[r.project_id]) lastDeliv[r.project_id] = { name: _codeName[r.item_code] || r.item_code, date: r.delivery_date }; });
+    lastNoticeQ.rows.forEach(r => { lastNotice[r.project_id] = { sentAt: r.sent_at, method: r.method }; });
 
-    const pendingIssues = await getPendingIssueCount();
+    const pendingIssues = res.locals.pendingIssues || 0;   // already computed (cached) by the nav-badge middleware
     const contacts = allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' }));
     res.render('projects', { projects, cards, summary, query: req.query, PROJECT_PHASES, unread, sort, pendingIssues, STAGES, contacts, phaseCounts, phaseTeam, totalCount, lastDeliv, lastNotice });
   } catch (err) {
@@ -3043,12 +3042,42 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/');
     await ensureProjectItems(project.id);
-    const { rows: items } = await pool.query('SELECT * FROM project_items WHERE project_id=$1', [project.id]);
+    // Everything below only needs project.id — ONE parallel batch instead of 8 sequential round-trips.
+    const [
+      { rows: items },
+      { rows: reqRows },
+      { rows: issueRows },
+      suppliers,
+      { rows: documents },
+      { rows: payments },
+      { rows: orderRows },
+      { rows: lineRows },
+    ] = await Promise.all([
+      pool.query('SELECT * FROM project_items WHERE project_id=$1', [project.id]),
+      pool.query('SELECT id, super_email, codes, needed_by, note, created_at FROM material_requests WHERE project_id=$1 AND fulfilled=FALSE ORDER BY created_at', [project.id]),
+      pool.query("SELECT id, super_email, item_code, item_label, note FROM material_issues WHERE project_id=$1 AND status='pending' AND item_code IS NOT NULL ORDER BY created_at DESC", [project.id]),
+      getSuppliers(),
+      pool.query('SELECT id, filename, uploaded_at FROM project_documents WHERE project_id=$1 ORDER BY uploaded_at DESC', [project.id]),
+      pool.query('SELECT * FROM milestone_payments WHERE project_id=$1 ORDER BY requested_at DESC', [project.id]),
+      pool.query(`
+        SELECT vo.id, vo.supplier_name, vo.supplier_email, vo.amount, vo.gmail_thread_id, vo.confirmed_at,
+               (vo.receipt_data IS NOT NULL) AS has_receipt, vo.delivery_outcome,
+               COALESCE(array_agg(voi.item_code ORDER BY voi.item_code) FILTER (WHERE voi.item_code IS NOT NULL), '{}') AS item_codes
+        FROM vendor_orders vo
+        LEFT JOIN vendor_order_items voi ON voi.order_id = vo.id
+        WHERE vo.project_id=$1
+        GROUP BY vo.id
+        ORDER BY vo.supplier_name NULLS LAST, vo.confirmed_at DESC`, [project.id]),
+      pool.query(`
+        SELECT vol.item_code, vol.product_code, vol.description, vol.qty, vol.price,
+               vo.id AS order_id, vo.supplier_name, vo.supplier_email, (vo.receipt_data IS NOT NULL) AS has_receipt
+        FROM vendor_order_lines vol JOIN vendor_orders vo ON vo.id = vol.order_id
+        WHERE vo.project_id=$1
+        ORDER BY vol.item_code, vol.id`, [project.id]),
+    ]);
     const itemMap = {};
     items.forEach(i => itemMap[i.item_code] = i);
     // Pending material requests for this project → flag the requested items on the grid
-    const { rows: reqRows } = await pool.query(
-      'SELECT id, super_email, codes, needed_by, note, created_at FROM material_requests WHERE project_id=$1 AND fulfilled=FALSE ORDER BY created_at', [project.id]);
     const requestedByCode = {};
     for (const rq of reqRows) {
       const sName = (findSuper(rq.super_email) || {}).name || rq.super_email || 'Super';
@@ -3056,9 +3085,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         if (!requestedByCode[c]) requestedByCode[c] = { sup: sName, needed_by: rq.needed_by };
       });
     }
-    // Open issues for this project → label the affected lines
-    const { rows: issueRows } = await pool.query(
-      "SELECT id, super_email, item_code, item_label, note FROM material_issues WHERE project_id=$1 AND status='pending' AND item_code IS NOT NULL ORDER BY created_at DESC", [project.id]);
+    // Open issues for this project → label the affected lines (fetched in the batch above)
     const issueByCode = {};
     for (const iss of issueRows) {
       if (!issueByCode[iss.item_code]) issueByCode[iss.item_code] = {
@@ -3072,20 +3099,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
       code: iss.item_code, label: iss.item_label || '', note: iss.note || '',
       sup: (findSuper(iss.super_email) || {}).name || 'Super',
     }));
-    const suppliers = await getSuppliers();
-    const { rows: documents } = await pool.query('SELECT id, filename, uploaded_at FROM project_documents WHERE project_id=$1 ORDER BY uploaded_at DESC', [project.id]);
-    const { rows: payments } = await pool.query('SELECT * FROM milestone_payments WHERE project_id=$1 ORDER BY requested_at DESC', [project.id]);
-
-    // Confirmed vendor orders, grouped by vendor
-    const { rows: orderRows } = await pool.query(`
-      SELECT vo.id, vo.supplier_name, vo.supplier_email, vo.amount, vo.gmail_thread_id, vo.confirmed_at,
-             (vo.receipt_data IS NOT NULL) AS has_receipt, vo.delivery_outcome,
-             COALESCE(array_agg(voi.item_code ORDER BY voi.item_code) FILTER (WHERE voi.item_code IS NOT NULL), '{}') AS item_codes
-      FROM vendor_orders vo
-      LEFT JOIN vendor_order_items voi ON voi.order_id = vo.id
-      WHERE vo.project_id=$1
-      GROUP BY vo.id
-      ORDER BY vo.supplier_name NULLS LAST, vo.confirmed_at DESC`, [project.id]);
+    // suppliers / documents / payments / orderRows fetched in the batch above.
     const itemNames = {};
     ALL_ITEMS.forEach(i => itemNames[i.code] = i.name);
     // Open field requests for this project, with each requested item's live status — rendered as a panel on the project
@@ -3112,13 +3126,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         catMap[code].push(o);
       }
     }
-    // Itemized line items per order (product + price), grouped by category
-    const { rows: lineRows } = await pool.query(`
-      SELECT vol.item_code, vol.product_code, vol.description, vol.qty, vol.price,
-             vo.id AS order_id, vo.supplier_name, vo.supplier_email, (vo.receipt_data IS NOT NULL) AS has_receipt
-      FROM vendor_order_lines vol JOIN vendor_orders vo ON vo.id = vol.order_id
-      WHERE vo.project_id=$1
-      ORDER BY vol.item_code, vol.id`, [project.id]);
+    // Itemized line items per order (fetched in the batch above), grouped by category
     const linesByCat = {};
     const ordersWithLines = new Set();
     for (const l of lineRows) {
