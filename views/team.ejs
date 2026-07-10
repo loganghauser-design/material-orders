@@ -13,6 +13,15 @@
     .acc-tbl input[type=checkbox] { width:19px; height:19px; cursor:pointer; accent-color:#15161a; }
     .urole { font-size:.7rem; color:var(--muted); }
     .acc-tbl tbody tr:hover td { background:var(--bg); }
+    .tm-remove { border:none; background:none; color:#b42323; cursor:pointer; font-size:.78rem; padding:0 3px; }
+    .tm-remove:hover { text-decoration:underline; }
+    .add-member { margin-top:1rem; max-width:840px; }
+    .amf-row { display:flex; flex-wrap:wrap; gap:1rem; margin-bottom:1rem; }
+    .amf-row label { display:flex; flex-direction:column; gap:.3rem; font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:700; }
+    .amf-row input { font-size:.9rem; padding:.45rem .6rem; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); min-width:190px; text-transform:none; letter-spacing:normal; font-weight:400; }
+    .amf-pages { display:flex; flex-wrap:wrap; gap:.45rem 1rem; align-items:center; margin-bottom:1.1rem; }
+    .amf-plabel { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); font-weight:700; width:100%; }
+    .amf-chip { font-size:.85rem; color:var(--text); display:inline-flex; align-items:center; gap:.35rem; cursor:pointer; }
   </style>
 </head>
 <body>
@@ -27,6 +36,13 @@
   <% if (typeof saved !== 'undefined' && saved) { %>
     <div class="error-msg" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;margin-bottom:1rem">✓ Access saved.</div>
   <% } %>
+  <% if (typeof added !== 'undefined' && added === 'ok') { %>
+    <div class="error-msg" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;margin-bottom:1rem">✓ Team member added — they can sign in now.</div>
+  <% } else if (added === 'taken') { %>
+    <div class="error-msg" style="margin-bottom:1rem">That username is already in use — pick another.</div>
+  <% } else if (added === 'err') { %>
+    <div class="error-msg" style="margin-bottom:1rem">Enter a name, username, and a password of at least 4 characters.</div>
+  <% } %>
 
   <form method="POST" action="/team/save">
     <div style="overflow-x:auto;border:1px solid var(--border);border-radius:10px">
@@ -35,7 +51,7 @@
         <tbody>
           <% members.forEach(m => { %>
             <tr>
-              <td class="user"><strong><%= m.name %></strong><br><span class="urole"><%= m.role %> · <%= m.key %></span></td>
+              <td class="user"><strong><%= m.name %></strong><% if (m.dynamic) { %> <button type="button" class="tm-remove" title="Remove this login" onclick="removeMember('<%= m.key %>', '<%= m.name.replace(/'/g, "\\'") %>')">✕ remove</button><% } %><br><span class="urole"><%= m.role %> · <%= m.key %></span></td>
               <% PAGES.forEach(p => { %>
                 <td><input type="checkbox" name="pages_<%= m.key %>" value="<%= p.key %>" <%= m.pages.indexOf(p.key) >= 0 ? 'checked' : '' %>></td>
               <% }) %>
@@ -46,6 +62,33 @@
     </div>
     <div style="margin-top:1.3rem"><button type="submit" class="btn btn-primary">Save access</button></div>
   </form>
+
+  <hr style="margin:2.2rem 0 1.4rem;border:none;border-top:1px solid var(--border)">
+  <h2 style="font-size:1.1rem;margin:0 0 .3rem">Add a team member</h2>
+  <p style="color:var(--muted);font-size:.85rem;max-width:720px;margin:0 0 1rem">
+    Creates an office login. Check the pages they should see — everything else stays hidden and blocked.
+    They can change their own password from their Account page after signing in.
+  </p>
+  <form method="POST" action="/team/add" class="add-member">
+    <div class="amf-row">
+      <label>Name<input type="text" name="name" required placeholder="Dennis" autocomplete="off"></label>
+      <label>Username<input type="text" name="username" required placeholder="dennis" autocomplete="off"></label>
+      <label>Password<input type="text" name="password" required placeholder="min 4 characters" autocomplete="off"></label>
+    </div>
+    <div class="amf-pages">
+      <span class="amf-plabel">Pages they can see</span>
+      <% PAGES.forEach(p => { %><label class="amf-chip"><input type="checkbox" name="pages" value="<%= p.key %>"> <%= p.label %></label><% }) %>
+    </div>
+    <button type="submit" class="btn btn-primary">Add member</button>
+  </form>
 </div>
+
+<script>
+async function removeMember(key, name) {
+  if (!confirm('Remove ' + name + "'s login? They will no longer be able to sign in.")) return;
+  try { await fetch('/team/remove', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'key=' + encodeURIComponent(key) }); } catch (e) {}
+  location.href = '/team';
+}
+</script>
 </body>
 </html>

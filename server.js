@@ -1279,9 +1279,18 @@ const ADMINS = [
   { username: 'rick', name: 'Rick', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },  // Sales — limited access (see defaultPagesFor)
   { username: 'dennis', name: 'Dennis', passwordHash: '$2b$10$173Eyl/DlwQh.iOhmzIZk.a/80Shd8ksxO7qVEW5dk1MIKV0zk0PW' },  // Sales — Driving Log (mileage) only (see defaultPagesFor)
 ];
+// Team members Logan adds from the /team hub — dynamic office logins (same access model as ADMINS;
+// page permissions managed on /team). Loaded from the team_logins table.
+let DB_ADMINS = [];
+async function loadTeamLogins() {
+  try {
+    const { rows } = await pool.query('SELECT user_key, name, password_hash FROM team_logins ORDER BY name');
+    DB_ADMINS = rows.map(r => ({ username: String(r.user_key).toLowerCase(), name: r.name, passwordHash: r.password_hash, dynamic: true }));
+  } catch (e) { DB_ADMINS = []; }
+}
 function findAdminByLogin(login) {
   const l = String(login || '').trim().toLowerCase();
-  return ADMINS.find(a => a.username.toLowerCase() === l) || null;
+  return ADMINS.find(a => a.username.toLowerCase() === l) || DB_ADMINS.find(a => a.username.toLowerCase() === l) || null;
 }
 
 // ── Page permissions (managed in the /team hub) ───────────────────────────────
@@ -1306,6 +1315,7 @@ const PAGE_KEYS = PAGE_META.map(p => p.key);
 function teamMembers() {
   return [
     ...ADMINS.map(a => ({ key: a.username, name: a.name, role: 'Admin' })),
+    ...DB_ADMINS.map(a => ({ key: a.username, name: a.name, role: 'Admin', dynamic: true })),
     ...SUPERS.map(s => ({ key: s.email, name: s.name, role: 'Super' })),
   ];
 }
@@ -1318,18 +1328,24 @@ async function loadAccess() {
     ACCESS = m;
   } catch (e) { /* table may not exist yet */ }
 }
+// Pages every SUPERINTENDENT gets by ROLE (on top of their /my portal, which already has
+// the material-request + issue forms). The Team page can grant extras, but these role
+// pages can never be un-ticked away — being a super IS the access.
+const SUPER_ROLE_PAGES = ['driving'];
 function defaultPagesFor(key, role) {
   if (key === 'rick') return new Set(['subs']);               // Sales: Subs/bidding only (tune on the Team page)
   if (key === 'dennis') return new Set(['driving']);          // Dennis (sales): mileage calculator (Driving Log) only
   if (role === 'admin') return new Set(PAGE_KEYS);            // Jeff/Aziz default to everything
-  if (canSuperViewSubs(key)) return new Set(['subs', 'warranty']);  // Bobby keeps his current access
-  return new Set();                                          // other supers: portal only
+  if (canSuperViewSubs(key)) return new Set(['subs', 'warranty', ...SUPER_ROLE_PAGES]);  // Bobby keeps his extras
+  if (role === 'super') return new Set(SUPER_ROLE_PAGES);     // every super: role pages
+  return new Set();
 }
 function sessionKey(req) { return (req.session && (req.session.userKey || req.session.superEmail)) || ''; }
 function allowedPagesFor(key, role) {
   if (key === 'logan') return new Set(PAGE_KEYS);            // Logan: full, locked
-  if (ACCESS[key]) return ACCESS[key];
-  return defaultPagesFor(key, role);
+  const base = ACCESS[key] ? new Set(ACCESS[key]) : defaultPagesFor(key, role);
+  if (role === 'super') SUPER_ROLE_PAGES.forEach(pg => base.add(pg));   // role floor — supers always keep these
+  return base;
 }
 function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
@@ -1585,6 +1601,13 @@ async function initDb() {
       username TEXT PRIMARY KEY,
       password_hash TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    -- Team members Logan adds from the /team hub (dynamic office logins).
+    CREATE TABLE IF NOT EXISTS team_logins (
+      user_key TEXT PRIMARY KEY,
+      name TEXT,
+      password_hash TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
     );
     CREATE TABLE IF NOT EXISTS material_requests (
       id SERIAL PRIMARY KEY,
@@ -4949,9 +4972,9 @@ app.use((req, res, next) => {
 // ── Team hub: Logan manages who can see which page (only Logan reaches this) ───
 app.get('/team', requireAuth, async (req, res) => {
   try {
-    await initDb(); await loadAccess();
-    const members = teamMembers().map(m => ({ key: m.key, name: m.name, role: m.role, pages: [...allowedPagesFor(m.key, m.role.toLowerCase())] }));
-    res.render('team', { members, PAGES: PAGE_META, saved: req.query.saved === '1' });
+    await initDb(); await loadAccess(); await loadTeamLogins();
+    const members = teamMembers().map(m => ({ key: m.key, name: m.name, role: m.role, dynamic: !!m.dynamic, pages: [...allowedPagesFor(m.key, m.role.toLowerCase())] }));
+    res.render('team', { members, PAGES: PAGE_META, saved: req.query.saved === '1', added: req.query.added || '' });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 app.post('/team/save', requireAuth, async (req, res) => {
@@ -4969,6 +4992,42 @@ app.post('/team/save', requireAuth, async (req, res) => {
     }
     await loadAccess();
     res.redirect('/team?saved=1');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+// Add a new team member (office login). Logan picks their name, username, password, and page access.
+app.post('/team/add', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const name = String(req.body.name || '').trim();
+    const key = String(req.body.username || '').trim().toLowerCase().replace(/[^a-z0-9_.-]/g, '');
+    const password = String(req.body.password || '');
+    if (!name || !key || password.length < 4) return res.redirect('/team?added=err');
+    await loadTeamLogins();
+    const taken = key === String(process.env.ADMIN_USERNAME || 'logan').toLowerCase() || key === 'logan'
+      || ADMINS.some(a => a.username.toLowerCase() === key)
+      || SUPERS.some(s => s.username.toLowerCase() === key || s.email.toLowerCase() === key)
+      || DB_ADMINS.some(a => a.username.toLowerCase() === key);
+    if (taken) return res.redirect('/team?added=taken');
+    let pages = req.body.pages; if (pages === undefined) pages = []; if (!Array.isArray(pages)) pages = [pages];
+    pages = pages.filter(p => PAGE_KEYS.includes(p));
+    const hash = bcrypt.hashSync(password, 10);
+    await pool.query('INSERT INTO team_logins (user_key, name, password_hash) VALUES ($1,$2,$3) ON CONFLICT (user_key) DO UPDATE SET name=EXCLUDED.name, password_hash=EXCLUDED.password_hash', [key, name, hash]);
+    await pool.query('INSERT INTO user_access (user_key, pages, updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (user_key) DO UPDATE SET pages=EXCLUDED.pages, updated_at=NOW()', [key, pages.join(',')]);
+    await loadTeamLogins(); await loadAccess();
+    res.redirect('/team?added=ok');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+// Remove a member Logan added (never the built-in accounts).
+app.post('/team/remove', requireAuth, async (req, res) => {
+  try {
+    const key = String(req.body.key || '').trim().toLowerCase();
+    await loadTeamLogins();
+    if (!DB_ADMINS.some(a => a.username.toLowerCase() === key)) return res.redirect('/team');
+    await pool.query('DELETE FROM team_logins WHERE user_key=$1', [key]);
+    await pool.query('DELETE FROM user_access WHERE user_key=$1', [key]);
+    await pool.query('DELETE FROM admin_passwords WHERE username=$1', [key]);
+    await loadTeamLogins(); await loadAccess();
+    res.redirect('/team');
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
@@ -8140,4 +8199,4 @@ if (require.main === module) {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => console.log(`Listening on port ${PORT}`));
 }
-initDb().then(() => { console.log('DB ready'); loadAccess(); loadPeople(); _heldRefreshing = true; refreshHeldUsages().then(c => console.log('inventory cache warm: ' + c.usages.length + ' usages, ' + c.fails.length + ' sheet(s) failed')).catch(e => console.error('warm held usages:', e.message)).finally(() => { _heldRefreshing = false; }); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
+initDb().then(() => { console.log('DB ready'); loadAccess(); loadPeople(); loadTeamLogins(); _heldRefreshing = true; refreshHeldUsages().then(c => console.log('inventory cache warm: ' + c.usages.length + ' usages, ' + c.fails.length + ' sheet(s) failed')).catch(e => console.error('warm held usages:', e.message)).finally(() => { _heldRefreshing = false; }); startCron(); checkUnreadThreads(); checkSubReplies(); ingestQuickBooksEmails(); sweepPlatformBids(); pollFergusonEmails().then(fergusonAutoComplete); sweepFergusonOrders(); pollEmailBounces(); autoCompleteWarranty(); }).catch(err => console.error('DB init failed:', err.message));
