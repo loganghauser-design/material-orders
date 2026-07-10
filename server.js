@@ -2380,7 +2380,7 @@ app.post('/my/request/:id', requireSuper, async (req, res) => {
     const lines = [`📥 *Material request* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${sup.name}`, `Needs: ${names.join(', ')}`];
     if (neededBy) { const d = neededBy.split('-').map(Number); lines.push('Needed by: ' + (d.length === 3 ? new Date(d[0], d[1] - 1, d[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : neededBy)); }
     if (note) lines.push('Note: ' + note);
-    postBidsText(lines.join('\n'), 'request-' + reqRow.id);   // ping Logan's private Bids chat only
+    postBidsText(lines.join('\n'), 'request-' + reqRow.id, true);   // ping Logan's private Bids chat, even while chat is paused
     res.redirect('/my?requested=1');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -6470,8 +6470,8 @@ function fergusonPoCodes(po) {
 
 // Plain-text post to the Bids space — the testing ground for all notifications for now.
 // (The material delivery chat stays quiet unless Logan explicitly asks for something there.)
-async function postBidsText(text, threadKey) {
-  if (CHAT_PAUSED) return;
+async function postBidsText(text, threadKey, force) {
+  if (CHAT_PAUSED && !force) return;   // force: an alert Logan always wants (e.g. material requests)
   if (!process.env.BIDS_WEBHOOK_URL) return;
   try {
     let url = process.env.BIDS_WEBHOOK_URL;
