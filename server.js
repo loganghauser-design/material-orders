@@ -1277,6 +1277,7 @@ const ADMINS = [
   { username: 'jeff', name: 'Jeff', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },  // CEO
   { username: 'aziz', name: 'Aziz', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },  // Ops manager
   { username: 'rick', name: 'Rick', passwordHash: '$2b$10$YCz8jB0QM8p7rE1lXwvJZeCNIPYv5GoHoGJIO1xOeoM9ymp4EOFfe' },  // Sales — limited access (see defaultPagesFor)
+  { username: 'dennis', name: 'Dennis', passwordHash: '$2b$10$T//85MBJIMQlMP/1ZPv8ruOhzsCiHZgI6lTnLcWk5QkwW..5rnuuW' },  // Sales — Driving Log (mileage) only (see defaultPagesFor)
 ];
 function findAdminByLogin(login) {
   const l = String(login || '').trim().toLowerCase();
@@ -1319,6 +1320,7 @@ async function loadAccess() {
 }
 function defaultPagesFor(key, role) {
   if (key === 'rick') return new Set(['subs']);               // Sales: Subs/bidding only (tune on the Team page)
+  if (key === 'dennis') return new Set(['driving']);          // Dennis (sales): mileage calculator (Driving Log) only
   if (role === 'admin') return new Set(PAGE_KEYS);            // Jeff/Aziz default to everything
   if (canSuperViewSubs(key)) return new Set(['subs', 'warranty']);  // Bobby keeps his current access
   return new Set();                                          // other supers: portal only
