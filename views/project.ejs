@@ -15,25 +15,89 @@
 <%- include('_nav', { active: '' }) %>
 
 <div class="container">
-  <div class="page-header" style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
-    <div>
-      <h1><%= project.address %></h1>
-      <div style="color:var(--muted);margin-top:.25rem"><%= project.version || '' %></div>
+  <%
+    var _ph = project.phase || (project.overall_status === 'Fully Delivered' ? 'Complete' : (project.overall_status === 'Not Yet' ? 'Pre-Construction' : 'Under Construction'));
+    var _assigned = (project.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean);
+    var _asg = supers.filter(function(s){ return _assigned.includes(s.email.toLowerCase()); });
+    var _siteNames = _asg.map(function(s){ return s.name; }).join(', ');
+  %>
+  <div class="proj-head">
+    <div class="ph-top">
+      <div style="min-width:0">
+        <h1 style="margin:0"><%= project.address %></h1>
+        <% if (project.version) { %><div class="ph-sub"><%= project.version %></div><% } %>
+      </div>
+      <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost btn-sm" title="Edit address, client, status, notes">✎ Edit</a>
     </div>
-    <% var _ph = project.phase || (project.overall_status === 'Fully Delivered' ? 'Complete' : (project.overall_status === 'Not Yet' ? 'Pre-Construction' : 'Under Construction')); %>
-    <span class="badge phb-<%= _ph.toLowerCase().replace(/[^a-z]+/g,'_') %>" style="font-size:.95rem;padding:.4rem 1rem"><%= _ph %></span>
-    <a href="/projects/<%= project.id %>/edit" class="btn btn-ghost btn-sm" title="Edit address, client name/email, status, notes">✎ Edit project</a>
-    <% if (project.notes) { %><div style="color:var(--muted);font-size:.875rem"><%= project.notes %></div><% } %>
-    <% const _assigned = (project.super_email || '').split(',').map(e => e.trim().toLowerCase()).filter(Boolean); %>
-    <div style="margin-left:auto;display:flex;align-items:center;gap:.5rem" title="Assigned site contacts receive this project's delivery notices (in-house supers are also tagged in chat)">
-      <span style="font-size:.72rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">Site contacts</span>
-      <% var _asg = supers.filter(function(s){ return _assigned.includes(s.email.toLowerCase()); }); %>
-      <button type="button" class="dt-team" data-assigned="<%= JSON.stringify(_asg.map(function(s){ return { email: s.email, name: s.name, role: s.role }; })) %>" onclick="dtOpen(this)">
-        <% if (_asg.length) { %><span class="dt-names"><%= _asg.map(function(s){ return s.name; }).join(', ') %></span><% } else { %><span class="dt-none">Assign…</span><% } %>
-        <span class="dt-caret">▾</span>
-      </button>
+    <div class="ph-grid">
+      <div class="ph-field">
+        <div class="ph-label">Client</div>
+        <div class="ph-val"><%= project.client_name || '—' %></div>
+        <% if (project.client_email) { %><a class="ph-link" href="mailto:<%= project.client_email %>"><%= project.client_email %></a><% } %>
+      </div>
+      <div class="ph-field">
+        <div class="ph-label">Status</div>
+        <div class="ph-status-wrap">
+          <button type="button" class="ph-status phb-<%= _ph.toLowerCase().replace(/[^a-z]+/g,'_') %>" onclick="togglePhaseMenu(event)"><%= _ph %> <span class="ph-caret">▾</span></button>
+          <div class="ph-menu" id="phaseMenu">
+            <div class="ph-menu-h">Change status</div>
+            <% PROJECT_PHASES.forEach(function(p){ %><button type="button" class="ph-menu-item<%= p===_ph?' on':'' %>" onclick="setPhase('<%= p %>')"><%= p %></button><% }) %>
+          </div>
+        </div>
+      </div>
+      <div class="ph-field">
+        <div class="ph-label">Last delivery</div>
+        <% if (lastDelivered) { var _dd = Math.floor((Date.now() - new Date(lastDelivered.date).getTime()) / 86400000); %>
+          <div class="ph-val">🚚 <%= lastDelivered.name %></div>
+          <div class="ph-sub">delivered <%= _dd <= 0 ? 'today' : _dd + 'd ago' %></div>
+        <% } else { %><div class="ph-sub">No deliveries yet</div><% } %>
+      </div>
+      <div class="ph-field">
+        <div class="ph-label">Team</div>
+        <div class="ph-val"><span class="ph-role ph-role-pm">PM</span> Aziz Ibrahim</div>
+        <div style="margin-top:.35rem" title="Assigned site contacts receive this project's delivery notices">
+          <button type="button" class="dt-team" data-assigned="<%= JSON.stringify(_asg.map(function(s){ return { email: s.email, name: s.name, role: s.role }; })) %>" onclick="dtOpen(this)">
+            <% if (_asg.length) { %><span class="dt-names"><%= _siteNames %></span><% } else { %><span class="dt-none">Assign site contact…</span><% } %>
+            <span class="dt-caret">▾</span>
+          </button>
+        </div>
+      </div>
     </div>
+    <% if (project.notes) { %><div class="ph-notes"><%= project.notes %></div><% } %>
   </div>
+
+  <style>
+    .proj-head{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin:.2rem 0 1rem}
+    .ph-top{display:flex;align-items:flex-start;gap:1rem}
+    .ph-top h1{font-size:1.35rem}
+    .ph-top .btn{margin-left:auto;white-space:nowrap}
+    .ph-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:.9rem 1.3rem;margin-top:.9rem;padding-top:.85rem;border-top:1px solid var(--border)}
+    .ph-label{font-size:.66rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:.35rem}
+    .ph-val{font-size:.9rem;color:var(--text)}
+    .ph-sub{font-size:.78rem;color:var(--muted);margin-top:.12rem}
+    .ph-link{font-size:.8rem;color:#2563eb;text-decoration:none;display:inline-block;margin-top:.12rem}
+    .ph-link:hover{text-decoration:underline}
+    .ph-role{font-size:.58rem;font-weight:800;padding:0 4px;border-radius:4px;margin-right:3px;vertical-align:middle}
+    .ph-role-pm{background:#e6f1fb;color:#185fa5}
+    .ph-status-wrap{position:relative;display:inline-block}
+    .ph-status{display:inline-flex;align-items:center;gap:5px;font-size:.82rem;font-weight:600;padding:.32rem .6rem;border-radius:6px;border:1px solid var(--border);cursor:pointer;color:var(--text)}
+    .ph-caret{font-size:.68rem;opacity:.65}
+    .ph-menu{display:none;position:absolute;top:calc(100% + 5px);left:0;z-index:60;background:var(--surface);border:1px solid var(--border);border-radius:9px;box-shadow:0 8px 26px rgba(0,0,0,.14);padding:5px;min-width:200px}
+    .ph-menu.open{display:block}
+    .ph-menu-h{font-size:.62rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);padding:5px 9px 3px}
+    .ph-menu-item{display:block;width:100%;text-align:left;background:none;border:none;border-radius:6px;padding:6px 9px;font-size:.85rem;color:var(--text);cursor:pointer}
+    .ph-menu-item:hover{background:var(--bg)}
+    .ph-menu-item.on{background:#eef4ff;color:#2563eb;font-weight:600}
+    .ph-notes{color:var(--muted);font-size:.82rem;margin-top:.7rem;padding-top:.6rem;border-top:1px solid var(--border)}
+    .del-emails{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:.8rem 1.1rem;margin:0 0 1.1rem}
+    .del-emails-h{display:flex;align-items:center;gap:.5rem;font-size:.95rem;font-weight:700;margin-bottom:.45rem}
+    .del-emails-c{margin-left:auto;font-size:.72rem;font-weight:600;color:var(--muted);background:var(--bg);border:1px solid var(--border);border-radius:999px;padding:1px 9px}
+    .del-row{display:grid;grid-template-columns:64px 1fr 92px 1fr;gap:.6rem;align-items:center;padding:.45rem 0;border-top:1px solid var(--border);font-size:.85rem}
+    .del-date{color:var(--muted)}
+    .del-method{font-size:.8rem;white-space:nowrap}
+    .del-to{color:var(--muted);font-size:.8rem}
+    .del-empty{color:var(--muted);font-size:.85rem;padding:.25rem 0}
+  </style>
 
   <style>
     .tabs{display:flex;align-items:flex-end;gap:.2rem;flex-wrap:wrap;margin:.25rem 0 1.15rem;border-bottom:2px solid var(--border)}
@@ -254,6 +318,21 @@
 
   </div><!-- /orders -->
   <div class="tab-panel" data-tab="materials">
+  <div class="del-emails">
+    <div class="del-emails-h"><span>✉ Delivery emails sent</span><span class="del-emails-c"><%= (typeof deliveryNotices !== 'undefined' ? deliveryNotices.length : 0) %></span></div>
+    <% if (typeof deliveryNotices !== 'undefined' && deliveryNotices.length) { %>
+      <% deliveryNotices.forEach(function(n){ var _sd = new Date(n.sentAt); %>
+        <div class="del-row">
+          <span class="del-date"><%= _sd.toLocaleDateString('en-US', { month:'short', day:'numeric' }) %></span>
+          <span class="del-items"><%= n.items %></span>
+          <span class="del-method"><%= n.method === 'ups' ? '📦 UPS' : '🚚 Truck' %></span>
+          <span class="del-to"><%= _siteNames || '—' %></span>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <div class="del-empty">No delivery emails sent yet — they'll appear here once you approve one.</div>
+    <% } %>
+  </div>
   <% if (typeof projectRequests !== 'undefined' && projectRequests.length) { %>
   <div id="fieldRequests" class="field-requests">
     <div class="fr-title">📥 Field Requests <span class="fr-count"><%= projectRequests.length %></span></div>
@@ -704,6 +783,17 @@ window.addEventListener('resize', () => { const p = document.getElementById('dtP
 const ALL_MATERIALS = <%- JSON.stringify(STAGES.flatMap(s => s.items)) %>;
 const STAGES_DATA = <%- JSON.stringify(STAGES) %>;
 const CATEGORY_REQUEST_DATA = <%- JSON.stringify(categoryRequestData || []) %>;
+const _PID = <%= project.id %>;
+function togglePhaseMenu(ev){ ev.stopPropagation(); document.getElementById('phaseMenu').classList.toggle('open'); }
+document.addEventListener('click', function(e){ var m = document.getElementById('phaseMenu'); if (m && m.classList.contains('open') && !e.target.closest('.ph-status-wrap')) m.classList.remove('open'); });
+async function setPhase(phase){
+  try {
+    const r = await fetch('/projects/' + _PID + '/phase', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ phase }) });
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Could not change status'); return; }
+    location.reload();
+  } catch (e) { alert('Could not change status'); }
+}
 const PROJECT_ISSUES = <%- JSON.stringify(projectIssues || []) %>;
 function issueForItem(code, name, room) {
   const full = (room ? room + ' — ' + name : name).trim().toLowerCase();

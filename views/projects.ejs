@@ -211,7 +211,6 @@
               <select class="pc-phase" data-project="<%= p.id %>" onchange="savePhase(this)" title="Project phase">
                 <% PROJECT_PHASES.forEach(ph2 => { %><option value="<%= ph2 %>" <%= ph===ph2?'selected':'' %>><%= ph2 %></option><% }) %>
               </select>
-              <a href="/projects/<%= p.id %>" class="btn btn-ghost btn-sm">Open</a>
               <form method="POST" action="/projects/<%= p.id %>/delete" onsubmit="return confirm('Delete this project?')" style="margin:0"><button type="submit" class="pc-del" title="Delete">🗑</button></form>
             </div>
           </div>
