@@ -40,7 +40,7 @@
 <body>
 <div class="wrap">
   <div class="rhead">
-    <a href="/my">← My projects</a>
+    <a href="<%= typeof backPath !== 'undefined' ? backPath : '/my' %>"><%= typeof backLabel !== 'undefined' ? backLabel : '← My projects' %></a>
     <h1>📦 Request material</h1>
     <div style="color:var(--muted);font-size:.88rem;margin-top:.15rem"><%= project.address %></div>
   </div>
@@ -49,7 +49,7 @@
 
   <% if (err) { %><div class="errbox">Pick at least one item to request.</div><% } %>
 
-  <form method="POST" action="/my/request/<%= project.id %>" id="reqForm">
+  <form method="POST" action="<%= (typeof basePath !== 'undefined' ? basePath : '/my/request') + '/' + project.id %>" id="reqForm">
     <% STAGES.forEach(stage => { %>
       <div class="stage">
         <div class="stage-h"><span><%= stage.name %></span><button type="button" onclick="toggleStage(this)">Select all</button></div>

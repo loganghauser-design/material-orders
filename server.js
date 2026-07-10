@@ -1301,6 +1301,7 @@ const PAGE_META = [
   { key: 'deliveries', label: 'Deliveries', path: '/deliveries' },
   { key: 'ordering', label: 'Order Planner', path: '/ordering' },
   { key: 'requests', label: 'Requests', path: '/requests' },
+  { key: 'request_form', label: 'Request Materials', path: '/request-materials' },
   { key: 'issues', label: 'Issues', path: '/issues' },
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
   { key: 'notices', label: 'Delivery Notices', path: '/delivery-notices' },
@@ -1356,6 +1357,7 @@ function pageForPath(p) {
   if (p.startsWith('/inventory') || p === '/stock-status') return 'inventory';
   if (p.startsWith('/catalog')) return 'catalog';
   if (p.startsWith('/requests')) return 'requests';
+  if (p.startsWith('/request-materials')) return 'request_form';
   if (p.startsWith('/issues')) return 'issues';
   if (p.startsWith('/warranty-claims')) return 'warranty';
   if (p.startsWith('/delivery-notices')) return 'notices';
@@ -2486,6 +2488,63 @@ app.post('/my/request/:id', requireSuper, async (req, res) => {
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// ── Request Materials (office form — grantable on the Team page) ───────────────
+// The same form supers fill out, for office users granted the 'request_form' page.
+// They can request on ANY project; requests land in the same office inbox + chat ping.
+app.get('/request-materials', requireAuth, async (req, res) => {
+  try {
+    const { rows: projects } = await pool.query(
+      "SELECT id, address, full_address, phase FROM projects WHERE COALESCE(phase,'') NOT IN ('Complete','Under Warranty') ORDER BY address");
+    res.render('request-materials', { projects, requested: req.query.requested === '1' });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.get('/request-materials/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
+    if (!project) return res.redirect('/request-materials');
+    const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
+    const deliveredCodes = pit.filter(r => ['Delivered', 'Delivered from Inv.'].includes(r.status)).map(r => r.item_code);
+    let byCode = {};
+    if (project.finish_schedule_url) {
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source }); }
+      catch (e) { byCode = {}; }
+    }
+    const key = sessionKey(req);
+    const who = (findAdminByLogin(key) || {}).name || (findSuper(key) || {}).name || key;
+    res.render('my-request', { project, STAGES, sup: { name: who }, err: req.query.err === '1', delivered: deliveredCodes, byCode, basePath: '/request-materials', backPath: '/request-materials', backLabel: '← All projects' });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+app.post('/request-materials/:id', requireAuth, async (req, res) => {
+  try {
+    const { rows: [project] } = await pool.query('SELECT id, address, super_email FROM projects WHERE id=$1', [req.params.id]);
+    if (!project) return res.redirect('/request-materials');
+    const valid = new Set(ALL_ITEMS.map(i => i.code));
+    const codes = [].concat(req.body.codes || []).filter(c => valid.has(c));
+    if (!codes.length) return res.redirect('/request-materials/' + project.id + '?err=1');
+    const note = String(req.body.note || '').trim().slice(0, 500);
+    const neededBy = String(req.body.needed_by || '').trim() || null;
+    const key = sessionKey(req);
+    const who = (findAdminByLogin(key) || {}).name || (findSuper(key) || {}).name || key;
+    const { rows: [reqRow] } = await pool.query(
+      'INSERT INTO material_requests (project_id, super_email, codes, note, needed_by) VALUES ($1,$2,$3,$4,$5) RETURNING id',
+      [project.id, who, codes.join(','), note || null, neededBy]
+    );
+    for (const c of codes) await pool.query('INSERT INTO project_items (project_id, item_code) VALUES ($1,$2) ON CONFLICT DO NOTHING', [project.id, c]);
+    await pool.query(
+      `UPDATE project_items SET status='Delivery Requested'
+       WHERE project_id=$1 AND item_code = ANY($2) AND (status IS NULL OR status='' OR status='Not yet placed')`,
+      [project.id, codes]
+    );
+    const names = codes.map(c => CODE_NAME[c] || c);
+    const LOGAN = '106404376271648731086';
+    const lines = [`📥 *Material request* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${who}`, `Needs: ${names.join(', ')}`];
+    if (neededBy) { const d = neededBy.split('-').map(Number); lines.push('Needed by: ' + (d.length === 3 ? new Date(d[0], d[1] - 1, d[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : neededBy)); }
+    if (note) lines.push('Note: ' + note);
+    postBidsText(lines.join('\n'), 'request-' + reqRow.id, true);   // ping Logan's private chat, even while chat is paused
+    res.redirect('/request-materials?requested=1');
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
 // Super: report a material issue (with optional photo) — form

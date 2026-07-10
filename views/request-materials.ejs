@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Request Materials — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css?v=5">
+  <style>
+    .rm-intro { color:var(--muted); font-size:.9rem; margin:.1rem 0 1.2rem; max-width:680px; line-height:1.5; }
+    .rm-ok { background:rgba(76,175,125,.12); border:1px solid rgba(76,175,125,.4); color:#16a34a; font-weight:600; border-radius:11px; padding:.8rem 1rem; margin-bottom:1rem; }
+    .rm-list { display:flex; flex-direction:column; gap:8px; max-width:560px; }
+    .rm-row { display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:11px; padding:12px 15px; text-decoration:none; color:var(--text); }
+    .rm-row:hover { border-color:#4f8ef7; }
+    .rm-name { font-weight:600; font-size:.95rem; }
+    .rm-sub { font-size:.74rem; color:var(--muted); margin-top:1px; }
+    .rm-phase { font-size:.7rem; font-weight:700; color:var(--muted); white-space:nowrap; }
+    .rm-go { color:#2563eb; font-weight:700; white-space:nowrap; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'request_form' }) %>
+
+<div class="container">
+  <div class="page-header"><h1 style="margin:0">Request Materials</h1></div>
+  <% if (typeof requested !== 'undefined' && requested) { %><div class="rm-ok">✓ Request sent to the office.</div><% } %>
+  <p class="rm-intro">Pick the project you need materials for — you'll get the same request form the superintendents use. The request lands in the office <strong>Requests</strong> inbox and pings Logan.</p>
+  <% if (!projects.length) { %>
+    <p style="color:var(--muted)">No active projects.</p>
+  <% } else { %>
+    <div class="rm-list">
+      <% projects.forEach(function(p){ %>
+        <a class="rm-row" href="/request-materials/<%= p.id %>">
+          <span>
+            <span class="rm-name"><%= p.address %></span>
+            <% if (p.full_address && p.full_address !== p.address) { %><div class="rm-sub"><%= p.full_address %></div><% } %>
+          </span>
+          <span style="display:flex;align-items:center;gap:12px">
+            <span class="rm-phase"><%= p.phase || '' %></span>
+            <span class="rm-go">Request →</span>
+          </span>
+        </a>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+</body>
+</html>
