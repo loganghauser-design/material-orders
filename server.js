@@ -1490,8 +1490,12 @@ Melio link: ${melioLink || ''}`;
 
 // ── DB init ───────────────────────────────────────────────────────────────────
 
+// Schema DDL runs ONCE per process — not on every request (it was being awaited at the
+// top of ~14 routes, re-running ~570 lines of CREATE/ALTER every page load → multi-second loads).
+let _initDbPromise = null;
 async function initDb() {
-  await pool.query(`
+  if (_initDbPromise) return _initDbPromise;
+  _initDbPromise = pool.query(`
     CREATE TABLE IF NOT EXISTS projects (
       id SERIAL PRIMARY KEY,
       address VARCHAR(255) NOT NULL,
@@ -2065,7 +2069,22 @@ async function initDb() {
 
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS delivery_requested_at TIMESTAMPTZ;
     ALTER TABLE project_items ADD COLUMN IF NOT EXISTS order_date DATE;
-  `);
+
+    -- Indexes on the hot per-project lookup columns (queried on every page render).
+    CREATE INDEX IF NOT EXISTS idx_project_items_pid ON project_items (project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_expected_pid ON project_expected_items (project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_item_marks_pid ON project_item_marks (project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_item_orders_pid ON project_item_orders (project_id);
+    CREATE INDEX IF NOT EXISTS idx_project_order_lines_pid ON project_order_lines (project_id);
+    CREATE INDEX IF NOT EXISTS idx_ferguson_updates_pid ON ferguson_updates (project_id);
+    CREATE INDEX IF NOT EXISTS idx_vendor_emails_pid ON vendor_emails (project_id);
+    CREATE INDEX IF NOT EXISTS idx_material_requests_pid ON material_requests (project_id);
+    CREATE INDEX IF NOT EXISTS idx_material_issues_pid ON material_issues (project_id);
+    CREATE INDEX IF NOT EXISTS idx_sub_emails_sub ON sub_emails (sub_id);
+    CREATE INDEX IF NOT EXISTS idx_delivery_notices_pid ON delivery_notices (project_id);
+    CREATE INDEX IF NOT EXISTS idx_held_item_status_pid ON held_item_status (project_id);
+  `).catch(e => { _initDbPromise = null; throw e; });
+  return _initDbPromise;
 }
 
 // Auto-create all 13 item rows for a project
