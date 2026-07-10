@@ -3188,7 +3188,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         items: String(n.codes || '').split(',').map(c => c.trim()).filter(Boolean).map(c => CODE_NAME[c] || c).join(', ') || (n.items || '—'),
       }));
     } catch (e) { /* non-fatal */ }
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), contacts: allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' })), itemsAgg, itemStates, checklistItems, showBifold, showSliding, lastDelivered, deliveryNotices });
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, PROJECT_PHASES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), contacts: allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' })), itemsAgg, itemStates, checklistItems, showBifold, showSliding, lastDelivered, deliveryNotices });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
