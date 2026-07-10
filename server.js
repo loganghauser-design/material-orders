@@ -2380,7 +2380,7 @@ app.post('/my/request/:id', requireSuper, async (req, res) => {
     const lines = [`📥 *Material request* <users/${LOGAN}>`, `*${shortAddress(project.address)}* — ${sup.name}`, `Needs: ${names.join(', ')}`];
     if (neededBy) { const d = neededBy.split('-').map(Number); lines.push('Needed by: ' + (d.length === 3 ? new Date(d[0], d[1] - 1, d[2]).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : neededBy)); }
     if (note) lines.push('Note: ' + note);
-    postToChat(lines.join('\n'), 'request-' + reqRow.id);   // same thread key the office reply uses
+    postBidsText(lines.join('\n'), 'request-' + reqRow.id);   // ping Logan's private Bids chat only
     res.redirect('/my?requested=1');
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
