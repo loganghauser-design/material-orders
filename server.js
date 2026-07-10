@@ -21,9 +21,20 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+// Log anything slow so perf regressions show up in the Railway logs immediately.
+app.use((req, res, next) => {
+  const t0 = process.hrtime.bigint();
+  res.on('finish', () => {
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    if (ms > 400) console.log('SLOW ' + Math.round(ms) + 'ms ' + req.method + ' ' + req.originalUrl);
+  });
+  next();
+});
+app.use(require('compression')());   // gzip every response — the grid HTML shrinks ~10x
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+// Static assets get a browser cache (views already cache-bust with ?v=N on change).
+app.use(express.static(path.join(__dirname, 'public'), { maxAge: '1d' }));
 const pgSession = require('connect-pg-simple')(session);
 app.use(session({
   // Store sessions in Postgres so logins survive deploys/restarts
@@ -2172,6 +2183,38 @@ app.use(async (req, res, next) => {
   next();
 });
 
+// ── Short-TTL page cache for the hottest pages ─────────────────────────────────
+// Serves the rendered HTML from memory for a few seconds (per user, per URL), so
+// bouncing between the grid and a project is instant. ANY write (POST/PUT/DELETE)
+// clears the whole cache, so edits always show immediately.
+const PAGE_CACHE_TTL_MS = 8000;
+const _pageCache = new Map();   // `${user}|${url}` -> { at, body }
+app.use((req, res, next) => {
+  if (req.method !== 'GET') {
+    if (req.method !== 'HEAD' && req.method !== 'OPTIONS') _pageCache.clear();
+    return next();
+  }
+  if (!req.session || !req.session.authenticated) return next();
+  const p = req.path;
+  const cacheable = p === '/' || p === '/projects' || /^\/projects\/\d+$/.test(p) || /^\/projects\/\d+\/checklist$/.test(p);
+  if (!cacheable) return next();
+  const key = sessionKey(req) + '|' + req.originalUrl;
+  const hit = _pageCache.get(key);
+  if (hit && (Date.now() - hit.at) < PAGE_CACHE_TTL_MS) {
+    res.set('X-Page-Cache', 'hit');
+    return res.type('html').send(hit.body);
+  }
+  const origSend = res.send.bind(res);
+  res.send = (body) => {
+    if (res.statusCode === 200 && typeof body === 'string' && body.startsWith('<')) {
+      _pageCache.set(key, { at: Date.now(), body });
+      if (_pageCache.size > 200) _pageCache.clear();   // tiny office app — crude but safe bound
+    }
+    return origSend(body);
+  };
+  next();
+});
+
 app.get('/login', (req, res) => {
   if (req.session.authenticated) return res.redirect(req.session.role === 'super' ? '/my' : '/');
   res.render('login', { error: null });
@@ -3041,9 +3084,8 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
   try {
     const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/');
-    await ensureProjectItems(project.id);
     // Everything below only needs project.id — ONE parallel batch instead of 8 sequential round-trips.
-    const [
+    let [
       { rows: items },
       { rows: reqRows },
       { rows: issueRows },
@@ -3075,6 +3117,11 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
         WHERE vo.project_id=$1
         ORDER BY vol.item_code, vol.id`, [project.id]),
     ]);
+    // Backfill missing item rows only when actually missing (avoids a write on every view).
+    if (items.length < ALL_ITEMS.length) {
+      await ensureProjectItems(project.id);
+      items = (await pool.query('SELECT * FROM project_items WHERE project_id=$1', [project.id])).rows;
+    }
     const itemMap = {};
     items.forEach(i => itemMap[i.item_code] = i);
     // Pending material requests for this project → flag the requested items on the grid

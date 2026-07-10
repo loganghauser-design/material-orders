@@ -78,6 +78,19 @@
   </div>
 </aside>
 
+<script type="speculationrules">
+{
+  "prefetch": [{
+    "where": { "and": [
+      { "href_matches": "/*" },
+      { "not": { "href_matches": "/logout" } },
+      { "not": { "href_matches": "/*/delete" } },
+      { "not": { "href_matches": "/*.pdf" } }
+    ]},
+    "eagerness": "moderate"
+  }]
+}
+</script>
 <script>
 function sbToggle(e) {
   e.stopPropagation();
