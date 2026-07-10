@@ -21,6 +21,7 @@
     var _asg = supers.filter(function(s){ return _assigned.includes(s.email.toLowerCase()); });
     var _siteNames = _asg.map(function(s){ return s.name; }).join(', ');
   %>
+  <a href="/projects" class="proj-back">← All projects</a>
   <div class="proj-head">
     <div class="ph-top">
       <div style="min-width:0">
@@ -67,7 +68,9 @@
   </div>
 
   <style>
-    .proj-head{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin:.2rem 0 1rem}
+    .proj-back{display:inline-block;font-size:.82rem;color:#2563eb;text-decoration:none;margin:.1rem 0 .55rem}
+    .proj-back:hover{text-decoration:underline}
+    .proj-head{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.25rem;margin:0 0 1rem}
     .ph-top{display:flex;align-items:flex-start;gap:1rem}
     .ph-top h1{font-size:1.35rem}
     .ph-top .btn{margin-left:auto;white-space:nowrap}
