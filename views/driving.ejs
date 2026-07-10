@@ -44,7 +44,23 @@
   </style>
 </head>
 <body>
+<% if (typeof isSuperNav !== 'undefined' && isSuperNav) { %>
+<!-- Superintendents see their own portal nav here — not the office sidebar — so
+     "My Projects" (orders/deliveries) is always one tap away. -->
+<nav class="nav">
+  <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap">
+    <a href="/my" class="nav-brand" style="text-decoration:none">Buildoly</a>
+    <a href="/my" class="nav-tab">My Projects</a>
+    <a href="/driving" class="nav-tab active">🚗 Driving Log</a>
+    <a href="/my/settings" class="nav-tab">⚙ Settings</a>
+  </div>
+  <div class="nav-actions">
+    <form method="POST" action="/logout" style="margin:0"><button type="submit" class="btn btn-ghost">Log out</button></form>
+  </div>
+</nav>
+<% } else { %>
 <%- include('_nav', { active: 'driving' }) %>
+<% } %>
 
 <%
   var hasFilter = (typeof from !== 'undefined' && from) || (typeof to !== 'undefined' && to);
