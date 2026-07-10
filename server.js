@@ -2082,7 +2082,12 @@ async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_material_issues_pid ON material_issues (project_id);
     CREATE INDEX IF NOT EXISTS idx_sub_emails_sub ON sub_emails (sub_id);
     CREATE INDEX IF NOT EXISTS idx_delivery_notices_pid ON delivery_notices (project_id);
+    CREATE INDEX IF NOT EXISTS idx_delivery_notices_pid_sent ON delivery_notices (project_id, sent_at DESC);
     CREATE INDEX IF NOT EXISTS idx_held_item_status_pid ON held_item_status (project_id);
+    CREATE INDEX IF NOT EXISTS idx_vendor_orders_pid ON vendor_orders (project_id);
+    CREATE INDEX IF NOT EXISTS idx_vendor_order_items_oid ON vendor_order_items (order_id);
+    CREATE INDEX IF NOT EXISTS idx_vendor_order_lines_oid ON vendor_order_lines (order_id);
+    CREATE INDEX IF NOT EXISTS idx_item_catalog_alt ON item_catalog (prod_code) WHERE alt_models IS NOT NULL AND alt_models <> '';
   `).catch(e => { _initDbPromise = null; throw e; });
   return _initDbPromise;
 }
@@ -3146,7 +3151,7 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     // shown as chips on the bucket rows and a Delivery column on each expanded item.
     let itemsAgg = {}, itemStates = {}, checklistItems = [];
     try {
-      try { await syncProjectExpected(project.id); } catch (e) { /* sheet unreadable — use last sync */ }
+      syncProjectExpected(project.id).catch(() => {});   // refresh from the sheet in the BACKGROUND — don't block the render on the Sheets API
       const st = await projectItemStates(project.id);
       itemsAgg = st.agg;
       checklistItems = st.expected;   // the merged Materials & Delivery tab renders these directly
@@ -3170,7 +3175,20 @@ app.get('/projects/:id', requireAuth, async (req, res) => {
     const _doorDetected = checklistItems.length > 0 && (_hasBifold || _hasSliding);
     const showBifold = _doorDetected ? _hasBifold : true;    // can't detect → show both (safe fallback)
     const showSliding = _doorDetected ? _hasSliding : true;
-    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), contacts: allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' })), itemsAgg, itemStates, checklistItems, showBifold, showSliding });
+    // Header "last delivery" + the "delivery emails sent" log for this project.
+    let lastDelivered = null, deliveryNotices = [];
+    try {
+      const { rows: ld } = await pool.query(
+        "SELECT item_code, delivery_date FROM project_items WHERE project_id=$1 AND status IN ('Delivered','Delivered from Inv.') AND delivery_date IS NOT NULL ORDER BY delivery_date DESC LIMIT 1", [project.id]);
+      if (ld.length) lastDelivered = { name: CODE_NAME[ld[0].item_code] || ld[0].item_code, date: ld[0].delivery_date };
+      const { rows: dn } = await pool.query(
+        "SELECT sent_at, method, codes, items FROM delivery_notices WHERE project_id=$1 ORDER BY sent_at DESC LIMIT 50", [project.id]);
+      deliveryNotices = dn.map(n => ({
+        sentAt: n.sent_at, method: n.method || 'truck',
+        items: String(n.codes || '').split(',').map(c => c.trim()).filter(Boolean).map(c => CODE_NAME[c] || c).join(', ') || (n.items || '—'),
+      }));
+    } catch (e) { /* non-fatal */ }
+    res.render('project', { project, STAGES, itemMap, requestedByCode, issueByCode, projectIssues, projectRequests, ITEM_STATUSES, PROJECT_STATUSES, EMAIL_PHASES, emailConfigured: emailEnabled, suppliers, documents, payments, ordersByVendor, itemNames, ordersByCategory, categoryRequestData, supers: allContacts(), contacts: allContacts().map(c => ({ email: c.email, name: c.name, role: c.role || 'super' })), itemsAgg, itemStates, checklistItems, showBifold, showSliding, lastDelivered, deliveryNotices });
   } catch (err) {
     console.error(err);
     res.status(500).send('Error: ' + err.message);
@@ -6606,8 +6624,15 @@ async function projectItemStates(projectId) {
     'SELECT * FROM project_expected_items WHERE project_id=$1 ORDER BY category_code NULLS LAST, prod_code', [projectId]);
   const agg = {};
   if (!expected.length) return { expected, agg };
-  const { rows: fu } = await pool.query(
-    'SELECT items, po, kind, auto_done_at, scheduled_for FROM ferguson_updates WHERE project_id=$1', [projectId]);
+  // All independent — run in parallel (was 6 sequential DB round-trips).
+  const [{ rows: fu }, { rows: ol }, { rows: al }, { rows: mk }, { rows: boardRows }, { rows: oi }] = await Promise.all([
+    pool.query('SELECT items, po, kind, auto_done_at, scheduled_for FROM ferguson_updates WHERE project_id=$1', [projectId]),
+    pool.query('SELECT model_norm FROM project_order_lines WHERE project_id=$1', [projectId]),
+    pool.query("SELECT prod_code, alt_models FROM item_catalog WHERE alt_models IS NOT NULL AND alt_models <> ''"),
+    pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [projectId]),
+    pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [projectId]),
+    pool.query('SELECT item_key FROM project_item_orders WHERE project_id=$1', [projectId]),
+  ]);
   const done = fu.filter(f => f.kind === 'delivered' || f.auto_done_at);
   const pend = fu.filter(f => f.kind === 'scheduled' && !f.auto_done_at);
   const deliveredBlob = done.map(f => normModel(f.items || '')).join('|');
@@ -6616,25 +6641,14 @@ async function projectItemStates(projectId) {
   const schedBlob = pend.map(f => normModel(f.items || '')).join('|');
   const schedInfo = {};
   pend.forEach(f => fergusonPoCodes(f.po).forEach(c => { if (!(c in schedInfo)) schedInfo[c] = f.scheduled_for || ''; }));
-  const { rows: ol } = await pool.query('SELECT model_norm FROM project_order_lines WHERE project_id=$1', [projectId]);
   const ordered = new Set(ol.map(o => o.model_norm));
-  // Alternate model #s: Ferguson substitutes its own SKUs for generic accessories
-  // (e.g. sheet part 5308819008 "range cord" ships as Ferguson's RAP34009). alt_models
+  // Alternate model #s: Ferguson substitutes its own SKUs for generic accessories; alt_models
   // on the catalog row lists those equivalents so the item still matches.
-  const { rows: al } = await pool.query("SELECT prod_code, alt_models FROM item_catalog WHERE alt_models IS NOT NULL AND alt_models <> ''");
   const aliasBy = {};
   al.forEach(r => { aliasBy[r.prod_code.toUpperCase()] = r.alt_models.split(',').map(normModel).filter(x => x.length >= 5); });
-  const { rows: mk } = await pool.query('SELECT item_key, state, sched_when FROM project_item_marks WHERE project_id=$1', [projectId]);
   const marks = {};
   mk.forEach(m => marks[m.item_key] = m);
-  // The project board (project_items) is the source of truth for delivery. If a category
-  // bucket is Delivered there, reflect it on this checklist too — otherwise the Materials
-  // tab looks stale versus the main project page. Explicit manual marks still win.
-  const { rows: boardRows } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [projectId]);
   const boardDelivered = new Set(boardRows.filter(r => r.status === 'Delivered' || r.status === 'Delivered from Inv.').map(r => r.item_code));
-  // Per-ITEM "ordered" records from order emails — 📦 on exactly the items ordered, not the
-  // whole category (items within a category get ordered separately / by different vendors).
-  const { rows: oi } = await pool.query('SELECT item_key FROM project_item_orders WHERE project_id=$1', [projectId]);
   const orderedKeys = new Set(oi.map(r => r.item_key));
   expected.forEach(e => {
     e.key = itemKeyFor(e.prod_code, e.model_no, e.name);
@@ -6741,11 +6755,9 @@ app.get('/projects/:id/checklist', requireAuth, async (req, res) => {
     await initDb();
     const { rows: [proj] } = await pool.query('SELECT id, address, finish_schedule_url FROM projects WHERE id=$1', [req.params.id]);
     if (!proj) return res.status(404).send('Project not found.');
-    let syncErr = null;
-    try { const r = await syncProjectExpected(proj.id); if (!r.ok) syncErr = r.error; }
-    catch (e) { syncErr = e.message; }
+    syncProjectExpected(proj.id).catch(() => {});   // background refresh — don't block on the Sheets API
     const { expected } = await projectItemStates(proj.id);
-    res.render('checklist', { proj, expected, syncErr });
+    res.render('checklist', { proj, expected, syncErr: null });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
