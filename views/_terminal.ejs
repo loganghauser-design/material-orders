@@ -1,0 +1,84 @@
+<%# Command terminal — type "order the doors and windows for silver lantern" and it
+    resolves + previews the vendor email; Enter again sends through the normal RFQ
+    route. Include with locals { termProjectId, termProjectAddr } on a project page,
+    or no locals on the home page (commands then name the job). %>
+<%
+  var _tpid = (typeof termProjectId !== 'undefined' && termProjectId) || null;
+  var _tpaddr = (typeof termProjectAddr !== 'undefined' && termProjectAddr) || '';
+%>
+<div class="term-wrap" style="background:#0d1117;border:1px solid #23293a;border-radius:12px;padding:.7rem .95rem;margin:0 0 1.1rem;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.82rem">
+  <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.35rem">
+    <span style="color:#7ee2a8;font-weight:700;font-size:.72rem;letter-spacing:.06em">BUILDOLY TERMINAL</span>
+    <span style="color:#8b95a9;font-size:.72rem"><%= _tpid ? '· ' + _tpaddr : '· name the job in the command' %></span>
+    <span style="margin-left:auto;color:#8b95a9;font-size:.7rem;cursor:pointer" onclick="termRun('help')">help</span>
+  </div>
+  <div id="termHist" style="max-height:180px;overflow-y:auto;margin-bottom:.3rem"></div>
+  <div style="display:flex;align-items:center;gap:.45rem">
+    <span style="color:#7ee2a8">&gt;</span>
+    <input id="termInput" type="text" autocomplete="off" spellcheck="false"
+      placeholder='<%= _tpid ? "order the doors and windows" : "order the doors and windows for silver lantern" %>'
+      style="flex:1;background:transparent;border:none;outline:none;color:#e6e9f0;font:inherit;padding:.15rem 0"
+      onkeydown="termKey(event)">
+  </div>
+</div>
+<script>
+const TERM_PROJECT = <%- JSON.stringify(_tpid) %>;
+let TERM_PENDING = null;
+let TERM_BUSY = false;
+function termPrint(text, color) {
+  const h = document.getElementById('termHist');
+  const d = document.createElement('div');
+  d.style.cssText = 'padding:.12rem 0;white-space:pre-wrap;word-break:break-word;color:' + (color || '#8b95a9');
+  d.textContent = text;
+  h.appendChild(d);
+  h.scrollTop = h.scrollHeight;
+}
+function termKey(e) {
+  if (e.key === 'Escape') { TERM_PENDING = null; e.target.value = ''; termPrint('Cancelled.'); return; }
+  if (e.key !== 'Enter' || TERM_BUSY) return;
+  termRun(e.target.value.trim());
+  e.target.value = '';
+}
+async function termRun(text) {
+  if (TERM_PENDING) {
+    if (text === '' || /^(y|yes|send)$/i.test(text)) return termConfirm();
+    TERM_PENDING = null;
+    if (/^(n|no|cancel)$/i.test(text)) { termPrint('Cancelled.'); return; }
+    termPrint('Cancelled — new command.');
+  }
+  if (!text) return;
+  termPrint('> ' + text, '#e6e9f0');
+  TERM_BUSY = true;
+  try {
+    const r = await fetch('/terminal/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: text, projectId: TERM_PROJECT }) });
+    const data = await r.json();
+    if (!data.ok) { termPrint(data.reply || data.error || 'Could not parse that.', '#f0b429'); return; }
+    TERM_PENDING = data.payload;
+    termPrint(data.preview, '#7ee2a8');
+    termPrint(data.payload.asDraft ? 'Press Enter to create the draft — anything else cancels.' : 'Press Enter to send — anything else cancels.');
+  } catch (err) { termPrint('Error: ' + err.message, '#ff7b72'); }
+  finally { TERM_BUSY = false; }
+}
+async function termConfirm() {
+  const p = TERM_PENDING; TERM_PENDING = null;
+  TERM_BUSY = true;
+  termPrint(p.asDraft ? 'Creating draft…' : 'Sending…');
+  try {
+    const fd = new FormData();
+    fd.append('itemCode', p.itemCode || '');
+    fd.append('supplierEmail', p.supplierEmail);
+    fd.append('supplierName', p.supplierName || '');
+    fd.append('note', '');
+    fd.append('itemsHtml', p.itemsHtml || '');
+    fd.append('emailType', p.emailType);
+    (p.coveredCodes || []).forEach(c => fd.append('coveredCodes', c));
+    (p.orderedKeys || []).forEach(k => fd.append('orderedKeys', k));
+    if (p.asDraft) fd.append('asDraft', 'true');
+    const r = await fetch('/projects/' + p.projectId + '/rfq', { method: 'POST', body: fd });
+    const data = await r.json();
+    if (data.ok) termPrint(data.draft ? '✓ Draft created — review + send it from Gmail.' : '✓ Sent to ' + p.supplierEmail + ' — thread is in the Emails tab.', '#7ee2a8');
+    else termPrint('✗ ' + (data.error || 'Send failed.'), '#ff7b72');
+  } catch (err) { termPrint('✗ ' + err.message, '#ff7b72'); }
+  finally { TERM_BUSY = false; }
+}
+</script>

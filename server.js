@@ -4284,6 +4284,121 @@ app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   }
 });
 
+// ── Command terminal ────────────────────────────────────────────────────────────
+// Type "order the doors and windows for silver lantern" into the terminal bar and
+// it resolves project → category → vendor → items from the finish schedule, then
+// answers with a preview. The client confirms by POSTing the prepared payload to
+// the normal /projects/:id/rfq route, so sends behave exactly like the dialog
+// (threading, status bumps, order-date stamps, per-item marks).
+const TERM_TYPES = [
+  { type: 'damage', re: /damag/ , label: 'Damage report' },
+  { type: 'replacement', re: /replac/, label: 'Replacement request' },
+  { type: 'quote', re: /\b(quote|rfq|pricing|prices?)\b/, label: 'Quote request' },
+  { type: 'order', re: /\border\b/, label: 'Order' },
+  { type: 'delivery', re: /deliver/, label: 'Delivery request' },
+];
+// Checked in order; each match is consumed from the text so "shower door" never
+// also matches the generic door→1a rule.
+const TERM_CATS = [
+  { code: '3e', re: /shower\s*doors?/g },
+  { code: '2e', re: /water\s*heaters?/g },
+  { code: '1b', re: /rough\s*plumb\w*|shower\s*(pan|base|drain)s?|bath\s*fans?|\bfans?\b/g },
+  { code: '2d', re: /finish\s*plumb\w*|range\s*hoods?|faucets?|hoods?|light\s*fixtures?|sconces?|toilets?|sinks?/g },
+  { code: '1e', re: /recessed|rec\.?\s*light\w*|can\s*lights?/g },
+  { code: '3c', re: /cabinet\s*hardware|knobs?|pulls?\b/g },
+  { code: '3a', re: /counter\s*tops?|countertops?/g },
+  { code: '3b', re: /appliances?|fridge|refrigerator|\branges?\b|washer|dryer|dishwasher/g },
+  { code: '1c', re: /\bhvac\b|registers?|thermostats?/g },
+  { code: '2a', re: /millwork|baseboards?|casings?|crown/g },
+  { code: '1d', re: /\btiles?\b/g },
+  { code: '2b', re: /floor\w*/g },
+  { code: '2c', re: /deck\w*/g },
+  { code: '4a', re: /roof\w*/g },
+  { code: '5a', re: /solar/g },
+  { code: '1a', re: /doors?|windows?|bifold|sliding/g },
+];
+const TERM_HELP = 'Try: "order the doors and windows" · "request delivery of the appliances" · "get a quote for flooring" · "report damage on the shower doors" · "request replacement for the tile". Add "draft" to create a Gmail draft instead of sending. On the home terminal, end with the job: "... for silver lantern".';
+function termNormName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+app.post('/terminal/parse', requireAuth, async (req, res) => {
+  try {
+    const raw = String((req.body || {}).command || '').trim();
+    const givenProjectId = (req.body || {}).projectId || null;
+    if (!raw || /^help$/i.test(raw)) return res.json({ ok: false, reply: TERM_HELP });
+    let s = ' ' + raw.toLowerCase() + ' ';
+    const asDraft = /\bdraft\b/.test(s); if (asDraft) s = s.replace(/\bdraft\b/g, ' ');
+    // 1. What kind of email?
+    const t = TERM_TYPES.find(x => x.re.test(s));
+    if (!t) return res.json({ ok: false, reply: "I couldn't tell what to send — say order / delivery / quote / damage / replacement. " + TERM_HELP });
+    // 2. Which material categories? (consume matches so generic rules don't double-hit)
+    const codes = [];
+    for (const c of TERM_CATS) { if (c.re.test(s)) { codes.push(c.code); s = s.replace(c.re, ' '); } c.re.lastIndex = 0; }
+    if (!codes.length) return res.json({ ok: false, reply: "Which materials? I recognize things like doors, windows, appliances, flooring, tile, countertops, shower doors… " + TERM_HELP });
+    // 3. Which job? Leftover words vote on the address (home terminal); project pages pass their id.
+    let project = null;
+    if (givenProjectId) {
+      const { rows: [p] } = await pool.query('SELECT * FROM projects WHERE id=$1', [givenProjectId]);
+      project = p;
+    } else {
+      const words = s.replace(new RegExp('\\b(' + TERM_TYPES.map(x => x.re.source).join('|') + ')\\b', 'g'), ' ')
+        .split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !['the', 'and', 'for', 'its', 'time', 'get', 'send', 'please', 'request', 'need', 'now', 'them', 'this', 'that', 'job', 'project', 'from', 'with'].includes(w));
+      const { rows: projs } = await pool.query("SELECT * FROM projects");
+      let best = [], bestScore = 0;
+      for (const p of projs) {
+        const addr = (p.address + ' ' + (p.full_address || '')).toLowerCase();
+        const score = words.filter(w => addr.includes(w)).length;
+        if (score > bestScore) { best = [p]; bestScore = score; }
+        else if (score === bestScore && score > 0) best.push(p);
+      }
+      if (!bestScore) return res.json({ ok: false, reply: 'Which job? End the command with part of the address — e.g. "… for silver lantern".' });
+      if (best.length > 1) {
+        const uc = best.filter(p => /under construction/i.test(p.phase || ''));
+        if (uc.length === 1) best = uc;
+        else return res.json({ ok: false, reply: 'That matches ' + best.length + ' jobs: ' + best.slice(0, 4).map(p => p.address).join(' · ') + '. Add more of the address.' });
+      }
+      project = best[0];
+    }
+    if (!project) return res.json({ ok: false, reply: 'Project not found.' });
+    if (!project.finish_schedule_url) return res.json({ ok: false, reply: project.address + ' has no finish schedule linked — add one via Edit Project, or use the ✉ Email a vendor dialog.' });
+    // 4. Vendor + items for those categories, from the schedule (same data as the dialog).
+    const vendors = await readScheduleVendors(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source });
+    let candidates = vendors.map(v => ({ ...v, items: v.items.filter(it => codes.includes(it.code)) })).filter(v => v.items.length);
+    if (!candidates.length) return res.json({ ok: false, reply: 'No schedule items found under ' + codes.join(', ') + ' for ' + project.address + '.' });
+    // A vendor named in the command wins; otherwise it must resolve to exactly one.
+    const rawLc = raw.toLowerCase();
+    const named = candidates.filter(v => {
+      const firstWord = v.name.toLowerCase().split(/\s+/)[0];
+      return termNormName(raw).includes(termNormName(v.name)) || (firstWord.length > 3 && rawLc.includes(firstWord));
+    });
+    if (named.length === 1) candidates = named;
+    if (candidates.length > 1) return res.json({ ok: false, reply: 'Those items come from ' + candidates.length + ' vendors: ' + candidates.map(v => v.name + ' (' + v.items.length + ')').join(' · ') + '. Add the vendor name to your command.' });
+    const vendor = candidates[0];
+    if (/buildoly\s*stock/i.test(vendor.name)) return res.json({ ok: false, reply: 'Those ship from Buildoly Stock (our own warehouse) — use the Warehouse Outbound email in the ✉ dialog instead.' });
+    // 5. Vendor email from the saved suppliers (name match, then the category default).
+    const { rows: sups } = await pool.query('SELECT item_code, supplier_name, supplier_email FROM suppliers');
+    const vn = termNormName(vendor.name);
+    let supplierEmail = null;
+    for (const r of sups) {
+      const rn = termNormName(r.supplier_name);
+      if (rn && (rn === vn || (rn.length >= 5 && vn.length >= 5 && (rn.includes(vn) || vn.includes(rn))))) { supplierEmail = r.supplier_email; break; }
+    }
+    if (!supplierEmail) { const def = sups.find(r => codes.includes(r.item_code) && r.supplier_email); if (def && termNormName(def.supplier_name) === vn) supplierEmail = def.supplier_email; }
+    if (!supplierEmail) return res.json({ ok: false, reply: 'No saved email for ' + vendor.name + ' — add one in Settings, or send this one through the ✉ dialog.' });
+    // 6. Items table, same columns the dialog builds — buildRfqEmail sanitizes it.
+    const rowsHtml = vendor.items.map(it =>
+      '<tr><td>' + escapeHtml(it.name) + '</td><td>' + escapeHtml(it.product || '') + '</td><td>' + escapeHtml(it.brand || '') + '</td><td>' + escapeHtml(it.model || '') + '</td><td>' + escapeHtml(it.finishColor || '') + '</td><td>' + escapeHtml(String(it.qty || '1')) + '</td></tr>').join('');
+    const itemsHtml = '<table><tr><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Finish/Color</b></td><td><b>Qty</b></td></tr>' + rowsHtml + '</table>';
+    const coveredCodes = [...new Set(vendor.items.map(it => it.code))];
+    const preview = t.label + ' → ' + vendor.name + ' <' + supplierEmail + '>  ·  ' + coveredCodes.map(c => c + ' ' + (CODE_NAME[c] || '')).join(', ') + '  ·  ' + vendor.items.length + ' item' + (vendor.items.length > 1 ? 's' : '') + '  ·  ' + project.address + (asDraft ? '  ·  DRAFT (review in Gmail)' : '');
+    res.json({ ok: true, preview, payload: {
+      projectId: project.id, itemCode: coveredCodes[0], supplierEmail, supplierName: vendor.name,
+      emailType: t.type, itemsHtml, coveredCodes, orderedKeys: t.type === 'order' ? vendor.items.map(it => it.itemKey).filter(Boolean) : [], asDraft,
+    } });
+  } catch (err) {
+    console.error('terminal/parse:', err.message);
+    res.status(500).json({ ok: false, reply: 'Error: ' + err.message });
+  }
+});
+
 // Remove a vendor-email entry from the app's thread list (does NOT delete from Gmail)
 app.post('/vendor-emails/:id/delete', requireAuth, async (req, res) => {
   try {

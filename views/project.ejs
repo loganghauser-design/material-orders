@@ -203,6 +203,7 @@
     .tp-manage{display:block;padding:8px;font-size:.78rem;color:var(--muted);text-decoration:none;border-radius:8px}
     .tp-manage:hover{background:var(--bg);color:var(--text)}
   </style>
+  <%- include('_terminal', { termProjectId: project.id, termProjectAddr: project.address }) %>
   <div class="tabs">
     <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">Materials</button>
     <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">Orders</button>
