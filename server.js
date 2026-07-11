@@ -6676,6 +6676,10 @@ function fergusonPoCodes(po) {
   if (/appliance/.test(p)) return ['3b'];
   if (/rough/.test(p)) return ['1b'];
   if (/finish|fs\.?\s*plumb/.test(p)) return ['2d'];
+  // Shower POs split by install stage (Logan's categorization rules): pan/base/drain
+  // go in at rough/setting → 1b; trim/valve kits are finish plumbing → 2d.
+  if (/shower\s*(pan|base|floor|drain)/.test(p)) return ['1b'];
+  if (/shower/.test(p)) return ['2d'];
   if (/plumb/.test(p)) return ['1b'];
   if (/hood|light/.test(p)) return ['2d'];
   return [];
@@ -7219,6 +7223,42 @@ async function enqueueDeliveryNotice({ projectId, codes, window, method, trackin
   } catch (e) { console.error('enqueueDeliveryNotice:', e.message); return { ok: false, reason: e.message }; }
 }
 
+// One-off/backfill: queue approval notices for Ferguson deliveries that were scheduled
+// but never enqueued (unmapped PO name, bug, downtime). Only future-dated deliveries
+// from the last 14 days; anything already in the queue (any status) is left alone.
+// Run via /_test/run?key=…&job=requeue-missed-notices
+async function requeueMissedNotices() {
+  const out = { scanned: 0, queued: 0, skipped: 0, unmapped: [] };
+  const todayISO = new Date().toISOString().slice(0, 10);
+  const { rows } = await pool.query(`
+    SELECT f.id, f.project_id, f.po, f.scheduled_for, f.items, p.address, p.full_address
+    FROM ferguson_updates f JOIN projects p ON p.id = f.project_id
+    WHERE f.kind='scheduled' AND f.created_at > NOW() - INTERVAL '14 days'
+    ORDER BY f.created_at`);
+  for (const r of rows) {
+    out.scanned++;
+    const dISO = fergusonSchedDateISO(r.scheduled_for);
+    if (!dISO || dISO < todayISO) { out.skipped++; continue; }   // past (or unparseable) delivery
+    let codes = fergusonPoCodes(r.po);
+    if (!codes.length && r.items) {
+      const blob = normModel(r.items);
+      const { rows: exp } = await pool.query(
+        "SELECT DISTINCT category_code, model_norm FROM project_expected_items WHERE project_id=$1 AND category_code IS NOT NULL AND category_code <> '' AND model_norm IS NOT NULL AND LENGTH(model_norm) >= 5", [r.project_id]);
+      codes = [...new Set(exp.filter(x => blob.includes(x.model_norm)).map(x => x.category_code))];
+    }
+    if (!codes.length) { out.unmapped.push(r.po); continue; }
+    const codesStr = codes.slice().sort().join(',');
+    const { rows: seen } = await pool.query(
+      "SELECT 1 FROM pending_delivery_notices WHERE project_id=$1 AND codes=$2 AND COALESCE(delivery_window,'')=COALESCE($3,'') LIMIT 1",
+      [r.project_id, codesStr, r.scheduled_for || null]);
+    if (seen.length) { out.skipped++; continue; }   // already queued/sent/rejected for this window
+    const q = await enqueueDeliveryNotice({ projectId: r.project_id, codes, window: r.scheduled_for, method: 'truck', manifestBlob: normModel(r.items || '') || null, jobName: shortAddress(r.full_address || r.address), source: 'ferguson' });
+    if (q.ok && q.queued) out.queued++; else out.skipped++;
+  }
+  console.log('requeueMissedNotices:', JSON.stringify(out));
+  return out;
+}
+
 // ── Ferguson delivery tracker ───────────────────────────────────────────────────
 // Ferguson's shipping alerts (project44/Convey for UPS parcels, DispatchTrack for
 // appliance deliveries) carry the job address, PO (material stage), and schedule.
@@ -7408,7 +7448,26 @@ async function pollFergusonEmails() {
       // Auto-email the on-site party a branded notice, split correctly by carrier.
       // Skips if no super/contact is assigned or there are no matching items.
       if (proj) {
-        const nCodes = fergusonPoCodes(po);
+        let nCodes = fergusonPoCodes(po);
+        // PO name didn't match a bucket keyword (e.g. "SHOWER TRIM") → derive the bucket
+        // from the manifest itself: match the email's model #s against this project's
+        // expected items and take their categories.
+        if (!nCodes.length && items) {
+          try {
+            const blob = normModel(items);
+            const { rows: exp } = await pool.query(
+              "SELECT DISTINCT category_code, model_norm FROM project_expected_items WHERE project_id=$1 AND category_code IS NOT NULL AND category_code <> '' AND model_norm IS NOT NULL AND LENGTH(model_norm) >= 5", [proj.id]);
+            nCodes = [...new Set(exp.filter(r => blob.includes(r.model_norm)).map(r => r.category_code))];
+            if (nCodes.length) console.log('ferguson PO "' + po + '" mapped via manifest → ' + nCodes.join(','));
+          } catch (e) { /* fall through to the unmapped alert */ }
+        }
+        // Still unmapped on a real scheduled delivery → say so in chat instead of
+        // silently skipping the notice (this is how Highland's SHOWER TRIM got missed).
+        // force=true: this must land even while CHAT_PAUSED is on — a delivery is coming
+        // and the site got no heads-up, same always-deliver class as material requests.
+        if (kind === 'scheduled' && !nCodes.length) {
+          postBidsText('⚠ Ferguson PO "' + (po || '?') + '" didn\'t match any material bucket — NO delivery notice was queued for ' + projLabel + '. Queue one from the project page if the site needs a heads-up.', orderBase ? 'ferguson-' + orderBase : undefined, true);
+        }
         try {
           if (kind === 'scheduled' && nCodes.length) {
             // Freight truck: list ONLY the items on this truck's manifest. Queue for approval.
@@ -8184,6 +8243,7 @@ app.get('/_test/run', async (req, res) => {
     'morning-brief': sendMorningBrief, 'weekly-digest': sendWeeklyDigest, 'coverage-digest': coverageDigest,
     'delivery-reminder': sendDeliveryReminder, 'delivery-confirmations': sendDeliveryConfirmations,
     'day-before-reminders': dayBeforeDeliveryReminders,
+    'requeue-missed-notices': requeueMissedNotices,
     'license-watchdog': licenseWatchdog, 'insurance-scan': insuranceScanAll,
     'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
     'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
