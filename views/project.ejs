@@ -465,6 +465,8 @@
         <option value="order">Place Order (initial full order)</option>
         <option value="delivery">Request Delivery (deliver these now)</option>
         <option value="quote">Request Quote (pricing/availability)</option>
+        <option value="damage">Report Damage (arrived damaged — replace at no charge)</option>
+        <option value="replacement">Request Replacement (send a new one)</option>
         <option value="warehouse">Warehouse Outbound (ship from our warehouse)</option>
       </select>
     </div>
@@ -662,6 +664,8 @@
         <option value="delivery">Request Delivery (deliver these now)</option>
         <option value="order">Reorder (place a new order)</option>
         <option value="quote">Request Quote (pricing/availability)</option>
+        <option value="damage">Report Damage (arrived damaged — replace at no charge)</option>
+        <option value="replacement">Request Replacement (send a new one)</option>
       </select>
     </div>
     <div class="form-group" style="margin-top:.85rem">
@@ -1563,7 +1567,7 @@ function onRfqTypeChange() {
   document.querySelector('.rfq-cc').style.display = isWh ? '' : 'none';
   document.getElementById('rfqEmailLabel').textContent = isWh ? 'To (warehouse + truck team)' : 'Supplier Email(s)';
   document.getElementById('rfqItemsLabel').textContent = isWh ? 'Outbound slip (paste from Google Sheets)' : 'Items (paste from Google Sheets)';
-  document.getElementById('rfqSendBtn').textContent = isWh ? 'Send Outbound Request' : 'Send RFQ';
+  document.getElementById('rfqSendBtn').textContent = isWh ? 'Send Outbound Request' : type === 'damage' ? 'Send Damage Report' : type === 'replacement' ? 'Send Replacement Request' : 'Send RFQ';
   // Swap recipients to the fixed warehouse list (or restore the supplier's)
   document.getElementById('rfqSupplierEmail').value = isWh ? WAREHOUSE_TO : rfqSavedSupplierEmail;
 }

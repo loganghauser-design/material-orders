@@ -3668,6 +3668,8 @@ ${signoff}
       order: { subject: subjectLine, intro: `I'd like to place an order for delivery to <strong>${addr}</strong>. Please see the items below:`, closing: '' },
       delivery: { subject: subjectLine, intro: `We're ready for delivery to <strong>${addr}</strong> on the following items:`, closing: 'Please confirm the delivery date.' },
       quote: { subject: subjectLine, intro: `I'd like to request an RFQ for delivery to <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time at your earliest convenience.' },
+      damage: { subject: `${fullAddress} — Damaged Item Report`, intro: `The following item(s) delivered to <strong>${addr}</strong> arrived damaged. We're reporting this within the damage window:`, closing: 'Please send replacement(s) at no charge and confirm the expected delivery date. Photos are available on request.' },
+      replacement: { subject: `${fullAddress} — Replacement Request`, intro: `We need replacement(s) for the following item(s) at <strong>${addr}</strong>:`, closing: 'Please confirm the replacement order and its expected delivery date.' },
     };
     const t = TYPES[emailType] || TYPES.order;
     const greeting = supplierName ? `Hi ${escapeHtml(supplierName)},` : 'Hi,';
@@ -4168,6 +4170,8 @@ app.post('/projects/:id/category-request', requireAuth, async (req, res) => {
       delivery: { verb: 'Delivery Request', intro: `We're ready for delivery of the following <strong>${escapeHtml(catName)}</strong> items to <strong>${addr}</strong>:`, closing: 'Please confirm the delivery date.' },
       order: { verb: 'Order', intro: `We'd like to order the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: '' },
       quote: { verb: 'RFQ', intro: `Please quote the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time.' },
+      damage: { verb: 'Damaged Item Report', intro: `The following <strong>${escapeHtml(catName)}</strong> item(s) delivered to <strong>${addr}</strong> arrived damaged. We're reporting this within the damage window:`, closing: 'Please send replacement(s) at no charge and confirm the expected delivery date. Photos are available on request.' },
+      replacement: { verb: 'Replacement Request', intro: `We need replacement(s) for the following <strong>${escapeHtml(catName)}</strong> item(s) at <strong>${addr}</strong>:`, closing: 'Please confirm the replacement order and its expected delivery date.' },
     };
     const t = TYPES[emailType] || TYPES.delivery;
     const subject = `${fullAddress} — ${catName} ${t.verb}`;
@@ -7239,13 +7243,15 @@ async function requeueMissedNotices() {
     out.scanned++;
     const dISO = fergusonSchedDateISO(r.scheduled_for);
     if (!dISO || dISO < todayISO) { out.skipped++; continue; }   // past (or unparseable) delivery
-    let codes = fergusonPoCodes(r.po);
-    if (!codes.length && r.items) {
+    // Manifest match first (schedule categories are authoritative), keyword map as fallback.
+    let codes = [];
+    if (r.items) {
       const blob = normModel(r.items);
       const { rows: exp } = await pool.query(
         "SELECT DISTINCT category_code, model_norm FROM project_expected_items WHERE project_id=$1 AND category_code IS NOT NULL AND category_code <> '' AND model_norm IS NOT NULL AND LENGTH(model_norm) >= 5", [r.project_id]);
       codes = [...new Set(exp.filter(x => blob.includes(x.model_norm)).map(x => x.category_code))];
     }
+    if (!codes.length) codes = fergusonPoCodes(r.po);
     if (!codes.length) { out.unmapped.push(r.po); continue; }
     const codesStr = codes.slice().sort().join(',');
     const { rows: seen } = await pool.query(
@@ -7448,19 +7454,22 @@ async function pollFergusonEmails() {
       // Auto-email the on-site party a branded notice, split correctly by carrier.
       // Skips if no super/contact is assigned or there are no matching items.
       if (proj) {
-        let nCodes = fergusonPoCodes(po);
-        // PO name didn't match a bucket keyword (e.g. "SHOWER TRIM") → derive the bucket
-        // from the manifest itself: match the email's model #s against this project's
-        // expected items and take their categories.
-        if (!nCodes.length && items) {
+        // Bucket mapping: the manifest is authoritative — match the email's model #s
+        // against this project's expected items (synced from the finish schedule) and
+        // take THEIR categories. The PO-name keyword map is only the fallback for
+        // emails with no parsable manifest. (Highland's "SHOWER TRIM" kit lives under
+        // 1b on the schedule — a keyword guess of 2d would build an empty notice.)
+        let nCodes = [];
+        if (items) {
           try {
             const blob = normModel(items);
             const { rows: exp } = await pool.query(
               "SELECT DISTINCT category_code, model_norm FROM project_expected_items WHERE project_id=$1 AND category_code IS NOT NULL AND category_code <> '' AND model_norm IS NOT NULL AND LENGTH(model_norm) >= 5", [proj.id]);
             nCodes = [...new Set(exp.filter(r => blob.includes(r.model_norm)).map(r => r.category_code))];
             if (nCodes.length) console.log('ferguson PO "' + po + '" mapped via manifest → ' + nCodes.join(','));
-          } catch (e) { /* fall through to the unmapped alert */ }
+          } catch (e) { /* fall back to the keyword map */ }
         }
+        if (!nCodes.length) nCodes = fergusonPoCodes(po);
         // Still unmapped on a real scheduled delivery → say so in chat instead of
         // silently skipping the notice (this is how Highland's SHOWER TRIM got missed).
         // force=true: this must land even while CHAT_PAUSED is on — a delivery is coming
