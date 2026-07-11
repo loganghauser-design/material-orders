@@ -1,7 +1,8 @@
-<%# Command terminal — type "order the doors and windows for silver lantern" and it
-    resolves + previews the vendor email; Enter again sends through the normal RFQ
-    route. Include with locals { termProjectId, termProjectAddr } on a project page,
-    or no locals on the home page (commands then name the job). %>
+<%# Command terminal — natural-language commands ("order the doors and windows for
+    silver lantern", "whats still not ordered on milton", "email me the outstanding
+    orders"). Parse answers/previews; side-effect actions confirm with Enter and
+    dispatch to the matching route. Include with { termProjectId, termProjectAddr }
+    on a project page, or no locals on the home page. %>
 <%
   var _tpid = (typeof termProjectId !== 'undefined' && termProjectId) || null;
   var _tpaddr = (typeof termProjectAddr !== 'undefined' && termProjectAddr) || '';
@@ -12,7 +13,7 @@
     <span style="color:#8b95a9;font-size:.72rem"><%= _tpid ? '· ' + _tpaddr : '· name the job in the command' %></span>
     <span style="margin-left:auto;color:#8b95a9;font-size:.7rem;cursor:pointer" onclick="termRun('help')">help</span>
   </div>
-  <div id="termHist" style="max-height:180px;overflow-y:auto;margin-bottom:.3rem"></div>
+  <div id="termHist" style="max-height:260px;overflow-y:auto;margin-bottom:.3rem"></div>
   <div style="display:flex;align-items:center;gap:.45rem">
     <span style="color:#7ee2a8">&gt;</span>
     <input id="termInput" type="text" autocomplete="off" spellcheck="false"
@@ -25,6 +26,7 @@
 const TERM_PROJECT = <%- JSON.stringify(_tpid) %>;
 let TERM_PENDING = null;
 let TERM_BUSY = false;
+const TERM_CTX = [];   // recent exchanges, sent as context so follow-ups make sense
 function termPrint(text, color) {
   const h = document.getElementById('termHist');
   const d = document.createElement('div');
@@ -32,6 +34,10 @@ function termPrint(text, color) {
   d.textContent = text;
   h.appendChild(d);
   h.scrollTop = h.scrollHeight;
+}
+function termCtxPush(role, text) {
+  TERM_CTX.push({ role, text: String(text).slice(0, 600) });
+  while (TERM_CTX.length > 8) TERM_CTX.shift();
 }
 function termKey(e) {
   if (e.key === 'Escape') { TERM_PENDING = null; e.target.value = ''; termPrint('Cancelled.'); return; }
@@ -41,43 +47,62 @@ function termKey(e) {
 }
 async function termRun(text) {
   if (TERM_PENDING) {
-    if (text === '' || /^(y|yes|send)$/i.test(text)) return termConfirm();
+    if (text === '' || /^(y|yes|send|go)$/i.test(text)) return termConfirm();
     TERM_PENDING = null;
     if (/^(n|no|cancel)$/i.test(text)) { termPrint('Cancelled.'); return; }
     termPrint('Cancelled — new command.');
   }
   if (!text) return;
   termPrint('> ' + text, '#e6e9f0');
+  termCtxPush('user', text);
   TERM_BUSY = true;
+  const thinking = document.createElement('div');
+  thinking.style.cssText = 'padding:.12rem 0;color:#5b6472';
+  thinking.textContent = '…';
+  document.getElementById('termHist').appendChild(thinking);
   try {
-    const r = await fetch('/terminal/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: text, projectId: TERM_PROJECT }) });
+    const r = await fetch('/terminal/parse', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ command: text, projectId: TERM_PROJECT, history: TERM_CTX.slice(0, -1) }) });
     const data = await r.json();
-    if (!data.ok) { termPrint(data.reply || data.error || 'Could not parse that.', '#f0b429'); return; }
-    TERM_PENDING = data.payload;
-    termPrint(data.preview, '#7ee2a8');
-    termPrint(data.payload.asDraft ? 'Press Enter to create the draft — anything else cancels.' : 'Press Enter to send — anything else cancels.');
-  } catch (err) { termPrint('Error: ' + err.message, '#ff7b72'); }
+    thinking.remove();
+    if (data.reply) { termPrint(data.reply, data.ok ? '#c9d2e0' : '#f0b429'); termCtxPush('assistant', data.reply); }
+    if (data.ok && data.action) {
+      TERM_PENDING = data.action;
+      termPrint(data.preview, '#7ee2a8');
+      termCtxPush('assistant', data.preview);
+      termPrint(data.action.asDraft ? 'Press Enter to create the draft — anything else cancels.' : 'Press Enter to confirm — anything else cancels.');
+    }
+  } catch (err) { thinking.remove(); termPrint('Error: ' + err.message, '#ff7b72'); }
   finally { TERM_BUSY = false; }
 }
 async function termConfirm() {
-  const p = TERM_PENDING; TERM_PENDING = null;
+  const a = TERM_PENDING; TERM_PENDING = null;
   TERM_BUSY = true;
-  termPrint(p.asDraft ? 'Creating draft…' : 'Sending…');
+  termPrint('Working…');
   try {
-    const fd = new FormData();
-    fd.append('itemCode', p.itemCode || '');
-    fd.append('supplierEmail', p.supplierEmail);
-    fd.append('supplierName', p.supplierName || '');
-    fd.append('note', '');
-    fd.append('itemsHtml', p.itemsHtml || '');
-    fd.append('emailType', p.emailType);
-    (p.coveredCodes || []).forEach(c => fd.append('coveredCodes', c));
-    (p.orderedKeys || []).forEach(k => fd.append('orderedKeys', k));
-    if (p.asDraft) fd.append('asDraft', 'true');
-    const r = await fetch('/projects/' + p.projectId + '/rfq', { method: 'POST', body: fd });
+    let r, okMsg;
+    if (a.kind === 'rfq') {
+      const fd = new FormData();
+      fd.append('itemCode', a.itemCode || '');
+      fd.append('supplierEmail', a.supplierEmail);
+      fd.append('supplierName', a.supplierName || '');
+      fd.append('note', a.note || '');
+      fd.append('itemsHtml', a.itemsHtml || '');
+      fd.append('emailType', a.emailType);
+      (a.coveredCodes || []).forEach(c => fd.append('coveredCodes', c));
+      (a.orderedKeys || []).forEach(k => fd.append('orderedKeys', k));
+      if (a.asDraft) fd.append('asDraft', 'true');
+      r = await fetch('/projects/' + a.projectId + '/rfq', { method: 'POST', body: fd });
+      okMsg = d => d.draft ? '✓ Draft created — review + send it from Gmail.' : '✓ Sent to ' + a.supplierEmail + ' — thread is in the Emails tab.';
+    } else if (a.kind === 'item-mark') {
+      r = await fetch('/projects/' + a.projectId + '/item-mark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: a.key, state: a.state, when: a.when || '' }) });
+      okMsg = () => '✓ Marked — the checklist is updated.';
+    } else {
+      r = await fetch('/terminal/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: a }) });
+      okMsg = d => '✓ ' + (d.done || 'Done.');
+    }
     const data = await r.json();
-    if (data.ok) termPrint(data.draft ? '✓ Draft created — review + send it from Gmail.' : '✓ Sent to ' + p.supplierEmail + ' — thread is in the Emails tab.', '#7ee2a8');
-    else termPrint('✗ ' + (data.error || 'Send failed.'), '#ff7b72');
+    if (data.ok) { const m = okMsg(data); termPrint(m, '#7ee2a8'); termCtxPush('assistant', 'Confirmed: ' + m); }
+    else termPrint('✗ ' + (data.error || 'Failed.'), '#ff7b72');
   } catch (err) { termPrint('✗ ' + err.message, '#ff7b72'); }
   finally { TERM_BUSY = false; }
 }

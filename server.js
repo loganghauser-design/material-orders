@@ -4285,11 +4285,12 @@ app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
 });
 
 // ── Command terminal ────────────────────────────────────────────────────────────
-// Type "order the doors and windows for silver lantern" into the terminal bar and
-// it resolves project → category → vendor → items from the finish schedule, then
-// answers with a preview. The client confirms by POSTing the prepared payload to
-// the normal /projects/:id/rfq route, so sends behave exactly like the dialog
-// (threading, status bumps, order-date stamps, per-item marks).
+// Natural-language command bar. With ANTHROPIC_API_KEY set, commands go to Claude
+// with tools over the app's real data (projects, materials, deliveries, subs,
+// contractor search); anything with a side effect comes back as a one-line preview
+// the user confirms with Enter. Without the key, a keyword parser covers the basic
+// vendor-email commands. Sends reuse the normal routes (/rfq, /item-mark) so
+// threading, status bumps and stamps behave exactly like the dialogs.
 const TERM_TYPES = [
   { type: 'damage', re: /damag/ , label: 'Damage report' },
   { type: 'replacement', re: /replac/, label: 'Replacement request' },
@@ -4317,85 +4318,333 @@ const TERM_CATS = [
   { code: '5a', re: /solar/g },
   { code: '1a', re: /doors?|windows?|bifold|sliding/g },
 ];
-const TERM_HELP = 'Try: "order the doors and windows" · "request delivery of the appliances" · "get a quote for flooring" · "report damage on the shower doors" · "request replacement for the tile". Add "draft" to create a Gmail draft instead of sending. On the home terminal, end with the job: "... for silver lantern".';
+const TERM_HELP = 'Try: "order the doors and windows" · "request delivery of the appliances" · "get a quote for flooring" · "report damage on the shower doors" · "whats still not ordered on milton" · "email me the outstanding orders" · "find me the top 10 framing contractors in la and add them to subs". Add "draft" to any email command for a Gmail draft. On the home terminal, name the job in the command.';
 function termNormName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+// Resolve category codes → one vendor + their schedule items → the exact payload the
+// ✉ dialog would send to /projects/:id/rfq. Shared by the keyword parser and the AI.
+async function resolveVendorEmailAction(project, codes, t, opts = {}) {
+  if (!project.finish_schedule_url) return { ok: false, reply: project.address + ' has no finish schedule linked — add one via Edit Project, or use the ✉ Email a vendor dialog.' };
+  const vendors = await readScheduleVendors(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source });
+  let candidates = vendors.map(v => ({ ...v, items: v.items.filter(it => codes.includes(it.code)) })).filter(v => v.items.length);
+  if (!candidates.length) return { ok: false, reply: 'No schedule items found under ' + codes.join(', ') + ' for ' + project.address + '.' };
+  const nameHint = opts.vendorName || opts.rawText || '';
+  const named = candidates.filter(v => {
+    const firstWord = v.name.toLowerCase().split(/\s+/)[0];
+    return termNormName(nameHint).includes(termNormName(v.name)) || (firstWord.length > 3 && nameHint.toLowerCase().includes(firstWord));
+  });
+  if (named.length === 1) candidates = named;
+  if (candidates.length > 1) return { ok: false, reply: 'Those items come from ' + candidates.length + ' vendors: ' + candidates.map(v => v.name + ' (' + v.items.length + ')').join(' · ') + '. Add the vendor name to your command.' };
+  const vendor = candidates[0];
+  if (/buildoly\s*stock/i.test(vendor.name)) return { ok: false, reply: 'Those ship from Buildoly Stock (our own warehouse) — use the Warehouse Outbound email in the ✉ dialog instead.' };
+  const { rows: sups } = await pool.query('SELECT item_code, supplier_name, supplier_email FROM suppliers');
+  const vn = termNormName(vendor.name);
+  let supplierEmail = null;
+  for (const r of sups) {
+    const rn = termNormName(r.supplier_name);
+    if (rn && (rn === vn || (rn.length >= 5 && vn.length >= 5 && (rn.includes(vn) || vn.includes(rn))))) { supplierEmail = r.supplier_email; break; }
+  }
+  if (!supplierEmail) return { ok: false, reply: 'No saved email for ' + vendor.name + ' — add one in Settings, or send this one through the ✉ dialog.' };
+  const rowsHtml = vendor.items.map(it =>
+    '<tr><td>' + escapeHtml(it.name) + '</td><td>' + escapeHtml(it.product || '') + '</td><td>' + escapeHtml(it.brand || '') + '</td><td>' + escapeHtml(it.model || '') + '</td><td>' + escapeHtml(it.finishColor || '') + '</td><td>' + escapeHtml(String(it.qty || '1')) + '</td></tr>').join('');
+  const itemsHtml = '<table><tr><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Finish/Color</b></td><td><b>Qty</b></td></tr>' + rowsHtml + '</table>';
+  const coveredCodes = [...new Set(vendor.items.map(it => it.code))];
+  const preview = t.label + ' → ' + vendor.name + ' <' + supplierEmail + '>  ·  ' + coveredCodes.map(c => c + ' ' + (CODE_NAME[c] || '')).join(', ') + '  ·  ' + vendor.items.length + ' item' + (vendor.items.length > 1 ? 's' : '') + '  ·  ' + project.address + (opts.note ? '  ·  note: "' + String(opts.note).slice(0, 60) + '"' : '') + (opts.asDraft ? '  ·  DRAFT (review in Gmail)' : '');
+  return { ok: true, preview, action: {
+    kind: 'rfq', projectId: project.id, itemCode: coveredCodes[0], supplierEmail, supplierName: vendor.name,
+    emailType: t.type, itemsHtml, coveredCodes, note: String(opts.note || '').slice(0, 1000),
+    orderedKeys: t.type === 'order' ? vendor.items.map(it => it.itemKey).filter(Boolean) : [], asDraft: !!opts.asDraft,
+  } };
+}
+
+// Keyword fallback — works with no AI key. Handles "order/deliver/quote/damage/
+// replacement + category (+ job on the home terminal)".
+async function terminalRuleParse(raw, givenProjectId) {
+  if (!raw || /^help$/i.test(raw)) return { ok: false, reply: TERM_HELP };
+  let s = ' ' + raw.toLowerCase() + ' ';
+  const asDraft = /\bdraft\b/.test(s); if (asDraft) s = s.replace(/\bdraft\b/g, ' ');
+  const t = TERM_TYPES.find(x => x.re.test(s));
+  if (!t) return { ok: false, reply: "I couldn't tell what to send — say order / delivery / quote / damage / replacement. " + TERM_HELP };
+  const codes = [];
+  for (const c of TERM_CATS) { if (c.re.test(s)) { codes.push(c.code); s = s.replace(c.re, ' '); } c.re.lastIndex = 0; }
+  if (!codes.length) return { ok: false, reply: "Which materials? I recognize things like doors, windows, appliances, flooring, tile, countertops, shower doors… " + TERM_HELP };
+  let project = null;
+  if (givenProjectId) {
+    const { rows: [p] } = await pool.query('SELECT * FROM projects WHERE id=$1', [givenProjectId]);
+    project = p;
+  } else {
+    const words = s.replace(new RegExp('\\b(' + TERM_TYPES.map(x => x.re.source).join('|') + ')\\b', 'g'), ' ')
+      .split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !['the', 'and', 'for', 'its', 'time', 'get', 'send', 'please', 'request', 'need', 'now', 'them', 'this', 'that', 'job', 'project', 'from', 'with'].includes(w));
+    const { rows: projs } = await pool.query('SELECT * FROM projects');
+    let best = [], bestScore = 0;
+    for (const p of projs) {
+      const addr = (p.address + ' ' + (p.full_address || '')).toLowerCase();
+      const score = words.filter(w => addr.includes(w)).length;
+      if (score > bestScore) { best = [p]; bestScore = score; }
+      else if (score === bestScore && score > 0) best.push(p);
+    }
+    if (!bestScore) return { ok: false, reply: 'Which job? End the command with part of the address — e.g. "… for silver lantern".' };
+    if (best.length > 1) {
+      const uc = best.filter(p => /under construction/i.test(p.phase || ''));
+      if (uc.length === 1) best = uc;
+      else return { ok: false, reply: 'That matches ' + best.length + ' jobs: ' + best.slice(0, 4).map(p => p.address).join(' · ') + '. Add more of the address.' };
+    }
+    project = best[0];
+  }
+  if (!project) return { ok: false, reply: 'Project not found.' };
+  return resolveVendorEmailAction(project, codes, t, { rawText: raw, asDraft });
+}
+
+// ── AI terminal (needs ANTHROPIC_API_KEY) ──────────────────────────────────────
+const TERMINAL_AI_MODEL = process.env.TERMINAL_AI_MODEL || 'claude-haiku-4-5-20251001';
+async function callTerminalAI(system, messages, tools) {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify({ model: TERMINAL_AI_MODEL, max_tokens: 1400, system, messages, tools }),
+  });
+  const d = await r.json();
+  if (!r.ok) throw new Error('AI: ' + ((d.error && d.error.message) || 'HTTP ' + r.status).slice(0, 200));
+  return d;
+}
+const TERMINAL_TOOLS = [
+  { name: 'list_projects', description: 'List projects (id, address, phase, super). Use to resolve which job the user means.', input_schema: { type: 'object', properties: { phase: { type: 'string', description: 'optional filter, e.g. "Under Construction"' } } } },
+  { name: 'project_materials', description: "A project's material items with live delivery state (delivered/scheduled/ordered/not seen) plus bucket-level board statuses and delivery dates.", input_schema: { type: 'object', properties: { project_id: { type: 'integer' }, filter: { type: 'string', enum: ['all', 'outstanding', 'delivered', 'scheduled'] } }, required: ['project_id'] } },
+  { name: 'outstanding_orders', description: 'Material buckets not yet ordered (status Not yet placed / RFQ sent / Delivery Requested), across all projects or one.', input_schema: { type: 'object', properties: { project_id: { type: 'integer' } } } },
+  { name: 'upcoming_deliveries', description: 'Deliveries scheduled in the next N days (board dates + pending approval notices + Ferguson windows).', input_schema: { type: 'object', properties: { days: { type: 'integer' } } } },
+  { name: 'schedule_vendors', description: "Vendors on a project's finish schedule with their category codes and item counts — check before send_vendor_email when the vendor is ambiguous.", input_schema: { type: 'object', properties: { project_id: { type: 'integer' } }, required: ['project_id'] } },
+  { name: 'search_subs', description: 'Search the subcontractor/GC database (company, trade type, status, contact).', input_schema: { type: 'object', properties: { query: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer' } } } },
+  { name: 'find_contractors_online', description: 'Live contractor search (Google Places / Yelp) with ratings + review counts. Use for "find me the top N <trade> contractors in <area>".', input_schema: { type: 'object', properties: { term: { type: 'string', description: 'e.g. "framing contractor"' }, location: { type: 'string', description: 'e.g. "Los Angeles, CA"' } }, required: ['term'] } },
+  { name: 'send_vendor_email', description: 'ACTION — compose a vendor email (order / delivery / quote / damage / replacement) for material categories on a project. The user confirms before it sends.', input_schema: { type: 'object', properties: { project_id: { type: 'integer' }, category_codes: { type: 'array', items: { type: 'string' } }, email_type: { type: 'string', enum: ['order', 'delivery', 'quote', 'damage', 'replacement'] }, vendor_name: { type: 'string' }, note: { type: 'string', description: 'optional extra sentence(s) to include in the email body' }, as_draft: { type: 'boolean' } }, required: ['project_id', 'category_codes', 'email_type'] } },
+  { name: 'email_me', description: 'ACTION — email a report/summary to Logan himself. Body is plain text.', input_schema: { type: 'object', properties: { subject: { type: 'string' }, body: { type: 'string' } }, required: ['subject', 'body'] } },
+  { name: 'mark_item', description: "ACTION — set a material item's delivery state on the checklist (delivered / scheduled / ordered, or auto to clear the manual mark).", input_schema: { type: 'object', properties: { project_id: { type: 'integer' }, item_query: { type: 'string', description: 'item name or prod code to match' }, state: { type: 'string', enum: ['delivered', 'scheduled', 'ordered', 'auto'] }, when: { type: 'string', description: 'delivery date if scheduled' } }, required: ['project_id', 'item_query', 'state'] } },
+  { name: 'add_subs_under_review', description: 'ACTION — add contractors to the Subs database under "Under Review" (e.g. results from find_contractors_online). Include rating/reviews in each notes field.', input_schema: { type: 'object', properties: { subs: { type: 'array', items: { type: 'object', properties: { company: { type: 'string' }, phone: { type: 'string' }, address: { type: 'string' }, email: { type: 'string' }, type: { type: 'string', description: 'trade, e.g. Framing' }, notes: { type: 'string' } }, required: ['company'] } } }, required: ['subs'] } },
+  { name: 'update_sub_status', description: 'ACTION — move existing subs to a new status (Under Review / Bid Under Review / Active / Approved / Inactive).', input_schema: { type: 'object', properties: { sub_ids: { type: 'array', items: { type: 'integer' } }, status: { type: 'string' } }, required: ['sub_ids', 'status'] } },
+];
+const TERMINAL_READS = {
+  async list_projects(inp) {
+    const { rows } = await pool.query('SELECT id, address, phase, super_email FROM projects ORDER BY id');
+    let out = rows.map(p => ({ id: p.id, address: p.address, phase: p.phase, super: (parseSuperEmails(p.super_email)[0] || {}).name || '' }));
+    if (inp.phase) out = out.filter(p => (p.phase || '').toLowerCase().includes(String(inp.phase).toLowerCase()));
+    return out;
+  },
+  async project_materials(inp) {
+    const { expected } = await projectItemStates(inp.project_id);
+    const { rows: buckets } = await pool.query('SELECT item_code, status, delivery_date FROM project_items WHERE project_id=$1', [inp.project_id]);
+    let items = expected.map(e => ({ cat: e.category_code, code: e.prod_code, name: e.name, qty: e.qty, supplier: e.supplier, state: e.delivered ? 'delivered' : e.scheduled ? 'scheduled' : e.onOrder ? 'ordered' : 'not seen', when: e.schedWhen || undefined }));
+    const f = inp.filter || 'all';
+    if (f === 'outstanding') items = items.filter(i => i.state !== 'delivered');
+    if (f === 'delivered') items = items.filter(i => i.state === 'delivered');
+    if (f === 'scheduled') items = items.filter(i => i.state === 'scheduled');
+    return { buckets: buckets.map(b => ({ code: b.item_code, name: CODE_NAME[b.item_code] || b.item_code, status: b.status, delivery_date: b.delivery_date })), items: items.slice(0, 100), itemsTruncated: items.length > 100 };
+  },
+  async outstanding_orders(inp) {
+    const params = []; let where = "pi.status IN ('Not yet placed','RFQ sent','Delivery Requested')";
+    if (inp.project_id) { params.push(inp.project_id); where += ' AND pi.project_id=$1'; }
+    const { rows } = await pool.query(`SELECT pi.project_id, p.address, pi.item_code, pi.status, pi.order_date FROM project_items pi JOIN projects p ON p.id=pi.project_id WHERE ${where} AND p.phase ILIKE '%construction%' ORDER BY p.address, pi.item_code LIMIT 200`, params);
+    return rows.map(r => ({ project: r.address, category: r.item_code + ' ' + (CODE_NAME[r.item_code] || ''), status: r.status }));
+  },
+  async upcoming_deliveries(inp) {
+    const days = Math.min(Math.max(Number(inp.days) || 7, 1), 60);
+    const { rows: board } = await pool.query(`SELECT p.address, pi.item_code, pi.status, pi.delivery_date FROM project_items pi JOIN projects p ON p.id=pi.project_id WHERE pi.delivery_date BETWEEN CURRENT_DATE AND CURRENT_DATE + ($1::text || ' days')::interval AND pi.status NOT IN ('Delivered','Delivered from Inv.','N/A') ORDER BY pi.delivery_date LIMIT 60`, [days]);
+    const { rows: pend } = await pool.query("SELECT pdn.job_name, pdn.codes, pdn.delivery_window, pdn.method, pdn.status FROM pending_delivery_notices pdn WHERE pdn.status='pending' ORDER BY pdn.created_at DESC LIMIT 20");
+    return {
+      board: board.map(r => ({ project: r.address, category: r.item_code + ' ' + (CODE_NAME[r.item_code] || ''), date: r.delivery_date })),
+      awaiting_approval: pend.map(r => ({ job: r.job_name, codes: r.codes, window: r.delivery_window, method: r.method })),
+    };
+  },
+  async schedule_vendors(inp) {
+    const { rows: [p] } = await pool.query('SELECT * FROM projects WHERE id=$1', [inp.project_id]);
+    if (!p || !p.finish_schedule_url) return { error: 'No finish schedule linked.' };
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source });
+    return vendors.map(v => ({ name: v.name, categories: [...new Set(v.items.map(i => i.code))], items: v.items.length }));
+  },
+  async search_subs(inp) {
+    const lim = Math.min(Math.max(Number(inp.limit) || 20, 1), 40);
+    const params = []; const conds = [];
+    if (inp.query) { params.push('%' + inp.query + '%'); conds.push(`(company ILIKE $${params.length} OR type ILIKE $${params.length} OR COALESCE(notes,'') ILIKE $${params.length})`); }
+    if (inp.status) { params.push('%' + inp.status + '%'); conds.push(`status ILIKE $${params.length}`); }
+    const { rows } = await pool.query(`SELECT id, company, type, status, location, owner, email, phone FROM subcontractors ${conds.length ? 'WHERE ' + conds.join(' AND ') : ''} ORDER BY company LIMIT ${lim}`, params);
+    return rows;
+  },
+  async find_contractors_online(inp) {
+    const term = String(inp.term || '').slice(0, 80);
+    const location = String(inp.location || 'Los Angeles, CA').slice(0, 80);
+    const providers = [];
+    if (process.env.YELP_API_KEY) providers.push(yelpSearch(term, location).catch(e => ({ err: e.message })));
+    if (process.env.GOOGLE_PLACES_API_KEY) providers.push(googlePlacesSearch(term, location).catch(e => ({ err: e.message })));
+    if (!providers.length) return { error: 'No Yelp/Google Places API key configured.' };
+    const settled = await Promise.all(providers);
+    const all = settled.filter(Array.isArray).flat();
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const seen = new Set(); const merged = [];
+    for (const b of all) { const k = norm(b.name); if (!k || seen.has(k)) continue; seen.add(k); merged.push(b); }
+    merged.sort((a, b) => ((b.rating || 0) - (a.rating || 0)) || ((b.reviews || 0) - (a.reviews || 0)));
+    return merged.slice(0, 25).map(b => ({ name: b.name, phone: b.phone, address: b.address, rating: b.rating, reviews: b.reviews, tags: b.tags, source: b.source }));
+  },
+};
+const TERMINAL_ACTIONS = {
+  async send_vendor_email(inp) {
+    const { rows: [project] } = await pool.query('SELECT * FROM projects WHERE id=$1', [inp.project_id]);
+    if (!project) return { ok: false, reply: 'Project ' + inp.project_id + ' not found.' };
+    const t = TERM_TYPES.find(x => x.type === inp.email_type) || TERM_TYPES[3];
+    const codes = (inp.category_codes || []).filter(c => CODE_NAME[c]);
+    if (!codes.length) return { ok: false, reply: 'No valid material categories given.' };
+    return resolveVendorEmailAction(project, codes, t, { vendorName: inp.vendor_name || '', note: inp.note || '', asDraft: !!inp.as_draft });
+  },
+  async email_me(inp) {
+    const subject = String(inp.subject || 'Buildoly report').slice(0, 150);
+    const body = String(inp.body || '').slice(0, 8000);
+    const to = process.env.GMAIL_USER || 'logan@buildoly.com';
+    return { ok: true, preview: 'Email to you <' + to + '>  ·  "' + subject + '"  ·  ' + body.split('\n').length + ' lines', action: { kind: 'email_me', subject, body } };
+  },
+  async mark_item(inp) {
+    const { rows: [project] } = await pool.query('SELECT id, address FROM projects WHERE id=$1', [inp.project_id]);
+    if (!project) return { ok: false, reply: 'Project ' + inp.project_id + ' not found.' };
+    const { expected } = await projectItemStates(project.id);
+    const q = termNormName(inp.item_query);
+    const scored = expected.map(e => {
+      const hay = termNormName(e.name + ' ' + (e.prod_code || '') + ' ' + (e.model_no || ''));
+      return { e, hit: q && hay.includes(q) ? q.length : 0 };
+    }).filter(x => x.hit).sort((a, b) => b.hit - a.hit);
+    if (!scored.length) return { ok: false, reply: 'No item matching "' + inp.item_query + '" on ' + project.address + '. Try part of the name or the prod code.' };
+    if (scored.length > 1 && scored[0].hit === scored[1].hit && scored[0].e.name !== scored[1].e.name) {
+      return { ok: false, reply: 'That matches several items: ' + scored.slice(0, 4).map(x => x.e.name + ' (' + (x.e.prod_code || '—') + ')').join(' · ') + '. Be more specific.' };
+    }
+    const e = scored[0].e;
+    const state = inp.state === 'auto' ? '' : inp.state;
+    const icon = state === 'delivered' ? '✅' : state === 'scheduled' ? '🚚' : state === 'ordered' ? '📦' : '↩ auto';
+    return { ok: true, preview: 'Mark ' + icon + ' ' + (state || 'automatic') + ' — ' + e.name + ' (' + (e.prod_code || '—') + ')  ·  ' + project.address + (inp.when ? '  ·  ' + inp.when : ''), action: { kind: 'item-mark', projectId: project.id, key: e.key, state, when: String(inp.when || '').slice(0, 80) } };
+  },
+  async add_subs_under_review(inp) {
+    const subs = (inp.subs || []).filter(s => s && s.company).slice(0, 25);
+    if (!subs.length) return { ok: false, reply: 'No contractors to add.' };
+    const clean = subs.map(s => ({ company: String(s.company).slice(0, 150), phone: String(s.phone || '').slice(0, 40), address: String(s.address || '').slice(0, 200), email: String(s.email || '').slice(0, 150), type: String(s.type || '').slice(0, 60), notes: String(s.notes || '').slice(0, 400) }));
+    return { ok: true, preview: 'Add ' + clean.length + ' contractor' + (clean.length > 1 ? 's' : '') + ' to Subs → Under Review: ' + clean.slice(0, 5).map(s => s.company).join(', ') + (clean.length > 5 ? ' +' + (clean.length - 5) + ' more' : ''), action: { kind: 'add_subs', subs: clean } };
+  },
+  async update_sub_status(inp) {
+    const ids = (inp.sub_ids || []).map(Number).filter(Number.isInteger).slice(0, 40);
+    const status = String(inp.status || '').trim().slice(0, 40);
+    if (!ids.length || !status) return { ok: false, reply: 'Need sub ids and a status.' };
+    const { rows } = await pool.query('SELECT id, company FROM subcontractors WHERE id = ANY($1)', [ids]);
+    if (!rows.length) return { ok: false, reply: 'No matching subs found.' };
+    return { ok: true, preview: 'Move ' + rows.length + ' sub' + (rows.length > 1 ? 's' : '') + ' to "' + status + '": ' + rows.slice(0, 5).map(r => r.company).join(', ') + (rows.length > 5 ? ' +' + (rows.length - 5) + ' more' : ''), action: { kind: 'sub_status', subIds: rows.map(r => r.id), status } };
+  },
+};
+function terminalSystemPrompt(projectCtx) {
+  return 'You are the command terminal inside Buildoly Office — Logan Hauser\'s construction ops app (ADUs in the Los Angeles area). Today is ' + new Date().toISOString().slice(0, 10) + '.\n'
+    + 'Material categories: ' + Object.entries(CODE_NAME).map(([c, n]) => c + '=' + n).join(', ') + '.\n'
+    + (projectCtx ? 'The user is on the project page for: ' + projectCtx.address + ' (project_id ' + projectCtx.id + '). Commands refer to this project unless they name another.\n' : 'The user is on the home page — resolve which project they mean via list_projects.\n')
+    + 'Rules: look up real data with tools before answering; never invent numbers. Action tools (send_vendor_email, email_me, mark_item, add_subs_under_review, update_sub_status) are previewed to the user for confirmation — call one only when the user asked for that action, with complete arguments, and at most ONE action per command. For reports the user wants emailed, gather the data first, then call email_me with a clean plain-text body. Answers print in a small terminal: be brief, plain text, no markdown syntax. If the user asks for "top N by rating", sort by rating then review count.';
+}
+async function terminalAiParse(raw, givenProjectId, history) {
+  let projectCtx = null;
+  if (givenProjectId) {
+    const { rows: [p] } = await pool.query('SELECT id, address FROM projects WHERE id=$1', [givenProjectId]);
+    if (p) projectCtx = p;
+  }
+  const messages = [];
+  // Merge consecutive same-role entries — the API requires strict user/assistant alternation.
+  (Array.isArray(history) ? history.slice(-8) : []).forEach(h => {
+    if (h && (h.role === 'user' || h.role === 'assistant') && typeof h.text === 'string' && h.text.trim()) {
+      const txt = String(h.text).slice(0, 600);
+      if (messages.length && messages[messages.length - 1].role === h.role) messages[messages.length - 1].content += '\n' + txt;
+      else messages.push({ role: h.role, content: txt });
+    }
+  });
+  while (messages.length && messages[0].role !== 'user') messages.shift();
+  if (messages.length && messages[messages.length - 1].role === 'user') messages[messages.length - 1].content += '\n' + raw.slice(0, 500);
+  else messages.push({ role: 'user', content: raw.slice(0, 500) });
+  const system = terminalSystemPrompt(projectCtx);
+  for (let round = 0; round < 6; round++) {
+    const resp = await callTerminalAI(system, messages, TERMINAL_TOOLS);
+    const toolUses = (resp.content || []).filter(b => b.type === 'tool_use');
+    const text = (resp.content || []).filter(b => b.type === 'text').map(b => b.text).join('\n').trim();
+    if (!toolUses.length) return { ok: true, reply: text || '…' };
+    const act = toolUses.find(tu => TERMINAL_ACTIONS[tu.name]);
+    if (act) return TERMINAL_ACTIONS[act.name](act.input || {});
+    messages.push({ role: 'assistant', content: resp.content });
+    const results = [];
+    for (const tu of toolUses) {
+      let out;
+      try { out = TERMINAL_READS[tu.name] ? await TERMINAL_READS[tu.name](tu.input || {}) : { error: 'unknown tool' }; }
+      catch (e) { out = { error: e.message }; }
+      results.push({ type: 'tool_result', tool_use_id: tu.id, content: JSON.stringify(out).slice(0, 14000) });
+    }
+    messages.push({ role: 'user', content: results });
+  }
+  return { ok: false, reply: 'That took too many lookups — try breaking it into smaller commands.' };
+}
+
 app.post('/terminal/parse', requireAuth, async (req, res) => {
   try {
     const raw = String((req.body || {}).command || '').trim();
     const givenProjectId = (req.body || {}).projectId || null;
-    if (!raw || /^help$/i.test(raw)) return res.json({ ok: false, reply: TERM_HELP });
-    let s = ' ' + raw.toLowerCase() + ' ';
-    const asDraft = /\bdraft\b/.test(s); if (asDraft) s = s.replace(/\bdraft\b/g, ' ');
-    // 1. What kind of email?
-    const t = TERM_TYPES.find(x => x.re.test(s));
-    if (!t) return res.json({ ok: false, reply: "I couldn't tell what to send — say order / delivery / quote / damage / replacement. " + TERM_HELP });
-    // 2. Which material categories? (consume matches so generic rules don't double-hit)
-    const codes = [];
-    for (const c of TERM_CATS) { if (c.re.test(s)) { codes.push(c.code); s = s.replace(c.re, ' '); } c.re.lastIndex = 0; }
-    if (!codes.length) return res.json({ ok: false, reply: "Which materials? I recognize things like doors, windows, appliances, flooring, tile, countertops, shower doors… " + TERM_HELP });
-    // 3. Which job? Leftover words vote on the address (home terminal); project pages pass their id.
-    let project = null;
-    if (givenProjectId) {
-      const { rows: [p] } = await pool.query('SELECT * FROM projects WHERE id=$1', [givenProjectId]);
-      project = p;
-    } else {
-      const words = s.replace(new RegExp('\\b(' + TERM_TYPES.map(x => x.re.source).join('|') + ')\\b', 'g'), ' ')
-        .split(/[^a-z0-9]+/).filter(w => w.length >= 3 && !['the', 'and', 'for', 'its', 'time', 'get', 'send', 'please', 'request', 'need', 'now', 'them', 'this', 'that', 'job', 'project', 'from', 'with'].includes(w));
-      const { rows: projs } = await pool.query("SELECT * FROM projects");
-      let best = [], bestScore = 0;
-      for (const p of projs) {
-        const addr = (p.address + ' ' + (p.full_address || '')).toLowerCase();
-        const score = words.filter(w => addr.includes(w)).length;
-        if (score > bestScore) { best = [p]; bestScore = score; }
-        else if (score === bestScore && score > 0) best.push(p);
+    if (!raw) return res.json({ ok: false, reply: TERM_HELP });
+    if (process.env.ANTHROPIC_API_KEY && !/^help$/i.test(raw)) {
+      try { return res.json(await terminalAiParse(raw, givenProjectId, (req.body || {}).history)); }
+      catch (e) {
+        console.error('terminal AI:', e.message);
+        const fb = await terminalRuleParse(raw, givenProjectId);
+        fb.reply = (fb.reply ? fb.reply + ' ' : '') + '(AI unavailable: ' + e.message.slice(0, 80) + ')';
+        return res.json(fb);
       }
-      if (!bestScore) return res.json({ ok: false, reply: 'Which job? End the command with part of the address — e.g. "… for silver lantern".' });
-      if (best.length > 1) {
-        const uc = best.filter(p => /under construction/i.test(p.phase || ''));
-        if (uc.length === 1) best = uc;
-        else return res.json({ ok: false, reply: 'That matches ' + best.length + ' jobs: ' + best.slice(0, 4).map(p => p.address).join(' · ') + '. Add more of the address.' });
-      }
-      project = best[0];
     }
-    if (!project) return res.json({ ok: false, reply: 'Project not found.' });
-    if (!project.finish_schedule_url) return res.json({ ok: false, reply: project.address + ' has no finish schedule linked — add one via Edit Project, or use the ✉ Email a vendor dialog.' });
-    // 4. Vendor + items for those categories, from the schedule (same data as the dialog).
-    const vendors = await readScheduleVendors(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source });
-    let candidates = vendors.map(v => ({ ...v, items: v.items.filter(it => codes.includes(it.code)) })).filter(v => v.items.length);
-    if (!candidates.length) return res.json({ ok: false, reply: 'No schedule items found under ' + codes.join(', ') + ' for ' + project.address + '.' });
-    // A vendor named in the command wins; otherwise it must resolve to exactly one.
-    const rawLc = raw.toLowerCase();
-    const named = candidates.filter(v => {
-      const firstWord = v.name.toLowerCase().split(/\s+/)[0];
-      return termNormName(raw).includes(termNormName(v.name)) || (firstWord.length > 3 && rawLc.includes(firstWord));
-    });
-    if (named.length === 1) candidates = named;
-    if (candidates.length > 1) return res.json({ ok: false, reply: 'Those items come from ' + candidates.length + ' vendors: ' + candidates.map(v => v.name + ' (' + v.items.length + ')').join(' · ') + '. Add the vendor name to your command.' });
-    const vendor = candidates[0];
-    if (/buildoly\s*stock/i.test(vendor.name)) return res.json({ ok: false, reply: 'Those ship from Buildoly Stock (our own warehouse) — use the Warehouse Outbound email in the ✉ dialog instead.' });
-    // 5. Vendor email from the saved suppliers (name match, then the category default).
-    const { rows: sups } = await pool.query('SELECT item_code, supplier_name, supplier_email FROM suppliers');
-    const vn = termNormName(vendor.name);
-    let supplierEmail = null;
-    for (const r of sups) {
-      const rn = termNormName(r.supplier_name);
-      if (rn && (rn === vn || (rn.length >= 5 && vn.length >= 5 && (rn.includes(vn) || vn.includes(rn))))) { supplierEmail = r.supplier_email; break; }
-    }
-    if (!supplierEmail) { const def = sups.find(r => codes.includes(r.item_code) && r.supplier_email); if (def && termNormName(def.supplier_name) === vn) supplierEmail = def.supplier_email; }
-    if (!supplierEmail) return res.json({ ok: false, reply: 'No saved email for ' + vendor.name + ' — add one in Settings, or send this one through the ✉ dialog.' });
-    // 6. Items table, same columns the dialog builds — buildRfqEmail sanitizes it.
-    const rowsHtml = vendor.items.map(it =>
-      '<tr><td>' + escapeHtml(it.name) + '</td><td>' + escapeHtml(it.product || '') + '</td><td>' + escapeHtml(it.brand || '') + '</td><td>' + escapeHtml(it.model || '') + '</td><td>' + escapeHtml(it.finishColor || '') + '</td><td>' + escapeHtml(String(it.qty || '1')) + '</td></tr>').join('');
-    const itemsHtml = '<table><tr><td><b>Item</b></td><td><b>Product</b></td><td><b>Brand</b></td><td><b>Model #</b></td><td><b>Finish/Color</b></td><td><b>Qty</b></td></tr>' + rowsHtml + '</table>';
-    const coveredCodes = [...new Set(vendor.items.map(it => it.code))];
-    const preview = t.label + ' → ' + vendor.name + ' <' + supplierEmail + '>  ·  ' + coveredCodes.map(c => c + ' ' + (CODE_NAME[c] || '')).join(', ') + '  ·  ' + vendor.items.length + ' item' + (vendor.items.length > 1 ? 's' : '') + '  ·  ' + project.address + (asDraft ? '  ·  DRAFT (review in Gmail)' : '');
-    res.json({ ok: true, preview, payload: {
-      projectId: project.id, itemCode: coveredCodes[0], supplierEmail, supplierName: vendor.name,
-      emailType: t.type, itemsHtml, coveredCodes, orderedKeys: t.type === 'order' ? vendor.items.map(it => it.itemKey).filter(Boolean) : [], asDraft,
-    } });
+    res.json(await terminalRuleParse(raw, givenProjectId));
   } catch (err) {
     console.error('terminal/parse:', err.message);
     res.status(500).json({ ok: false, reply: 'Error: ' + err.message });
+  }
+});
+
+// Execute a confirmed terminal action that has no existing route of its own.
+// (Vendor emails go through /projects/:id/rfq and item marks through /item-mark.)
+app.post('/terminal/execute', requireAuth, async (req, res) => {
+  try {
+    const a = (req.body || {}).action || {};
+    if (a.kind === 'email_me') {
+      if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
+      const to = process.env.GMAIL_USER || 'logan@buildoly.com';
+      const body = String(a.body || '').slice(0, 8000);
+      const html = '<div style="font-family:ui-monospace,Consolas,monospace;font-size:13px;color:#222;white-space:pre-wrap">' + escapeHtml(body) + '</div>';
+      await sendMail({ to, subject: String(a.subject || 'Buildoly report').slice(0, 150), html });
+      return res.json({ ok: true, done: 'Sent to ' + to });
+    }
+    if (a.kind === 'add_subs') {
+      const subs = (a.subs || []).filter(s => s && s.company).slice(0, 25);
+      let added = 0;
+      for (const s of subs) {
+        const type = normalizeType(String(s.type || '').slice(0, 60)) || null;
+        const cat = /general\s*contractor|^\s*gc\b/i.test(type || '') ? 'gc' : 'sub';
+        const grp = bucketForStatus(cat, 'Under Review');
+        const so = await bucketSortOrder(cat, grp);
+        await pool.query(
+          `INSERT INTO subcontractors (company, location, type, status, email, phone, notes, group_label, category, sort_order, referenced_by, recent_add)
+           VALUES ($1,$2,$3,'Under Review',$4,$5,$6,$7,$8,$9,'Terminal search',TRUE)`,
+          [String(s.company).slice(0, 150), String(s.address || '').slice(0, 200) || null, type, String(s.email || '').slice(0, 150) || null, String(s.phone || '').slice(0, 40) || null, String(s.notes || '').slice(0, 400) || null, grp, cat, so]);
+        added++;
+      }
+      return res.json({ ok: true, done: 'Added ' + added + ' to Subs → Under Review' });
+    }
+    if (a.kind === 'sub_status') {
+      const ids = (a.subIds || []).map(Number).filter(Number.isInteger).slice(0, 40);
+      const status = String(a.status || '').trim().slice(0, 40);
+      if (!ids.length || !status) return res.status(400).json({ ok: false, error: 'Bad action.' });
+      let moved = 0;
+      for (const id of ids) {
+        const { rows: [cur] } = await pool.query('SELECT category FROM subcontractors WHERE id=$1', [id]);
+        if (!cur) continue;
+        const grp = bucketForStatus(cur.category || 'sub', status);
+        const so = await bucketSortOrder(cur.category || 'sub', grp);
+        await pool.query('UPDATE subcontractors SET status=$1, group_label=$2, sort_order=$3 WHERE id=$4', [status, grp, so, id]);
+        moved++;
+      }
+      return res.json({ ok: true, done: 'Moved ' + moved + ' sub' + (moved !== 1 ? 's' : '') + ' to ' + status });
+    }
+    res.status(400).json({ ok: false, error: 'Unknown action.' });
+  } catch (err) {
+    console.error('terminal/execute:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
