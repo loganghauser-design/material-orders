@@ -3668,7 +3668,7 @@ ${signoff}
       order: { subject: subjectLine, intro: `I'd like to place an order for delivery to <strong>${addr}</strong>. Please see the items below:`, closing: '' },
       delivery: { subject: subjectLine, intro: `We're ready for delivery to <strong>${addr}</strong> on the following items:`, closing: 'Please confirm the delivery date.' },
       quote: { subject: subjectLine, intro: `I'd like to request an RFQ for delivery to <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time at your earliest convenience.' },
-      damage: { subject: `${fullAddress} — Damaged Item Report`, intro: `The following item(s) delivered to <strong>${addr}</strong> arrived damaged. We're reporting this within the damage window:`, closing: 'Please send replacement(s) at no charge and confirm the expected delivery date. Photos are available on request.' },
+      damage: { subject: `${fullAddress} — Damaged Item Report`, intro: `The following item(s) at <strong>${addr}</strong> were damaged:`, closing: 'Can we get a replacement for this? See photos below.' },
       replacement: { subject: `${fullAddress} — Replacement Request`, intro: `We need replacement(s) for the following item(s) at <strong>${addr}</strong>:`, closing: 'Please confirm the replacement order and its expected delivery date.' },
     };
     const t = TYPES[emailType] || TYPES.order;
@@ -4170,7 +4170,7 @@ app.post('/projects/:id/category-request', requireAuth, async (req, res) => {
       delivery: { verb: 'Delivery Request', intro: `We're ready for delivery of the following <strong>${escapeHtml(catName)}</strong> items to <strong>${addr}</strong>:`, closing: 'Please confirm the delivery date.' },
       order: { verb: 'Order', intro: `We'd like to order the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: '' },
       quote: { verb: 'RFQ', intro: `Please quote the following <strong>${escapeHtml(catName)}</strong> items for <strong>${addr}</strong>:`, closing: 'Please provide pricing, availability, and lead time.' },
-      damage: { verb: 'Damaged Item Report', intro: `The following <strong>${escapeHtml(catName)}</strong> item(s) delivered to <strong>${addr}</strong> arrived damaged. We're reporting this within the damage window:`, closing: 'Please send replacement(s) at no charge and confirm the expected delivery date. Photos are available on request.' },
+      damage: { verb: 'Damaged Item Report', intro: `The following <strong>${escapeHtml(catName)}</strong> item(s) at <strong>${addr}</strong> were damaged:`, closing: 'Can we get a replacement for this? See photos below.' },
       replacement: { verb: 'Replacement Request', intro: `We need replacement(s) for the following <strong>${escapeHtml(catName)}</strong> item(s) at <strong>${addr}</strong>:`, closing: 'Please confirm the replacement order and its expected delivery date.' },
     };
     const t = TYPES[emailType] || TYPES.delivery;
