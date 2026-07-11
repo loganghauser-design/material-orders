@@ -4413,6 +4413,7 @@ const TERMINAL_TOOLS = [
   { name: 'outstanding_orders', description: 'Material buckets not yet ordered (status Not yet placed / RFQ sent / Delivery Requested), across all projects or one.', input_schema: { type: 'object', properties: { project_id: { type: 'integer' } } } },
   { name: 'upcoming_deliveries', description: 'Deliveries scheduled in the next N days (board dates + pending approval notices + Ferguson windows).', input_schema: { type: 'object', properties: { days: { type: 'integer' } } } },
   { name: 'schedule_vendors', description: "Vendors on a project's finish schedule with their category codes and item counts — check before send_vendor_email when the vendor is ambiguous.", input_schema: { type: 'object', properties: { project_id: { type: 'integer' } }, required: ['project_id'] } },
+  { name: 'email_history', description: 'Recently SENT emails, newest first: branded delivery notices to on-site contacts, and vendor emails (orders / RFQs / delivery requests / damage / replacement). Use for "when did the last X email go out".', input_schema: { type: 'object', properties: { project_id: { type: 'integer' }, limit: { type: 'integer' } } } },
   { name: 'search_subs', description: 'Search the subcontractor/GC database (company, trade type, status, contact).', input_schema: { type: 'object', properties: { query: { type: 'string' }, status: { type: 'string' }, limit: { type: 'integer' } } } },
   { name: 'find_contractors_online', description: 'Live contractor search (Google Places / Yelp) with ratings + review counts. Use for "find me the top N <trade> contractors in <area>".', input_schema: { type: 'object', properties: { term: { type: 'string', description: 'e.g. "framing contractor"' }, location: { type: 'string', description: 'e.g. "Los Angeles, CA"' } }, required: ['term'] } },
   { name: 'send_vendor_email', description: 'ACTION — compose a vendor email (order / delivery / quote / damage / replacement) for material categories on a project. The user confirms before it sends.', input_schema: { type: 'object', properties: { project_id: { type: 'integer' }, category_codes: { type: 'array', items: { type: 'string' } }, email_type: { type: 'string', enum: ['order', 'delivery', 'quote', 'damage', 'replacement'] }, vendor_name: { type: 'string' }, note: { type: 'string', description: 'optional extra sentence(s) to include in the email body' }, as_draft: { type: 'boolean' } }, required: ['project_id', 'category_codes', 'email_type'] } },
@@ -4458,6 +4459,16 @@ const TERMINAL_READS = {
     if (!p || !p.finish_schedule_url) return { error: 'No finish schedule linked.' };
     const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source });
     return vendors.map(v => ({ name: v.name, categories: [...new Set(v.items.map(i => i.code))], items: v.items.length }));
+  },
+  async email_history(inp) {
+    const lim = Math.min(Math.max(Number(inp.limit) || 15, 1), 40);
+    const params = []; let w = '';
+    if (inp.project_id) { params.push(inp.project_id); w = ' WHERE x.project_id=$1'; }
+    const { rows: notices } = await pool.query(
+      `SELECT x.sent_at, p.address, x.method, x.codes, x.items FROM delivery_notices x JOIN projects p ON p.id=x.project_id${w} ORDER BY x.sent_at DESC LIMIT ${lim}`, params);
+    const { rows: vemails } = await pool.query(
+      `SELECT x.sent_at, p.address, x.email_type, x.subject, x.supplier_name, x.supplier_email FROM vendor_emails x JOIN projects p ON p.id=x.project_id${w} ORDER BY x.sent_at DESC LIMIT ${lim}`, params);
+    return { delivery_notices_to_site_contact: notices, vendor_emails: vemails };
   },
   async search_subs(inp) {
     const lim = Math.min(Math.max(Number(inp.limit) || 20, 1), 40);
@@ -4535,7 +4546,7 @@ function terminalSystemPrompt(projectCtx) {
   return 'You are the command terminal inside Buildoly Office — Logan Hauser\'s construction ops app (ADUs in the Los Angeles area). Today is ' + new Date().toISOString().slice(0, 10) + '.\n'
     + 'Material categories: ' + Object.entries(CODE_NAME).map(([c, n]) => c + '=' + n).join(', ') + '.\n'
     + (projectCtx ? 'The user is on the project page for: ' + projectCtx.address + ' (project_id ' + projectCtx.id + '). Commands refer to this project unless they name another.\n' : 'The user is on the home page — resolve which project they mean via list_projects.\n')
-    + 'Rules: look up real data with tools before answering; never invent numbers. Action tools (send_vendor_email, email_me, mark_item, add_subs_under_review, update_sub_status) are previewed to the user for confirmation — call one only when the user asked for that action, with complete arguments, and at most ONE action per command. For reports the user wants emailed, gather the data first, then call email_me with a clean plain-text body. Answers print in a small terminal: be brief, plain text, no markdown syntax. If the user asks for "top N by rating", sort by rating then review count.';
+    + 'Rules: look up real data with tools before answering; never invent numbers. Action tools (send_vendor_email, email_me, mark_item, add_subs_under_review, update_sub_status) are previewed to the user for confirmation — call one only when the user asked for that action, with complete arguments, and at most ONE action per command. For reports the user wants emailed, gather the data first, then call email_me with a clean plain-text body. Answers print in a raw monospace terminal that does NOT render markdown — asterisks and hashes show literally, so never use them; plain text and simple "-" lists only, and keep it brief. If the user asks for "top N by rating", sort by rating then review count.';
 }
 async function terminalAiParse(raw, givenProjectId, history) {
   let projectCtx = null;
