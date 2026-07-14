@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "design-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["_preview_server.js"],
+      "port": 4173
+    },
+    {
+      "name": "scrapbids-preview",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/logan/AppData/Local/Temp/claude/C--Users-logan-OneDrive-Desktop-New-folder-New-folder/9ade3096-eae4-42ae-b73d-36376497b794/scratchpad/static-preview.js"],
+      "port": 4188
+    },
+    {
+      "name": "scrapbids-app",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["C:/Users/logan/OneDrive/Desktop/scrapbids/server.js"],
+      "port": 4200
+    }
+  ]
+}

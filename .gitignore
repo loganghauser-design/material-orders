@@ -6,3 +6,4 @@ scripts/get-gmail-token.js
 chat-refresh-token.txt
 scripts/get-chat-token.js
 .claude/scheduled_tasks.lock
+.claude/settings.local.json

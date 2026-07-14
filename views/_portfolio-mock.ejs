@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Projects — Buildoly Office</title>
+<link rel="stylesheet" href="/css/app.css?v=5">
+<style>
+  .pf { max-width: 1280px; margin: 0 auto; padding: 1.6rem 1.3rem 3.5rem; }
+  .pf-hero { display:flex; justify-content:space-between; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:1.3rem; }
+  .pf-hero h1 { font-size:1.7rem; font-weight:800; letter-spacing:-.025em; }
+  .pf-hero .btn-new { display:inline-flex; align-items:center; gap:.4rem; background:#111318; color:#fff; font-weight:700; font-size:.88rem; padding:.55rem 1rem; border-radius:10px; text-decoration:none; }
+  /* portfolio stat strip */
+  .pf-stats { display:grid; grid-template-columns:repeat(5,1fr); gap:.7rem; margin-bottom:1.4rem; }
+  .pf-stat { background:var(--surface); border:1px solid var(--border); border-radius:13px; padding:.85rem 1rem; }
+  .pf-stat .v { font-size:1.7rem; font-weight:800; letter-spacing:-.03em; line-height:1; }
+  .pf-stat .l { font-size:.68rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:800; margin-top:.25rem; }
+  .pf-stat.uc .v{color:#2563eb} .pf-stat.pc .v{color:#6b3fc2} .pf-stat.dl .v{color:#16794a} .pf-stat.at .v{color:#c23b3b}
+  /* controls */
+  .pf-bar { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap; margin-bottom:1.5rem; }
+  .pf-bar input, .pf-bar select { font:inherit; font-size:.9rem; padding:.5rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--surface); }
+  .pf-bar input { flex:1; min-width:200px; max-width:340px; }
+  .pf-seg { display:inline-flex; border:1px solid var(--border); border-radius:9px; overflow:hidden; background:var(--surface); }
+  .pf-seg button { border:none; background:none; padding:.5rem .85rem; font-size:.82rem; font-weight:700; color:var(--muted); cursor:pointer; }
+  .pf-seg button.on { background:#111318; color:#fff; }
+  /* phase group header */
+  .pf-group { display:flex; align-items:center; gap:.6rem; margin:1.7rem 0 .9rem; }
+  .pf-group .tag { font-size:.8rem; font-weight:800; padding:.28rem .8rem; border-radius:999px; }
+  .pf-group .tag.uc{background:#e8efff;color:#1d4ed8} .pf-group .tag.pc{background:#efe8fb;color:#6b3fc2} .pf-group .tag.uw{background:#e3f6ec;color:#16794a} .pf-group .tag.ip{background:#fdf0d5;color:#9a6b00}
+  .pf-group .rule { flex:1; height:1px; background:var(--border); }
+  /* project cards */
+  .pf-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:.9rem; }
+  .pf-card { background:var(--surface); border:1px solid var(--border); border-radius:15px; padding:1.05rem 1.15rem; text-decoration:none; color:var(--text); display:flex; flex-direction:column; gap:.75rem; transition:box-shadow .15s, transform .15s, border-color .15s; }
+  .pf-card:hover { box-shadow:0 12px 30px rgba(20,22,30,.09); transform:translateY(-2px); border-color:#d4d7e2; }
+  .pf-top { display:flex; align-items:flex-start; gap:.5rem; }
+  .pf-addr { font-weight:800; font-size:1.02rem; letter-spacing:-.01em; }
+  .pf-ver { color:var(--muted); font-weight:500; font-size:.8rem; margin-left:.35rem; }
+  .pf-sub { font-size:.8rem; color:var(--muted); margin-top:2px; display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+  .pf-super { display:inline-flex; align-items:center; gap:.3rem; }
+  .pf-pill { margin-left:auto; font-size:.68rem; font-weight:700; padding:.22rem .6rem; border-radius:999px; white-space:nowrap; }
+  .pf-pill.uc{background:#e8efff;color:#1d4ed8} .pf-pill.pc{background:#efe8fb;color:#6b3fc2} .pf-pill.uw{background:#e3f6ec;color:#16794a}
+  /* overall bar */
+  .pf-ov { display:flex; align-items:center; gap:.7rem; }
+  .pf-ovbar { flex:1; height:9px; border-radius:999px; background:#edeef4; overflow:hidden; }
+  .pf-ovbar > span { display:block; height:100%; background:#16a34a; border-radius:999px; }
+  .pf-ovtxt { font-size:.8rem; font-weight:800; white-space:nowrap; }
+  .pf-ovtxt small { color:var(--muted); font-weight:600; }
+  /* per-stage strip */
+  .pf-stages { display:flex; gap:.5rem; }
+  .pf-stage { flex:1; }
+  .pf-stage .sl { font-size:.6rem; font-weight:800; text-transform:uppercase; letter-spacing:.03em; color:var(--muted); display:flex; justify-content:space-between; }
+  .pf-stage .sb { height:6px; border-radius:999px; background:#edeef4; overflow:hidden; margin-top:3px; }
+  .pf-stage .sb > span { display:block; height:100%; background:#16a34a; }
+  .pf-stage.done .sb > span { background:#16a34a; }
+  .pf-stage.none .sb > span { background:#cbd2dc; }
+  /* alerts */
+  .pf-alerts { display:flex; gap:.4rem; flex-wrap:wrap; }
+  .pf-alert { font-size:.72rem; font-weight:700; padding:.15rem .55rem; border-radius:8px; }
+  .pf-alert.iss{background:#fee2e2;color:#b91c1c} .pf-alert.rep{background:#fef3c7;color:#92400e} .pf-alert.sch{background:#fde8cf;color:#9a4a00} .pf-alert.next{background:#e8efff;color:#1d4ed8}
+  @media(max-width:860px){ .pf-stats{grid-template-columns:repeat(2,1fr)} .pf-grid{grid-template-columns:1fr} }
+</style></head>
+<body>
+<%- include('_nav', { active: 'projects' }) %>
+<div class="pf">
+  <div class="pf-hero">
+    <div><h1>Projects</h1><div style="color:var(--muted);font-size:.9rem;margin-top:.25rem">57 projects · 22 delivered · 3 need attention</div></div>
+    <a class="btn-new" href="#">+ New Project</a>
+  </div>
+  <div class="pf-stats">
+    <div class="pf-stat"><div class="v">57</div><div class="l">Total</div></div>
+    <div class="pf-stat uc"><div class="v">15</div><div class="l">Under Construction</div></div>
+    <div class="pf-stat pc"><div class="v">20</div><div class="l">Pre-Construction</div></div>
+    <div class="pf-stat dl"><div class="v">22</div><div class="l">Delivered</div></div>
+    <div class="pf-stat at"><div class="v">3</div><div class="l">Need attention</div></div>
+  </div>
+  <div class="pf-bar">
+    <input type="search" placeholder="Search address…">
+    <select><option>All statuses</option></select>
+    <span style="margin-left:auto"></span>
+    <div class="pf-seg"><button class="on">By phase</button><button>By super</button><button>Needs action</button></div>
+  </div>
+
+  <%
+    function card(p){
+      var pct = p.total ? Math.round(p.delivered/p.total*100) : 0;
+      var stageHtml = p.stages.map(function(s){
+        var sp = s.total ? Math.round(s.done/s.total*100) : 0;
+        var cls = s.total===0 ? 'none' : (s.done===s.total ? 'done' : '');
+        return '<div class="pf-stage '+cls+'"><div class="sl"><span>'+s.name+'</span><span>'+s.done+'/'+s.total+'</span></div><div class="sb"><span style="width:'+sp+'%"></span></div></div>';
+      }).join('');
+      var alerts = p.alerts.map(function(a){ return '<span class="pf-alert '+a.k+'">'+a.t+'</span>'; }).join('');
+      return '<a class="pf-card" href="#">'
+        + '<div class="pf-top"><div><div class="pf-addr">'+p.addr+'<span class="pf-ver">v'+p.ver+'</span></div>'
+        + '<div class="pf-sub"><span class="pf-super">👷 '+(p.super||'—')+'</span>'+(p.next?'<span>· next: '+p.next+'</span>':'')+'</div></div>'
+        + '<span class="pf-pill '+p.ph+'">'+p.phName+'</span></div>'
+        + '<div class="pf-ov"><span class="pf-ovbar"><span style="width:'+pct+'%"></span></span><span class="pf-ovtxt">'+pct+'% <small>· '+p.delivered+'/'+p.total+'</small></span></div>'
+        + '<div class="pf-stages">'+stageHtml+'</div>'
+        + (alerts?'<div class="pf-alerts">'+alerts+'</div>':'')
+        + '</a>';
+    }
+    function stages(a){ return [{name:'Framing',done:a[0],total:5},{name:'W/House',done:a[1],total:5},{name:'Final',done:a[2],total:5},{name:'Roof',done:a[3],total:1},{name:'Solar',done:a[4],total:1}]; }
+    var uc = [
+      {addr:'33772 Silver Lantern',ver:3,super:'Kevin',phName:'Under Construction',ph:'uc',delivered:9,total:17,stages:stages([4,3,2,0,0]),next:'Mon Jul 6',alerts:[{k:'rep',t:'📥 reply'},{k:'next',t:'🚚 delivery Mon'}]},
+      {addr:'1827 N Alvarado',ver:2,super:'Bobby',phName:'Under Construction',ph:'uc',delivered:14,total:17,stages:stages([5,5,3,1,0]),next:null,alerts:[]},
+      {addr:'5102 W 123rd St',ver:1,super:'Eddie',phName:'Under Construction',ph:'uc',delivered:15,total:17,stages:stages([5,5,4,1,0]),next:null,alerts:[{k:'iss',t:'⚠ 1 issue'}]},
+      {addr:'4137 Milton Ave',ver:2,super:'Bobby',phName:'Under Construction',ph:'uc',delivered:16,total:17,stages:stages([5,5,5,1,0]),next:null,alerts:[]},
+    ];
+    var pc = [
+      {addr:'2309 Via Rivera',ver:2,super:'—',phName:'Pre-Construction',ph:'pc',delivered:0,total:17,stages:stages([0,0,0,0,0]),next:null,alerts:[{k:'sch',t:'no super assigned'}]},
+      {addr:'7885 Croydon Ave',ver:1,super:'—',phName:'Pre-Construction',ph:'pc',delivered:0,total:17,stages:stages([0,0,0,0,0]),next:null,alerts:[]},
+    ];
+  %>
+  <div class="pf-group"><span class="tag uc">Under Construction</span><span style="color:var(--muted);font-size:.82rem;font-weight:700">15</span><span class="rule"></span></div>
+  <div class="pf-grid"><%- uc.map(card).join('') %></div>
+  <div class="pf-group"><span class="tag pc">Pre-Construction</span><span style="color:var(--muted);font-size:.82rem;font-weight:700">20</span><span class="rule"></span></div>
+  <div class="pf-grid"><%- pc.map(card).join('') %></div>
+</div>
+</body></html>
