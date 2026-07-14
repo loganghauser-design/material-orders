@@ -3769,19 +3769,24 @@ app.post('/projects/:id/rfq', requireAuth, upload.array('attachments', 10), asyn
       const draft = await createDraft({ to: supplierEmail, cc: sendCc, subject, html, attachments });
       // Record the draft so it appears in the project's Emails tab and replies get
       // tracked once you send it from Gmail (it keeps the same thread id).
+      // Orders + delivery requests both end in a delivery, so their replies are
+      // watched for the vendor's date (the Amerfit case: order reply carried the
+      // date but the thread wasn't flagged, so the pipeline never read it).
+      const watchReply = emailType === 'order' || emailType === 'delivery';
       await pool.query(
-        `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        [req.params.id, itemCode || null, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', draft.threadId || null, draft.messageId || null]
+        `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id, awaiting_delivery_date)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+        [req.params.id, itemCode || null, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', draft.threadId || null, draft.messageId || null, watchReply]
       );
       return res.json({ ok: true, draft: true });
     }
 
+    const watchReply = emailType === 'order' || emailType === 'delivery';
     const sent = await sendMail({ to: supplierEmail, cc: sendCc, subject, html, attachments });
     const { rows: [ve] } = await pool.query(
-      `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [req.params.id, itemCode || null, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', sent.threadId || null, sent.messageId || null]
+      `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id, awaiting_delivery_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [req.params.id, itemCode || null, itemCodesCsv, supplierName || null, supplierEmail, subject, emailType || 'order', sent.threadId || null, sent.messageId || null, watchReply]
     );
 
     // Auto-advance the status of all this vendor's materials on the project
@@ -4231,10 +4236,12 @@ ${signoff}
 </div>`;
 
     const sent = await sendMail({ to, subject, html });
+    // Order/delivery replies carry the vendor's delivery date — watch the thread.
+    const watchReply = !emailType || emailType === 'order' || emailType === 'delivery';
     const { rows: [ve] } = await pool.query(
-      `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [req.params.id, category || null, category || null, null, to, subject, emailType || 'delivery', sent.threadId || null, sent.messageId || null]
+      `INSERT INTO vendor_emails (project_id, item_code, item_codes, supplier_name, supplier_email, subject, email_type, gmail_thread_id, gmail_message_id, awaiting_delivery_date)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [req.params.id, category || null, category || null, null, to, subject, emailType || 'delivery', sent.threadId || null, sent.messageId || null, watchReply]
     );
     // Advance the category's material too — quote → "RFQ sent", order → "Order Placed"
     if (category && ALL_ITEMS.find(i => i.code === category) && TYPE_TARGET[emailType]) {
