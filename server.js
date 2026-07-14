@@ -1860,6 +1860,21 @@ async function initDb() {
       received_at TIMESTAMPTZ DEFAULT NOW()
     );
     ALTER TABLE bids ADD COLUMN IF NOT EXISTS seen BOOLEAN DEFAULT FALSE;
+    -- Baseline costs per trade (from 842 N Edgemont) — the yardstick every incoming
+    -- bid is compared against on the Subs page. Seeded once; edits stick (ON CONFLICT
+    -- DO NOTHING never overwrites a hand-tuned amount).
+    CREATE TABLE IF NOT EXISTS bid_baselines (
+      id SERIAL PRIMARY KEY,
+      trade VARCHAR(80) UNIQUE NOT NULL,
+      amount NUMERIC NOT NULL,
+      label VARCHAR(120) DEFAULT '842 N Edgemont'
+    );
+    INSERT INTO bid_baselines (trade, amount) VALUES
+      ('Decking', 3350), ('Electrical', 11000), ('Finishes + Countertops', 13100),
+      ('Foundation', 23300), ('Framing', 19150), ('HVAC', 7800), ('Plumbing', 18650),
+      ('Roofing', 4200), ('Stucco', 7100), ('Tile', 3190), ('Drywall', 7500),
+      ('Tree Removal', 2600), ('Insulation', 2800), ('Final Cleaning', 180)
+    ON CONFLICT (trade) DO NOTHING;
     -- Files a sub attaches to a reply (license PDF, COI, insurance, photos). We store
     -- metadata + the Gmail ids and stream the bytes on demand via the attachment route.
     CREATE TABLE IF NOT EXISTS sub_email_attachments (
@@ -5152,6 +5167,42 @@ async function readSubsSheet() {
   return out;
 }
 
+// Which baseline trade does a sub's type belong to? Synonym match so "Framer",
+// "Concrete / Foundation", "Counter tops" all land on the right row.
+const BASELINE_TRADE_SYNONYMS = [
+  { trade: 'Finishes + Countertops', re: /counter\s*top|finishes/i },
+  { trade: 'Final Cleaning', re: /clean/i },
+  { trade: 'Tree Removal', re: /tree/i },
+  { trade: 'HVAC', re: /hvac|heating|air\s*condition/i },
+  { trade: 'Plumbing', re: /plumb/i },
+  { trade: 'Electrical', re: /electric/i },
+  { trade: 'Framing', re: /fram/i },
+  { trade: 'Roofing', re: /roof/i },
+  { trade: 'Drywall', re: /drywall/i },
+  { trade: 'Stucco', re: /stucco|plaster/i },
+  { trade: 'Tile', re: /tile/i },
+  { trade: 'Decking', re: /deck/i },
+  { trade: 'Foundation', re: /foundation|concrete/i },
+  { trade: 'Insulation', re: /insulat/i },
+];
+function baselineTradeFor(subType) {
+  const t = String(subType || '');
+  const hit = BASELINE_TRADE_SYNONYMS.find(s => s.re.test(t));
+  return hit ? hit.trade : null;
+}
+function parseMoney(s) { const n = parseFloat(String(s || '').replace(/[^0-9.]/g, '')); return isFinite(n) && n > 0 ? n : null; }
+
+// Update a baseline amount inline from the Subs page
+app.post('/subs/baseline', requireAuth, async (req, res) => {
+  try {
+    const trade = String((req.body || {}).trade || '').trim().slice(0, 80);
+    const amount = parseMoney((req.body || {}).amount);
+    if (!trade || !amount) return res.status(400).json({ ok: false, error: 'Need a trade and a dollar amount.' });
+    await pool.query('INSERT INTO bid_baselines (trade, amount) VALUES ($1,$2) ON CONFLICT (trade) DO UPDATE SET amount=$2', [trade, amount]);
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.get('/subs', requireAuth, async (req, res) => {
   try {
     await initDb();
@@ -5235,7 +5286,37 @@ app.get('/subs', requireAuth, async (req, res) => {
         ORDER BY b.sub_id, b.received_at DESC`);
       bd.forEach(r => { bidDocs[r.sub_id] = r; });
     } catch (e) { /* bids table brand new */ }
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
+    // Cost comparison — every dollar bid we have, grouped under its baseline trade
+    // (Edgemont numbers as the yardstick). Real bid rows first; a sub whose only
+    // price is the bid_price text field still shows (no project attached).
+    let costComparison = [];
+    try {
+      const { rows: baselines } = await pool.query('SELECT trade, amount, label FROM bid_baselines ORDER BY amount DESC');
+      const { rows: bidRows } = await pool.query(`
+        SELECT b.sub_id, b.amount, b.received_at, s.company, s.type, p.address
+        FROM bids b JOIN subcontractors s ON s.id = b.sub_id LEFT JOIN projects p ON p.id = b.project_id
+        WHERE b.amount IS NOT NULL AND b.amount > 0 ORDER BY b.received_at DESC`);
+      const byTradeCmp = {};
+      baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
+      const seenSubBid = new Set();
+      bidRows.forEach(r => {
+        const trade = baselineTradeFor(r.type);
+        if (!trade || !byTradeCmp[trade]) return;
+        byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company, amount: Number(r.amount), project: r.address || '', when: r.received_at });
+        seenSubBid.add(r.sub_id);
+      });
+      subs.forEach(s => {
+        if (seenSubBid.has(s.id)) return;
+        const amt = parseMoney(s.bid_price);
+        if (!amt) return;
+        const trade = baselineTradeFor(s.type);
+        if (!trade || !byTradeCmp[trade]) return;
+        byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: '', when: null });
+      });
+      Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
+      costComparison = Object.values(byTradeCmp);
+    } catch (e) { /* baselines table brand new */ }
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
