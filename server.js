@@ -7593,8 +7593,15 @@ function stripBrands(s) {
 }
 function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window, method, tracking }) {
   const isUps = String(method || '').toLowerCase() === 'ups';
-  const methodText = isUps ? 'UPS Parcel' : 'Delivery Truck';
-  const trackUrl = tracking ? 'https://www.ups.com/track?loc=en_US&requester=ST&tracknum=' + encodeURIComponent(tracking) : '';
+  // Parcel carrier by tracking format: 1Z… is UPS; 12/15-digit numeric is FedEx
+  // (Mineral Tiles etc. ship FedEx Ground) — link to the right tracker either way.
+  const isFedex = !!tracking && /^\d{12}(\d{3})?$/.test(String(tracking).replace(/\s/g, ''));
+  const carrierName = isFedex ? 'FedEx' : 'UPS';
+  const methodText = isUps ? carrierName + ' Parcel' : 'Delivery Truck';
+  const trackUrl = tracking
+    ? (isFedex ? 'https://www.fedex.com/fedextrack/?trknbr=' + encodeURIComponent(tracking)
+               : 'https://www.ups.com/track?loc=en_US&requester=ST&tracknum=' + encodeURIComponent(tracking))
+    : '';
   // Short "Mon, Jul 6" for the subject line, parsed from the window text.
   const shortWhen = (() => {
     const w = String(window || '');
@@ -7603,7 +7610,7 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
     if (/today/i.test(w)) return 'Today';
     return '';
   })();
-  const subject = `Delivery Update — ${jobName}` + (shortWhen ? ` · Arriving ${shortWhen}` : (isUps ? ' · Shipping via UPS' : ''));
+  const subject = `Delivery Update — ${jobName}` + (shortWhen ? ` · Arriving ${shortWhen}` : (isUps ? ' · Shipping via ' + carrierName : ''));
   // Inbox preview snippet (hidden in the body).
   const preheader = isUps
     ? `${methodText}${tracking ? ' · tracking number enclosed' : ''} · no appointment needed`
@@ -7624,10 +7631,10 @@ function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, wi
   };
   const groupBlock = g => `<div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;letter-spacing:1px;color:#2563eb;text-transform:uppercase;margin:14px 0 2px">${escapeHtml(g.label)}</div>${g.items.map(itemRow).join('')}`;
   const intro = isUps
-    ? `A material shipment for your project at <strong>${escapeHtml(jobName)}</strong> is on its way via UPS. It does not require an appointment &mdash; <strong>please make sure someone can bring it inside and secure it</strong>.`
+    ? `A material shipment for your project at <strong>${escapeHtml(jobName)}</strong> is on its way via ${carrierName}. It does not require an appointment &mdash; <strong>please make sure someone can bring it inside and secure it</strong>.`
     : `A material delivery for your project at <strong>${escapeHtml(jobName)}</strong> is on its way. <strong>Please have someone on site to receive the delivery</strong> during the window below.`;
   const contactBlock = isUps
-    ? `<strong style="color:#111827">${escapeHtml(contactName)}, you are the site contact for this shipment.</strong> It is being shipped via UPS and does not require a scheduled appointment. Please ensure the package is received and stored securely on site.${tracking ? ` You can follow its progress using the tracking number below.` : ''}`
+    ? `<strong style="color:#111827">${escapeHtml(contactName)}, you are the site contact for this shipment.</strong> It is being shipped via ${carrierName} and does not require a scheduled appointment. Please ensure the package is received and stored securely on site.${tracking ? ` You can follow its progress using the tracking number below.` : ''}`
     : `<strong style="color:#111827">${escapeHtml(contactName)}, you're listed as the on-site contact</strong> for this delivery. The driver will call you <strong>30&ndash;60 minutes before arrival</strong>, so please keep your phone available.`;
   const html =
 `<div style="margin:0;padding:0;background:#f3f4f6">
