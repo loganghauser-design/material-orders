@@ -357,6 +357,7 @@
       <span id="ccCaret" style="color:var(--muted)"><%= _ccBids ? '▾' : '▸' %></span>
       <strong style="font-size:.95rem">💰 Cost Comparison</strong>
       <span style="font-size:.8rem;color:var(--muted)">bids vs the <%= _cc[0].label || 'Edgemont' %> baseline · <%= _ccBids %> bid<%= _ccBids === 1 ? '' : 's' %> across <%= _cc.filter(function(t){return t.bids.length;}).length %> trade<%= _cc.filter(function(t){return t.bids.length;}).length === 1 ? '' : 's' %></span>
+      <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm" onclick="event.stopPropagation()" style="margin-left:auto" title="Download as a formatted Excel file (opens in Excel / Google Sheets)">⬇ Export</a>
     </div>
     <div id="ccBody" style="display:<%= _ccBids ? 'block' : 'none' %>;margin-top:.8rem">
       <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:.7rem">

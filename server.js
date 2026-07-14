@@ -5203,6 +5203,81 @@ app.post('/subs/baseline', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// Cost comparison data — every dollar bid grouped under its baseline trade.
+// Shared by the Subs page card and the Excel export.
+async function computeCostComparison() {
+  const { rows: baselines } = await pool.query('SELECT trade, amount, label FROM bid_baselines ORDER BY amount DESC');
+  const { rows: bidRows } = await pool.query(`
+    SELECT b.sub_id, b.amount, b.received_at, s.company, s.type, p.address
+    FROM bids b JOIN subcontractors s ON s.id = b.sub_id LEFT JOIN projects p ON p.id = b.project_id
+    WHERE b.amount IS NOT NULL AND b.amount > 0 ORDER BY b.received_at DESC`);
+  const { rows: priced } = await pool.query("SELECT id, company, type, bid_price FROM subcontractors WHERE bid_price IS NOT NULL AND bid_price <> ''");
+  const byTradeCmp = {};
+  baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
+  const seenSubBid = new Set();
+  bidRows.forEach(r => {
+    const trade = baselineTradeFor(r.type);
+    if (!trade || !byTradeCmp[trade]) return;
+    byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company, amount: Number(r.amount), project: r.address || '', when: r.received_at });
+    seenSubBid.add(r.sub_id);
+  });
+  priced.forEach(s => {
+    if (seenSubBid.has(s.id)) return;
+    const amt = parseMoney(s.bid_price);
+    if (!amt) return;
+    const trade = baselineTradeFor(s.type);
+    if (!trade || !byTradeCmp[trade]) return;
+    byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: '', when: null });
+  });
+  Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
+  return Object.values(byTradeCmp);
+}
+
+// Download the cost comparison as a formatted Excel file
+app.get('/subs/cost-comparison.xlsx', requireAuth, async (req, res) => {
+  try {
+    const data = await computeCostComparison();
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Cost Comparison');
+    ws.columns = [
+      { header: 'Trade', key: 'trade', width: 24 },
+      { header: 'Baseline (Edgemont)', key: 'baseline', width: 18 },
+      { header: 'Company', key: 'company', width: 30 },
+      { header: 'Project', key: 'project', width: 28 },
+      { header: 'Bid', key: 'bid', width: 14 },
+      { header: 'Vs baseline $', key: 'd', width: 14 },
+      { header: 'Vs baseline %', key: 'pct', width: 13 },
+      { header: 'Received', key: 'when', width: 12 },
+    ];
+    ws.getRow(1).font = { bold: true };
+    ws.views = [{ state: 'frozen', ySplit: 1 }];
+    ws.autoFilter = 'A1:H1';
+    const GREEN = 'FF176B3A', RED = 'FFB91C1C', MUTED = 'FF8B95A9';
+    data.forEach(t => {
+      if (!t.bids.length) {
+        const row = ws.addRow({ trade: t.trade, baseline: t.baseline, company: '— no bids yet —' });
+        row.getCell('company').font = { italic: true, color: { argb: MUTED } };
+        return;
+      }
+      t.bids.forEach(b => {
+        const d = b.amount - t.baseline;
+        const row = ws.addRow({ trade: t.trade, baseline: t.baseline, company: b.company, project: b.project || '', bid: b.amount, d, pct: d / t.baseline, when: b.when ? new Date(b.when) : null });
+        const color = { argb: d <= 0 ? GREEN : RED };
+        row.getCell('d').font = { color, bold: true };
+        row.getCell('pct').font = { color, bold: true };
+      });
+    });
+    ['baseline', 'bid', 'd'].forEach(k => ws.getColumn(k).numFmt = '$#,##0');
+    ws.getColumn('pct').numFmt = '+0%;-0%';
+    ws.getColumn('when').numFmt = 'mm/dd/yyyy';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="cost-comparison-' + new Date().toISOString().slice(0, 10) + '.xlsx"');
+    await wb.xlsx.write(res);
+    res.end();
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
+
 app.get('/subs', requireAuth, async (req, res) => {
   try {
     await initDb();
@@ -5286,36 +5361,10 @@ app.get('/subs', requireAuth, async (req, res) => {
         ORDER BY b.sub_id, b.received_at DESC`);
       bd.forEach(r => { bidDocs[r.sub_id] = r; });
     } catch (e) { /* bids table brand new */ }
-    // Cost comparison — every dollar bid we have, grouped under its baseline trade
-    // (Edgemont numbers as the yardstick). Real bid rows first; a sub whose only
-    // price is the bid_price text field still shows (no project attached).
+    // Cost comparison — every dollar bid we have vs the Edgemont baseline (shared
+    // with the Excel export at /subs/cost-comparison.xlsx).
     let costComparison = [];
-    try {
-      const { rows: baselines } = await pool.query('SELECT trade, amount, label FROM bid_baselines ORDER BY amount DESC');
-      const { rows: bidRows } = await pool.query(`
-        SELECT b.sub_id, b.amount, b.received_at, s.company, s.type, p.address
-        FROM bids b JOIN subcontractors s ON s.id = b.sub_id LEFT JOIN projects p ON p.id = b.project_id
-        WHERE b.amount IS NOT NULL AND b.amount > 0 ORDER BY b.received_at DESC`);
-      const byTradeCmp = {};
-      baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
-      const seenSubBid = new Set();
-      bidRows.forEach(r => {
-        const trade = baselineTradeFor(r.type);
-        if (!trade || !byTradeCmp[trade]) return;
-        byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company, amount: Number(r.amount), project: r.address || '', when: r.received_at });
-        seenSubBid.add(r.sub_id);
-      });
-      subs.forEach(s => {
-        if (seenSubBid.has(s.id)) return;
-        const amt = parseMoney(s.bid_price);
-        if (!amt) return;
-        const trade = baselineTradeFor(s.type);
-        if (!trade || !byTradeCmp[trade]) return;
-        byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: '', when: null });
-      });
-      Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
-      costComparison = Object.values(byTradeCmp);
-    } catch (e) { /* baselines table brand new */ }
+    try { costComparison = await computeCostComparison(); } catch (e) { /* baselines table brand new */ }
     res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
