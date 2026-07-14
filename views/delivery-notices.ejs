@@ -44,7 +44,24 @@
 <%- include('_nav', { active: 'notices' }) %>
 
 <div class="container">
-  <div class="page-header"><h1 style="margin:0">Delivery Notices</h1></div>
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
+    <h1 style="margin:0">Delivery Notices</h1>
+    <button type="button" class="btn btn-ghost" id="dnRefreshBtn" onclick="dnRefresh()" title="Check Gmail right now for new Ferguson alerts and vendor date replies (instead of waiting for the next automatic sweep)">↻ Check email now</button>
+  </div>
+  <script>
+  async function dnRefresh() {
+    const btn = document.getElementById('dnRefreshBtn');
+    btn.disabled = true; btn.textContent = '↻ Checking Gmail…';
+    try {
+      const r = await fetch('/delivery-notices/refresh', { method: 'POST' });
+      const d = await r.json();
+      if (!d.ok) { alert(d.error || 'Refresh failed'); btn.disabled = false; btn.textContent = '↻ Check email now'; return; }
+      if (d.busy) { btn.textContent = '↻ Already checking…'; setTimeout(() => location.reload(), 4000); return; }
+      btn.textContent = d.newNotices ? '✓ ' + d.newNotices + ' new — reloading…' : '✓ Up to date — reloading…';
+      setTimeout(() => location.reload(), 700);
+    } catch (e) { alert('Refresh failed: ' + e.message); btn.disabled = false; btn.textContent = '↻ Check email now'; }
+  }
+  </script>
   <p class="dn-intro">
     Send a vendor a <strong>delivery request</strong> and it waits under <strong>awaiting vendor date</strong> until they
     reply — the app reads the date from their reply (or you enter it) and creates an initial notice here for

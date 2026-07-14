@@ -2643,6 +2643,31 @@ async function getPendingDeliveryNoticeCount() {
 // ── Delivery-notice approval queue ─────────────────────────────────────────────
 // Ferguson triggers queue a notice here; the office previews and approves before it
 // emails the on-site contact (and, for truck deliveries, pings them in chat).
+// "Check email now" — run the same pollers the crons run, on demand, so a vendor
+// email that just landed shows up without waiting for the next cycle. Guarded so
+// double-clicks (or a cron overlapping) don't run two sweeps at once.
+let _dnRefreshing = false;
+app.post('/delivery-notices/refresh', requireAuth, async (req, res) => {
+  if (_dnRefreshing) return res.json({ ok: true, busy: true });
+  _dnRefreshing = true;
+  try {
+    const counts = async () => {
+      const { rows: [a] } = await pool.query("SELECT COUNT(*)::int AS n FROM pending_delivery_notices WHERE status='pending'");
+      const { rows: [b] } = await pool.query('SELECT COUNT(*)::int AS n FROM vendor_emails WHERE awaiting_delivery_date=true AND notice_created=false');
+      return { pending: a.n, awaiting: b.n };
+    };
+    const before = await counts();
+    await pollFergusonEmails();        // Ferguson scheduled/out/delivered alerts
+    await processDeliveryReplies();    // vendor replies with a confirmed date
+    try { await sweepFergusonOrders(); } catch (e) { /* order PDFs — non-critical */ }
+    const after = await counts();
+    res.json({ ok: true, newNotices: Math.max(0, after.pending - before.pending), pending: after.pending, awaiting: after.awaiting });
+  } catch (err) {
+    console.error('delivery-notices refresh:', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  } finally { _dnRefreshing = false; }
+});
+
 app.get('/delivery-notices', requireAuth, async (req, res) => {
   try {
     await initDb();
