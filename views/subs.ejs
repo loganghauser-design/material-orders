@@ -336,9 +336,8 @@
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
       <% if (!isSuper && canEdit) { %>
-      <form method="POST" action="/subs/import-intake" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
-        <button type="submit" class="btn btn-ghost" title="Pull new sub bidders from the Intake Form (trade · name · phone · email) into the list for review">⬇ Import Intake Form</button>
-      </form>
+      <button type="button" class="btn btn-ghost" onclick="openIntakePreview()" title="Preview the Intake Form bidders, then confirm before anything is imported">⬇ Import Intake Form</button>
+      <form id="intakeConfirmForm" method="POST" action="/subs/import-intake" style="display:none"></form>
       <button type="button" class="btn btn-primary" onclick="openBulk()" title="Email the same bid package to every sub in a trade at once">📦 Send bid package</button>
       <% } %>
     </div>
@@ -813,6 +812,15 @@
       </div>
     </form>
     <div style="font-size:.74rem;color:var(--muted);margin-top:.7rem">Sends from your Buildoly Gmail and saves a copy under this sub.</div>
+  </div>
+</div>
+
+<!-- Intake preview: show what WOULD import (read-only) before confirming -->
+<div class="modal-bk" id="intakeModal">
+  <div class="modal-card" style="max-width:860px">
+    <h2>⬇ Intake Form — preview before importing</h2>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">Nothing is saved until you press <strong>Confirm &amp; import</strong>. Only bidders with an email are imported (the bid package sends by email).</div>
+    <div id="intakeBody" style="font-size:.9rem">Loading…</div>
   </div>
 </div>
 
@@ -1997,8 +2005,73 @@ function openCompose(btn) {
 }
 function closeEmail() { document.getElementById('emailModal').classList.remove('show'); }
 
-// ── Bulk bid-package send ──────────────────────────────────────────────
 function bkEsc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+// ── Intake preview → confirm ───────────────────────────────────────────
+async function openIntakePreview() {
+  document.getElementById('intakeModal').classList.add('show');
+  const body = document.getElementById('intakeBody');
+  body.innerHTML = '<div style="padding:1.6rem;text-align:center;color:var(--muted)">Reading the Intake Form…</div>';
+  try {
+    const r = await fetch('/subs/import-intake/preview');
+    const d = await r.json();
+    if (!d.ok) { body.innerHTML = '<div style="color:#b42323;padding:1rem;background:#fdeaea;border-radius:8px">Couldn’t read the sheet: ' + bkEsc(d.error || 'unknown error') + '</div>' + intakeFooter(0); return; }
+    renderIntakePreview(d);
+  } catch (e) { body.innerHTML = '<div style="color:#b42323;padding:1rem;background:#fdeaea;border-radius:8px">Preview failed: ' + bkEsc(e.message) + '</div>' + intakeFooter(0); }
+}
+function intakePill(st) {
+  if (st === 'import') return '<span style="background:#dcfce7;color:#166534;font-weight:700;font-size:.68rem;padding:2px 8px;border-radius:999px">Will import</span>';
+  if (st === 'dup-db') return '<span style="background:#fef3c7;color:#92400e;font-weight:700;font-size:.68rem;padding:2px 8px;border-radius:999px">Already on file</span>';
+  return '<span style="background:#e5e7eb;color:#374151;font-weight:700;font-size:.68rem;padding:2px 8px;border-radius:999px">Repeat in sheet</span>';
+}
+let intakeReviewedEmails = [];
+function renderIntakePreview(d) {
+  const c = d.counts, rows = d.rows || [];
+  // Remember exactly which bidders were shown as importable — confirm sends only these.
+  intakeReviewedEmails = rows.filter(function (r) { return r.status === 'import'; }).map(function (r) { return r.email; });
+  let html = '<div style="margin-bottom:.8rem;color:var(--text)"><strong>' + c.import + '</strong> will import'
+    + (c.dupDb ? ' · <span style="color:#92400e">' + c.dupDb + ' already on file</span>' : '')
+    + (c.dupSheet ? ' · <span style="color:#374151">' + c.dupSheet + ' repeated in sheet</span>' : '')
+    + ' · <span style="color:var(--muted)">' + c.noEmail + ' phone-only (no email) not imported</span></div>';
+  if (!rows.length) {
+    html += '<div style="color:var(--muted);padding:1rem 0">No bidders with an email address were found in the sheet.</div>';
+  } else {
+    const head = ['#', 'Trade', 'Name', 'Phone', 'Location', 'Email', 'Status'];
+    html += '<div style="max-height:52vh;overflow:auto;border:1px solid var(--border);border-radius:8px">'
+      + '<table style="width:100%;border-collapse:collapse;font-size:.82rem">'
+      + '<thead><tr>' + head.map(function (h) { return '<th style="text-align:left;padding:7px 9px;border-bottom:1px solid var(--border);font-size:.7rem;color:var(--muted);position:sticky;top:0;background:var(--surface)">' + h + '</th>'; }).join('') + '</tr></thead><tbody>'
+      + rows.map(function (x, i) {
+          return '<tr style="border-bottom:1px solid var(--border);opacity:' + (x.status === 'import' ? '1' : '.55') + '">'
+            + '<td style="padding:6px 9px;color:var(--muted)">' + (i + 1) + '</td>'
+            + '<td style="padding:6px 9px">' + bkEsc(x.trade) + '</td>'
+            + '<td style="padding:6px 9px;font-weight:600">' + bkEsc(x.name) + '</td>'
+            + '<td style="padding:6px 9px">' + bkEsc(x.phone) + '</td>'
+            + '<td style="padding:6px 9px">' + bkEsc(x.location) + '</td>'
+            + '<td style="padding:6px 9px">' + bkEsc(x.email) + '</td>'
+            + '<td style="padding:6px 9px;white-space:nowrap">' + intakePill(x.status) + '</td></tr>';
+        }).join('')
+      + '</tbody></table></div>';
+  }
+  document.getElementById('intakeBody').innerHTML = html + intakeFooter(c.import);
+}
+function intakeFooter(n) {
+  return '<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem">'
+    + '<button type="button" class="btn btn-ghost" onclick="closeIntake()">Cancel</button>'
+    + (n > 0 ? '<button type="button" class="btn btn-primary" onclick="confirmIntake(this)">✓ Confirm &amp; import ' + n + '</button>' : '')
+    + '</div>';
+}
+function closeIntake() { document.getElementById('intakeModal').classList.remove('show'); }
+function confirmIntake(btn) {
+  btn.disabled = true; btn.textContent = 'Importing…';
+  const form = document.getElementById('intakeConfirmForm');
+  let inp = form.querySelector('input[name="emails"]');
+  if (!inp) { inp = document.createElement('input'); inp.type = 'hidden'; inp.name = 'emails'; form.appendChild(inp); }
+  inp.value = JSON.stringify(intakeReviewedEmails);   // import exactly what was previewed
+  form.submit();
+}
+document.getElementById('intakeModal').addEventListener('click', function (e) { if (e.target.id === 'intakeModal') closeIntake(); });
+
+// ── Bulk bid-package send ──────────────────────────────────────────────
 function openBulk() {
   // Build the trade dropdown from every trade present on emailable subs.
   const counts = {};

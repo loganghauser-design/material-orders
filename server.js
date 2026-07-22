@@ -5219,7 +5219,9 @@ async function readIntakeSheet() {
     const sh = (meta.sheets || []).find(s => s.properties && s.properties.sheetId === INTAKE_SHEET_GID);
     if (sh) tabTitle = sh.properties.title;
   } catch (e) { /* fall back to the first/default tab */ }
-  const range = tabTitle ? `'${String(tabTitle).replace(/'/g, "''")}'!A1:Z5000` : 'A1:Z5000';
+  // Full column range (no row cap) — the sheet already sits near 5000 rows, so a
+  // hard A1:Z5000 would silently drop any bidder added past it.
+  const range = tabTitle ? `'${String(tabTitle).replace(/'/g, "''")}'!A:Z` : 'A:Z';
   const { data } = await sheetsClient.spreadsheets.values.get({ spreadsheetId: INTAKE_SHEET_ID, range });
   const rows = data.values || [];
   if (!rows.length) return [];
@@ -5245,6 +5247,46 @@ async function readIntakeSheet() {
     out.push({ trade, name, phone, email, location, row: i + 1 });
   }
   return out;
+}
+
+// Existing-sub keys for intake dedup (lowered email, lowered company, digits-only phone).
+async function intakeExisting() {
+  const { rows } = await pool.query(
+    "SELECT LOWER(TRIM(email)) e, LOWER(TRIM(company)) c, REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]','','g') p FROM subcontractors");
+  return rows;
+}
+
+// Single source of truth shared by the intake PREVIEW and the real IMPORT, so the two
+// can never disagree. Labels each parsed row:
+//   'no-email'  → phone-only, skipped (bid package sends by email)
+//   'dup-db'    → email (or name+phone) already on file
+//   'dup-sheet' → repeated earlier within this same sheet
+//   'import'    → new, emailable → will be inserted
+function classifyIntakeRows(rows, existing) {
+  const digits = s => String(s || '').replace(/[^0-9]/g, '');
+  const dbEmail = new Set(existing.map(r => r.e).filter(Boolean));
+  const dbNamePhone = new Set(existing.filter(r => r.c && r.p).map(r => r.c + '|' + r.p));
+  const batchEmail = new Set(), batchNamePhone = new Set();
+  return rows.map(s => {
+    const email = (s.email || '').toLowerCase().trim();
+    const np = (s.name || '').toLowerCase() + '|' + digits(s.phone);
+    const hasNp = !!(s.name && digits(s.phone));
+    let status;
+    if (!email) status = 'no-email';
+    else if (dbEmail.has(email) || (hasNp && dbNamePhone.has(np))) status = 'dup-db';
+    else if (batchEmail.has(email) || (hasNp && batchNamePhone.has(np))) status = 'dup-sheet';
+    else { status = 'import'; batchEmail.add(email); if (hasNp) batchNamePhone.add(np); }
+    return { row: s.row, name: s.name || '', trade: s.trade || '', phone: s.phone || '', email: s.email || '', location: s.location || '', status };
+  });
+}
+function intakeCounts(classified) {
+  return {
+    total: classified.length,
+    import: classified.filter(r => r.status === 'import').length,
+    dupDb: classified.filter(r => r.status === 'dup-db').length,
+    dupSheet: classified.filter(r => r.status === 'dup-sheet').length,
+    noEmail: classified.filter(r => r.status === 'no-email').length,
+  };
 }
 
 // Which baseline trade does a sub's type belong to? Synonym match so "Framer",
@@ -6910,36 +6952,45 @@ app.post('/subs/import', requireAuth, async (req, res) => {
 // Pull new sub bidders from the Intake Form into the subs list for review.
 // Dedups against existing subs by email, then by name+phone. New rows land in the
 // "Intake — to review" group, tagged 🆕, so they're easy to vet before bidding out.
+// Preview what the Intake Form import WOULD bring in — read-only, no writes. Returns
+// the emailable rows (import + dups) with their classification, plus counts. The
+// ~5k phone-only rows are summarised in counts, never shipped to the browser.
+app.get('/subs/import-intake/preview', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const rows = await readIntakeSheet();
+    const classified = classifyIntakeRows(rows, await intakeExisting());
+    res.json({ ok: true, counts: intakeCounts(classified), rows: classified.filter(r => r.status !== 'no-email') });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.post('/subs/import-intake', requireAuth, async (req, res) => {
   try {
     await initDb();
     const rows = await readIntakeSheet();
-    const { rows: existing } = await pool.query(
-      "SELECT LOWER(TRIM(email)) e, LOWER(TRIM(company)) c, REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]','','g') p FROM subcontractors");
-    const digits = s => String(s || '').replace(/[^0-9]/g, '');
-    const haveEmail = new Set(existing.map(r => r.e).filter(Boolean));
-    const haveNamePhone = new Set(existing.filter(r => r.c && r.p).map(r => r.c + '|' + r.p));
+    const classified = classifyIntakeRows(rows, await intakeExisting());
+    const counts = intakeCounts(classified);
+    let toImport = classified.filter(r => r.status === 'import');   // email-only, deduped
+    // Faithful confirm: the preview posts the exact set of emails it showed. Restrict
+    // the insert to those (still re-validated as importable above), so we never add a
+    // bidder the user didn't review even if the sheet changed between preview & confirm.
+    let reviewed = null;
+    try { reviewed = JSON.parse(req.body.emails || 'null'); } catch (_) { /* fall back to full set */ }
+    if (Array.isArray(reviewed)) {
+      const okSet = new Set(reviewed.map(e => String(e || '').toLowerCase().trim()));
+      toImport = toImport.filter(r => okSet.has((r.email || '').toLowerCase().trim()));
+    }
     const so0 = await bucketSortOrder('sub', INTAKE_GROUP);
-    // Email-only import: the bid package sends by email, so we only pull bidders we
-    // can actually reach. Phone-only rows (the bulk of this texting list) are skipped
-    // and counted, not dumped into the curated Subs page.
-    let added = 0, skipped = 0, noEmail = 0, i = 0;
-    for (const s of rows) {
-      const email = (s.email || '').toLowerCase();
-      if (!email) { noEmail++; continue; }
-      const np = (s.name || '').toLowerCase() + '|' + digits(s.phone);
-      const dupe = haveEmail.has(email) || (s.name && digits(s.phone) && haveNamePhone.has(np));
-      if (dupe) { skipped++; continue; }
+    let i = 0;
+    for (const s of toImport) {
       await pool.query(
         `INSERT INTO subcontractors (company, owner, type, email, phone, location, status, group_label, category, sort_order, recent_add, bid_status)
          VALUES ($1,$2,$3,$4,$5,$6,'Under Review',$7,'sub',$8,TRUE,'Intake')`,
         [s.name || null, s.name || null, normalizeType(s.trade) || (s.trade || null),
          s.email || null, s.phone || null, s.location || null, INTAKE_GROUP, so0 + i]);
-      haveEmail.add(email);
-      if (s.name && digits(s.phone)) haveNamePhone.add(np);
-      added++; i++;
+      i++;
     }
-    res.redirect('/subs?intake=' + added + '&iskip=' + skipped + '&noemail=' + noEmail);
+    res.redirect('/subs?intake=' + toImport.length + '&iskip=' + (counts.dupDb + counts.dupSheet) + '&noemail=' + counts.noEmail);
   } catch (err) { res.status(500).send('Intake import error: ' + err.message); }
 });
 
