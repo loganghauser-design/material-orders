@@ -348,7 +348,11 @@
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Imported <%= imported %> new subcontractor(s) from the sheet.</div>
   <% } %>
   <% if (typeof intake !== 'undefined' && intake !== undefined) { %>
-    <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Imported <%= intake %> new bidder(s) from the Intake Form<%= (typeof iskip !== 'undefined' && Number(iskip)) ? ' (' + iskip + ' already on file, skipped)' : '' %>. They're tagged 🆕 under <strong>“Intake — to review.”</strong></div>
+    <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">
+      ✓ Imported <%= intake %> new bidder(s) from the Intake Form, tagged 🆕 under <strong>“Intake — to review.”</strong>
+      <% if (typeof iskip !== 'undefined' && Number(iskip)) { %><div style="font-weight:400;font-size:.82rem;margin-top:.3rem;color:var(--muted)"><%= iskip %> were already on file.</div><% } %>
+      <% if (typeof noemail !== 'undefined' && Number(noemail)) { %><div style="font-weight:400;font-size:.82rem;margin-top:.2rem;color:var(--muted)"><%= noemail %> phone-only entries (no email) were skipped — the bid package sends by email.</div><% } %>
+    </div>
   <% } %>
   <% if (typeof added !== 'undefined' && added) { %>
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Subcontractor added.</div>

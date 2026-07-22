@@ -5233,15 +5233,16 @@ async function readIntakeSheet() {
     name:  findCol(/company|business|full ?name|contractor|^name$|\bname\b/),
     phone: findCol(/phone|cell|mobile/),
     email: findCol(/e-?mail/),
+    loc:   findCol(/location|city|area|region/),
   };
   if (ci.name < 0) ci.name = findCol(/name/);
   const cell = (r, k) => (ci[k] >= 0 ? String(r[ci[k]] || '').trim() : '');
   const out = [];
   for (let i = h + 1; i < rows.length; i++) {
     const r = rows[i] || [];
-    const name = cell(r, 'name'), email = cell(r, 'email'), phone = cell(r, 'phone'), trade = cell(r, 'trade');
+    const name = cell(r, 'name'), email = cell(r, 'email'), phone = cell(r, 'phone'), trade = cell(r, 'trade'), location = cell(r, 'loc');
     if (!name && !email && !phone) continue;   // blank row
-    out.push({ trade, name, phone, email, row: i + 1 });
+    out.push({ trade, name, phone, email, location, row: i + 1 });
   }
   return out;
 }
@@ -5444,7 +5445,7 @@ app.get('/subs', requireAuth, async (req, res) => {
     // with the Excel export at /subs/cost-comparison.xlsx).
     let costComparison = [];
     try { costComparison = await computeCostComparison(); } catch (e) { /* baselines table brand new */ }
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, isSuper, canEdit, recentCount, emailEnabled,
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -6919,22 +6920,26 @@ app.post('/subs/import-intake', requireAuth, async (req, res) => {
     const haveEmail = new Set(existing.map(r => r.e).filter(Boolean));
     const haveNamePhone = new Set(existing.filter(r => r.c && r.p).map(r => r.c + '|' + r.p));
     const so0 = await bucketSortOrder('sub', INTAKE_GROUP);
-    let added = 0, skipped = 0, i = 0;
+    // Email-only import: the bid package sends by email, so we only pull bidders we
+    // can actually reach. Phone-only rows (the bulk of this texting list) are skipped
+    // and counted, not dumped into the curated Subs page.
+    let added = 0, skipped = 0, noEmail = 0, i = 0;
     for (const s of rows) {
       const email = (s.email || '').toLowerCase();
+      if (!email) { noEmail++; continue; }
       const np = (s.name || '').toLowerCase() + '|' + digits(s.phone);
-      const dupe = (email && haveEmail.has(email)) || (s.name && digits(s.phone) && haveNamePhone.has(np));
+      const dupe = haveEmail.has(email) || (s.name && digits(s.phone) && haveNamePhone.has(np));
       if (dupe) { skipped++; continue; }
       await pool.query(
-        `INSERT INTO subcontractors (company, owner, type, email, phone, status, group_label, category, sort_order, recent_add, bid_status)
-         VALUES ($1,$2,$3,$4,$5,'Under Review',$6,'sub',$7,TRUE,'Intake')`,
+        `INSERT INTO subcontractors (company, owner, type, email, phone, location, status, group_label, category, sort_order, recent_add, bid_status)
+         VALUES ($1,$2,$3,$4,$5,$6,'Under Review',$7,'sub',$8,TRUE,'Intake')`,
         [s.name || null, s.name || null, normalizeType(s.trade) || (s.trade || null),
-         s.email || null, s.phone || null, INTAKE_GROUP, so0 + i]);
-      if (email) haveEmail.add(email);
+         s.email || null, s.phone || null, s.location || null, INTAKE_GROUP, so0 + i]);
+      haveEmail.add(email);
       if (s.name && digits(s.phone)) haveNamePhone.add(np);
       added++; i++;
     }
-    res.redirect('/subs?intake=' + added + '&iskip=' + skipped);
+    res.redirect('/subs?intake=' + added + '&iskip=' + skipped + '&noemail=' + noEmail);
   } catch (err) { res.status(500).send('Intake import error: ' + err.message); }
 });
 
