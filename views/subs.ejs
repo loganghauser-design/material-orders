@@ -335,11 +335,20 @@
       <form method="POST" action="/subs/import" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
         <button type="submit" class="btn btn-ghost" title="Pull any new companies from the GC & Sub Database Google Sheet">↻ Import from Sheet</button>
       </form>
+      <% if (!isSuper && canEdit) { %>
+      <form method="POST" action="/subs/import-intake" style="margin:0" onsubmit="this.querySelector('button').textContent='Importing…'">
+        <button type="submit" class="btn btn-ghost" title="Pull new sub bidders from the Intake Form (trade · name · phone · email) into the list for review">⬇ Import Intake Form</button>
+      </form>
+      <button type="button" class="btn btn-primary" onclick="openBulk()" title="Email the same bid package to every sub in a trade at once">📦 Send bid package</button>
+      <% } %>
     </div>
   </div>
 
   <% if (typeof imported !== 'undefined' && imported !== undefined) { %>
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Imported <%= imported %> new subcontractor(s) from the sheet.</div>
+  <% } %>
+  <% if (typeof intake !== 'undefined' && intake !== undefined) { %>
+    <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Imported <%= intake %> new bidder(s) from the Intake Form<%= (typeof iskip !== 'undefined' && Number(iskip)) ? ' (' + iskip + ' already on file, skipped)' : '' %>. They're tagged 🆕 under <strong>“Intake — to review.”</strong></div>
   <% } %>
   <% if (typeof added !== 'undefined' && added) { %>
     <div class="card" style="background:rgba(76,175,125,.1);border-color:rgba(76,175,125,.4);color:#16a34a;font-weight:600;margin-bottom:1rem">✓ Subcontractor added.</div>
@@ -800,6 +809,44 @@
       </div>
     </form>
     <div style="font-size:.74rem;color:var(--muted);margin-top:.7rem">Sends from your Buildoly Gmail and saves a copy under this sub.</div>
+  </div>
+</div>
+
+<!-- Bulk bid-package modal: pick a trade, send to everyone in it at once -->
+<div class="modal-bk" id="bulkModal">
+  <div class="modal-card" style="max-width:640px">
+    <h2>📦 Send bid package</h2>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">Email the same package to every sub in a trade at once. Each email is personalized and logged under that sub.</div>
+    <form id="bulkForm" onsubmit="event.preventDefault();sendBulk()">
+      <div class="form-group" style="margin-bottom:.7rem"><label>Trade</label>
+        <select id="bkTrade" onchange="bkRenderList()"></select>
+      </div>
+      <div class="form-group" style="margin-bottom:.7rem">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.35rem">
+          <label style="margin:0">Recipients <span id="bkCount" style="color:var(--muted);font-weight:400"></span></label>
+          <span style="font-size:.8rem"><a href="#" onclick="bkAll(true);return false" style="color:#2563eb;text-decoration:none">Select all</a> · <a href="#" onclick="bkAll(false);return false" style="color:#2563eb;text-decoration:none">None</a></span>
+        </div>
+        <div id="bkList" style="max-height:190px;overflow:auto;border:1px solid var(--border);border-radius:8px;padding:.4rem .6rem;background:var(--bg)"></div>
+      </div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Template</label>
+        <select id="bkTemplate" onchange="bkApplyTemplate(this)">
+          <option value="">— blank —</option>
+          <option value="generic">Generic outreach</option>
+          <option value="altadena">Met in person (Altadena)</option>
+          <option value="marvin">Referred by Marvin Han</option>
+        </select>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:.3rem">Each sub's name &amp; trade fill in automatically ({NAME} / {TRADE} stay as-is here).</div>
+      </div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="bkSubject" required></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Proposal due date</label><input type="date" id="bkDeadline" onchange="bkUpdateDeadline(this)"></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Message</label><textarea id="bkBody" rows="8" placeholder="Write your message…"></textarea></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Plans link — Google Drive CD set</label><input type="url" id="bkPlans" placeholder="https://drive.google.com/…"></div>
+      <div id="bkResult" style="display:none;font-size:.84rem;margin-bottom:.7rem"></div>
+      <div style="display:flex;gap:.6rem;justify-content:flex-end">
+        <button type="button" class="btn btn-ghost" onclick="closeBulk()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="bkSendBtn">Send to selected</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -1603,6 +1650,9 @@ function closeModal() { document.getElementById('subModal').classList.remove('sh
 const EMAIL_SUBJECT = 'ADU BID REQUEST BUILDOLY';
 const AREA_LIST = <%- JSON.stringify(typeof LOCATION_OPTS !== 'undefined' ? LOCATION_OPTS : []) %>;
 
+// ── Bulk bid-package data — every emailable sub (id · name · email · trades) ──
+const BULK_DATA = <%- JSON.stringify(subs.filter(function (s) { return String(s.email || '').trim() && (s.category !== 'gc') && !/reject|black/i.test(s.status || ''); }).map(function (s) { return { id: s.id, n: s.company || s.owner || '(no name)', e: String(s.email).trim(), tr: (s.type || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), st: s.status || '' }; })).replace(/</g, '\\u003c') %>;
+
 // ── Trade coverage panel ──
 // Minimal per-sub data for counting: trades, service areas, status, category.
 const COV_DATA = <%- JSON.stringify(subs.map(function (s) { return { t: s.type || '', l: s.location || '', st: s.status || '', cat: s.category || '', n: s.company || '' }; })).replace(/</g, '\\u003c') %>;
@@ -1942,6 +1992,97 @@ function openCompose(btn) {
   document.getElementById('emailModal').classList.add('show');
 }
 function closeEmail() { document.getElementById('emailModal').classList.remove('show'); }
+
+// ── Bulk bid-package send ──────────────────────────────────────────────
+function bkEsc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function openBulk() {
+  // Build the trade dropdown from every trade present on emailable subs.
+  const counts = {};
+  BULK_DATA.forEach(function (s) { (s.tr.length ? s.tr : ['(no trade)']).forEach(function (t) { counts[t] = (counts[t] || 0) + 1; }); });
+  const trades = Object.keys(counts).sort(function (a, b) { return a.localeCompare(b); });
+  const sel = document.getElementById('bkTrade');
+  sel.innerHTML = '<option value="__all">All subs (' + BULK_DATA.length + ')</option>' +
+    trades.map(function (t) { return '<option value="' + bkEsc(t) + '">' + bkEsc(t) + ' (' + counts[t] + ')</option>'; }).join('');
+  document.getElementById('bkTemplate').value = '';
+  document.getElementById('bkSubject').value = EMAIL_SUBJECT;
+  document.getElementById('bkBody').value = '';
+  document.getElementById('bkPlans').value = localStorage.getItem('subPlansLink') || '';
+  document.getElementById('bkDeadline').value = localStorage.getItem('subDeadline') || defaultDeadline();
+  document.getElementById('bkResult').style.display = 'none';
+  const sb = document.getElementById('bkSendBtn'); sb.disabled = false;
+  bkRenderList();
+  document.getElementById('bulkModal').classList.add('show');
+}
+function closeBulk() { document.getElementById('bulkModal').classList.remove('show'); }
+function bkMatches() {
+  const t = document.getElementById('bkTrade').value;
+  if (t === '__all') return BULK_DATA.slice();
+  if (t === '(no trade)') return BULK_DATA.filter(function (s) { return !s.tr.length; });
+  return BULK_DATA.filter(function (s) { return s.tr.indexOf(t) !== -1; });
+}
+function bkRenderList() {
+  const list = bkMatches();
+  const box = document.getElementById('bkList');
+  if (!list.length) { box.innerHTML = '<div style="color:var(--muted);font-size:.85rem;padding:.3rem">No subs with an email in this trade.</div>'; }
+  else {
+    box.innerHTML = list.map(function (s) {
+      return '<label style="display:flex;align-items:center;gap:.5rem;padding:.22rem 0;font-size:.86rem;cursor:pointer">' +
+        '<input type="checkbox" class="bk-row" value="' + s.id + '" checked onchange="bkCount()">' +
+        '<span style="font-weight:600">' + bkEsc(s.n) + '</span>' +
+        '<span style="color:var(--muted);font-size:.8rem">' + bkEsc(s.e) + '</span></label>';
+    }).join('');
+  }
+  bkCount();
+}
+function bkAll(on) { document.querySelectorAll('#bkList .bk-row').forEach(function (c) { c.checked = on; }); bkCount(); }
+function bkCount() {
+  const n = document.querySelectorAll('#bkList .bk-row:checked').length;
+  document.getElementById('bkCount').textContent = '— ' + n + ' selected';
+  const sb = document.getElementById('bkSendBtn');
+  sb.textContent = n ? 'Send to ' + n + ' sub' + (n === 1 ? '' : 's') : 'Send to selected';
+}
+function bkApplyTemplate(selEl) {
+  const key = selEl.value;
+  if (!key || !EMAIL_TEMPLATES[key]) return;
+  const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
+  // Leave {NAME}/{TRADE} literal — the server fills them per recipient.
+  document.getElementById('bkSubject').value = EMAIL_SUBJECT;
+  document.getElementById('bkBody').value = EMAIL_TEMPLATES[key]
+    .split('{AREAS}').join(areas)
+    .split('{DEADLINE}').join(formatDeadline(document.getElementById('bkDeadline').value));
+}
+function bkUpdateDeadline(inp) {
+  if (inp.value) localStorage.setItem('subDeadline', inp.value); else localStorage.removeItem('subDeadline');
+  const body = document.getElementById('bkBody');
+  if (body && body.value) body.value = body.value.replace(/proposal by [^.\n]+/i, 'proposal by ' + formatDeadline(inp.value));
+}
+async function sendBulk() {
+  const ids = Array.prototype.map.call(document.querySelectorAll('#bkList .bk-row:checked'), function (c) { return Number(c.value); });
+  const subject = document.getElementById('bkSubject').value.trim();
+  const body = document.getElementById('bkBody').value;
+  const plans = document.getElementById('bkPlans').value.trim();
+  if (!ids.length) { alert('Select at least one sub.'); return; }
+  if (!subject) { alert('Add a subject.'); return; }
+  if (!confirm('Send this bid package to ' + ids.length + ' sub' + (ids.length === 1 ? '' : 's') + '?')) return;
+  if (plans) localStorage.setItem('subPlansLink', plans); else localStorage.removeItem('subPlansLink');
+  const sb = document.getElementById('bkSendBtn'); sb.disabled = true; sb.textContent = 'Sending…';
+  const res = document.getElementById('bkResult');
+  try {
+    const r = await fetch('/subs/send-bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids, subject: subject, body: body, plans: plans }) });
+    const data = await r.json();
+    if (data.ok) {
+      res.style.display = 'block';
+      res.style.color = data.failed ? '#b45309' : '#16a34a';
+      const fails = (data.results || []).filter(function (x) { return !x.ok; });
+      res.innerHTML = '✓ Sent ' + data.sent + ' email' + (data.sent === 1 ? '' : 's') +
+        (data.failed ? '. ' + data.failed + ' failed: ' + fails.map(function (f) { return bkEsc(f.name) + ' (' + bkEsc(f.error) + ')'; }).join(', ') : '.');
+      showToast('✓ Sent ' + data.sent + ' bid package' + (data.sent === 1 ? '' : 's'));
+      sb.disabled = false; bkCount();
+      setTimeout(function () { location.reload(); }, 1400);   // refresh so pipeline statuses/logs update
+    } else { alert(data.error || 'Send failed'); sb.disabled = false; bkCount(); }
+  } catch (e) { alert('Send failed'); sb.disabled = false; bkCount(); }
+}
+document.getElementById('bulkModal').addEventListener('click', function (e) { if (e.target.id === 'bulkModal') closeBulk(); });
 async function sendCompose() {
   const id = document.getElementById('emForm').dataset.id;
   const subject = document.getElementById('emSubject').value.trim();

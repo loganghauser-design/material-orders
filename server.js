@@ -5168,6 +5168,14 @@ app.get('/suppliers', requireAuth, async (req, res) => {
 const SUBS_SHEET_ID = '1vqPL96RG-KKqY99ADBHIU1JjLAc4c4ywB9ehg7KcqYg';
 const SUBS_SHEET_TAB = 'GC & Sub Database';
 
+// ── Sub-bidder intake form (Google Form responses: Trade · Name · Phone · Email) ──
+// New sub bidders sign up here; we pull them into the subs list for review, then
+// bid-package them out by trade. Columns are auto-detected by header name so the
+// exact layout (and a leading Form "Timestamp" column) doesn't matter.
+const INTAKE_SHEET_ID = '11yywEpDerHlmtJWK9mna0WpG4Y1nfzDfJlew7LC-2L0';
+const INTAKE_SHEET_GID = 1057034364;
+const INTAKE_GROUP = 'Intake — to review';
+
 // Read + parse the GC & Sub Database tab into row objects (for the one-time import).
 async function readSubsSheet() {
   if (!sheetsClient) throw new Error('Google Sheets not configured.');
@@ -5195,6 +5203,45 @@ async function readSubsSheet() {
       notes: [(r[9] || '').trim(), (r[10] || '').trim()].filter(Boolean).join(' · '),
       group_label: group, sort_order: i, category,   // i = sheet row index; category = gc|sub from the section
     });
+  }
+  return out;
+}
+
+// Read the sub-bidder intake form. Auto-detects the trade/name/phone/email columns
+// from the header row (so a Google-Form "Timestamp" column or any column order is
+// handled), targeting the specific tab the user linked (INTAKE_SHEET_GID).
+async function readIntakeSheet() {
+  if (!sheetsClient) throw new Error('Google Sheets not configured.');
+  // The linked gid isn't always the first tab — look up its title from metadata.
+  let tabTitle = null;
+  try {
+    const { data: meta } = await sheetsClient.spreadsheets.get({ spreadsheetId: INTAKE_SHEET_ID, fields: 'sheets.properties(sheetId,title)' });
+    const sh = (meta.sheets || []).find(s => s.properties && s.properties.sheetId === INTAKE_SHEET_GID);
+    if (sh) tabTitle = sh.properties.title;
+  } catch (e) { /* fall back to the first/default tab */ }
+  const range = tabTitle ? `'${String(tabTitle).replace(/'/g, "''")}'!A1:Z5000` : 'A1:Z5000';
+  const { data } = await sheetsClient.spreadsheets.values.get({ spreadsheetId: INTAKE_SHEET_ID, range });
+  const rows = data.values || [];
+  if (!rows.length) return [];
+  // Header = first row mentioning any of our known fields.
+  let h = rows.findIndex(r => (r || []).some(c => /trade|name|phone|e-?mail/i.test(String(c))));
+  if (h < 0) h = 0;
+  const header = (rows[h] || []).map(c => String(c || '').trim().toLowerCase());
+  const findCol = (...pats) => header.findIndex(x => pats.some(p => p.test(x)));
+  const ci = {
+    trade: findCol(/trade|scope|category|type/),
+    name:  findCol(/company|business|full ?name|contractor|^name$|\bname\b/),
+    phone: findCol(/phone|cell|mobile/),
+    email: findCol(/e-?mail/),
+  };
+  if (ci.name < 0) ci.name = findCol(/name/);
+  const cell = (r, k) => (ci[k] >= 0 ? String(r[ci[k]] || '').trim() : '');
+  const out = [];
+  for (let i = h + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const name = cell(r, 'name'), email = cell(r, 'email'), phone = cell(r, 'phone'), trade = cell(r, 'trade');
+    if (!name && !email && !phone) continue;   // blank row
+    out.push({ trade, name, phone, email, row: i + 1 });
   }
   return out;
 }
@@ -5397,7 +5444,7 @@ app.get('/subs', requireAuth, async (req, res) => {
     // with the Excel export at /subs/cost-comparison.xlsx).
     let costComparison = [];
     try { costComparison = await computeCostComparison(); } catch (e) { /* baselines table brand new */ }
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, imported: req.query.imported, added: req.query.added, isSuper, canEdit, recentCount, emailEnabled,
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -6669,6 +6716,49 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// Bulk bid-package send — email the same package to many subs at once (e.g. every
+// plumber). Each email is personalized ({NAME}/{TRADE} filled per sub), logged under
+// that sub, and advances their pipeline exactly like a single ✉ send.
+app.post('/subs/send-bulk', requireAuth, async (req, res) => {
+  try {
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
+    const subject = String(req.body.subject || '').trim();
+    const body = String(req.body.body || '');
+    const plansRaw = String(req.body.plans || '').trim();
+    const ids = Array.isArray(req.body.ids) ? [...new Set(req.body.ids.map(Number).filter(Boolean))] : [];
+    if (!subject) return res.status(400).json({ ok: false, error: 'Add a subject.' });
+    if (!ids.length) return res.status(400).json({ ok: false, error: 'No subs selected.' });
+    if (ids.length > 300) return res.status(400).json({ ok: false, error: 'Too many at once (max 300).' });
+    if (plansRaw && !/^https?:\/\//i.test(plansRaw)) return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
+    const { rows: subsSel } = await pool.query('SELECT id, company, owner, email, type, status FROM subcontractors WHERE id = ANY($1)', [ids]);
+    const sig = await getGmailSignature();
+    const results = [];
+    for (const sub of subsSel) {
+      const name = sub.company || sub.owner || '(no name)';
+      if (!sub.email) { results.push({ id: sub.id, name, ok: false, error: 'no email on file' }); continue; }
+      try {
+        const personal = body
+          .split('{NAME}').join(sub.company || sub.owner || 'there')
+          .split('{TRADE}').join((sub.type || '').split(',')[0].trim() || 'your trade');
+        let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(personal)}</div>`;
+        if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
+        if (sig) html += `<br><br>${sig}`;
+        const sent = await sendMail({ to: sub.email, subject, html });
+        const logBody = plansRaw ? (personal + '\n\nPlans: ' + plansRaw) : personal;
+        await pool.query(
+          "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
+          [sub.id, sub.email, subject, logBody, sessionKey(req), (sent && sent.threadId) || null, (sent && sent.messageId) || null]);
+        await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
+        if (!/active|approv|inactive|reject|black|bid under review|bid request/i.test(sub.status || '')) {
+          await pool.query("UPDATE subcontractors SET status='Bid Requested', group_label='Bid Requested' WHERE id=$1", [sub.id]);
+        }
+        results.push({ id: sub.id, name, ok: true });
+      } catch (e) { results.push({ id: sub.id, name, ok: false, error: e.message }); }
+    }
+    res.json({ ok: true, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Mark a sub's replies as seen — clears the unread-reply badge on their row
 app.post('/subs/:id/replies/seen', requireAuth, async (req, res) => {
   try {
@@ -6814,6 +6904,38 @@ app.post('/subs/import', requireAuth, async (req, res) => {
     }
     res.redirect('/subs?imported=' + added);
   } catch (err) { res.status(500).send('Import error: ' + err.message); }
+});
+
+// Pull new sub bidders from the Intake Form into the subs list for review.
+// Dedups against existing subs by email, then by name+phone. New rows land in the
+// "Intake — to review" group, tagged 🆕, so they're easy to vet before bidding out.
+app.post('/subs/import-intake', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const rows = await readIntakeSheet();
+    const { rows: existing } = await pool.query(
+      "SELECT LOWER(TRIM(email)) e, LOWER(TRIM(company)) c, REGEXP_REPLACE(COALESCE(phone,''),'[^0-9]','','g') p FROM subcontractors");
+    const digits = s => String(s || '').replace(/[^0-9]/g, '');
+    const haveEmail = new Set(existing.map(r => r.e).filter(Boolean));
+    const haveNamePhone = new Set(existing.filter(r => r.c && r.p).map(r => r.c + '|' + r.p));
+    const so0 = await bucketSortOrder('sub', INTAKE_GROUP);
+    let added = 0, skipped = 0, i = 0;
+    for (const s of rows) {
+      const email = (s.email || '').toLowerCase();
+      const np = (s.name || '').toLowerCase() + '|' + digits(s.phone);
+      const dupe = (email && haveEmail.has(email)) || (s.name && digits(s.phone) && haveNamePhone.has(np));
+      if (dupe) { skipped++; continue; }
+      await pool.query(
+        `INSERT INTO subcontractors (company, owner, type, email, phone, status, group_label, category, sort_order, recent_add, bid_status)
+         VALUES ($1,$2,$3,$4,$5,'Under Review',$6,'sub',$7,TRUE,'Intake')`,
+        [s.name || null, s.name || null, normalizeType(s.trade) || (s.trade || null),
+         s.email || null, s.phone || null, INTAKE_GROUP, so0 + i]);
+      if (email) haveEmail.add(email);
+      if (s.name && digits(s.phone)) haveNamePhone.add(np);
+      added++; i++;
+    }
+    res.redirect('/subs?intake=' + added + '&iskip=' + skipped);
+  } catch (err) { res.status(500).send('Intake import error: ' + err.message); }
 });
 
 // ── Inventory (manual office stock with purchase history + schedule draw-down) ──
