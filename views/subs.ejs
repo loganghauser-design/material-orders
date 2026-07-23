@@ -819,7 +819,7 @@
 <div class="modal-bk" id="intakeModal">
   <div class="modal-card" style="max-width:860px">
     <h2>⬇ Intake Form — preview before importing</h2>
-    <div style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">Nothing is saved until you press <strong>Confirm &amp; import</strong>. Only bidders with an email are imported (the bid package sends by email).</div>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">Review the bidders, then <strong>Import only</strong> — or <strong>Import &amp; send bid request</strong> to email them the package in one step. Nothing is saved until you press a button. Only bidders with an email are imported (the bid package sends by email).</div>
     <div id="intakeBody" style="font-size:.9rem">Loading…</div>
   </div>
 </div>
@@ -1664,6 +1664,7 @@ const AREA_LIST = <%- JSON.stringify(typeof LOCATION_OPTS !== 'undefined' ? LOCA
 
 // ── Bulk bid-package data — every emailable sub (id · name · email · trades) ──
 const BULK_DATA = <%- JSON.stringify(subs.filter(function (s) { return String(s.email || '').trim() && (s.category !== 'gc') && !/reject|black/i.test(s.status || ''); }).map(function (s) { return { id: s.id, n: s.company || s.owner || '(no name)', e: String(s.email).trim(), tr: (s.type || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), st: s.status || '' }; })).replace(/</g, '\\u003c') %>;
+const INTAKE_EMAIL_ENABLED = <%= emailEnabled ? 'true' : 'false' %>;
 
 // ── Trade coverage panel ──
 // Minimal per-sub data for counting: trades, service areas, status, category.
@@ -2052,13 +2053,71 @@ function renderIntakePreview(d) {
         }).join('')
       + '</tbody></table></div>';
   }
-  document.getElementById('intakeBody').innerHTML = html + intakeFooter(c.import);
+  document.getElementById('intakeBody').innerHTML = html + intakeComposer(c.import) + intakeFooter(c.import);
+}
+// Inline bid-request composer, pre-filled with the generic template so it's send-ready.
+function intakeDefaultBody(deadline) {
+  const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
+  return EMAIL_TEMPLATES.generic.split('{AREAS}').join(areas).split('{DEADLINE}').join(formatDeadline(deadline));
+}
+function intakeComposer(n) {
+  if (!INTAKE_EMAIL_ENABLED || n <= 0) return '';
+  const deadline = localStorage.getItem('subDeadline') || defaultDeadline();
+  const plans = localStorage.getItem('subPlansLink') || '';
+  const body = intakeDefaultBody(deadline);
+  return '<div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem">'
+    + '<div style="font-weight:700;font-size:.9rem;margin-bottom:.1rem">Bid request email</div>'
+    + '<div style="font-size:.76rem;color:var(--muted);margin-bottom:.55rem">Sent to all ' + n + ' imported bidder' + (n === 1 ? '' : 's') + ' — each one’s name &amp; trade fill in automatically.</div>'
+    + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem">'
+    +   '<select id="ikTemplate" onchange="ikApplyTemplate(this)" style="flex:1;min-width:170px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)">'
+    +     '<option value="generic">Generic outreach</option><option value="altadena">Met in person (Altadena)</option><option value="marvin">Referred by Marvin Han</option>'
+    +   '</select>'
+    +   '<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--muted)">Due <input type="date" id="ikDeadline" value="' + deadline + '" onchange="ikUpdateDeadline(this)" style="padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)"></label>'
+    + '</div>'
+    + '<input type="text" id="ikSubject" value="' + bkEsc(EMAIL_SUBJECT) + '" placeholder="Subject" style="width:100%;box-sizing:border-box;margin-bottom:.5rem;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)">'
+    + '<textarea id="ikBody" rows="7" style="width:100%;box-sizing:border-box;margin-bottom:.5rem;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);font-family:inherit;font-size:.84rem">' + bkEsc(body) + '</textarea>'
+    + '<input type="url" id="ikPlans" value="' + bkEsc(plans) + '" placeholder="Plans link — Google Drive CD set (optional)" style="width:100%;box-sizing:border-box;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)">'
+    + '</div>';
+}
+function ikApplyTemplate(sel) {
+  const key = sel.value; if (!key || !EMAIL_TEMPLATES[key]) return;
+  const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
+  document.getElementById('ikSubject').value = EMAIL_SUBJECT;
+  document.getElementById('ikBody').value = EMAIL_TEMPLATES[key].split('{AREAS}').join(areas).split('{DEADLINE}').join(formatDeadline(document.getElementById('ikDeadline').value));
+}
+function ikUpdateDeadline(inp) {
+  if (inp.value) localStorage.setItem('subDeadline', inp.value); else localStorage.removeItem('subDeadline');
+  const body = document.getElementById('ikBody');
+  if (body && body.value) body.value = body.value.replace(/proposal by [^.\n]+/i, 'proposal by ' + formatDeadline(inp.value));
 }
 function intakeFooter(n) {
-  return '<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem">'
+  const send = (INTAKE_EMAIL_ENABLED && n > 0)
+    ? '<button type="button" class="btn btn-primary" onclick="importAndSend(this)">✉ Import &amp; send bid request (' + n + ')</button>' : '';
+  return '<div style="display:flex;gap:.6rem;justify-content:flex-end;margin-top:1rem;flex-wrap:wrap">'
     + '<button type="button" class="btn btn-ghost" onclick="closeIntake()">Cancel</button>'
-    + (n > 0 ? '<button type="button" class="btn btn-primary" onclick="confirmIntake(this)">✓ Confirm &amp; import ' + n + '</button>' : '')
+    + (n > 0 ? '<button type="button" class="btn btn-ghost" onclick="confirmIntake(this)">Import only</button>' : '')
+    + send
     + '</div>';
+}
+async function importAndSend(btn) {
+  const n = intakeReviewedEmails.length;
+  if (!n) { alert('No bidders to import — re-open the preview.'); return; }
+  const subject = document.getElementById('ikSubject').value.trim();
+  const body = document.getElementById('ikBody').value;
+  const plans = document.getElementById('ikPlans').value.trim();
+  if (!subject) { alert('Add a subject for the bid request.'); return; }
+  if (!body.trim()) { alert('Add a message body for the bid request.'); return; }
+  if (!confirm('Import ' + n + ' bidder' + (n === 1 ? '' : 's') + ' and email them the bid request now?')) return;
+  if (plans) localStorage.setItem('subPlansLink', plans); else localStorage.removeItem('subPlansLink');
+  btn.disabled = true; btn.textContent = 'Importing & sending…';
+  try {
+    const r = await fetch('/subs/import-intake-send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails: intakeReviewedEmails, subject: subject, body: body, plans: plans }) });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('✓ Imported ' + d.imported + ', sent ' + d.sent + ' bid request' + (d.sent === 1 ? '' : 's') + (d.failed ? ' (' + d.failed + ' failed)' : ''));
+      setTimeout(function () { location.reload(); }, 1500);
+    } else { alert(d.error || 'Failed'); btn.disabled = false; btn.textContent = '✉ Import & send bid request (' + n + ')'; }
+  } catch (e) { alert('Failed: ' + e.message); btn.disabled = false; btn.textContent = '✉ Import & send bid request (' + n + ')'; }
 }
 function closeIntake() { document.getElementById('intakeModal').classList.remove('show'); }
 function confirmIntake(btn) {
@@ -2140,6 +2199,7 @@ async function sendBulk() {
   const plans = document.getElementById('bkPlans').value.trim();
   if (!ids.length) { alert('Select at least one sub.'); return; }
   if (!subject) { alert('Add a subject.'); return; }
+  if (!body.trim()) { alert('Add a message body.'); return; }
   if (!confirm('Send this bid package to ' + ids.length + ' sub' + (ids.length === 1 ? '' : 's') + '?')) return;
   if (plans) localStorage.setItem('subPlansLink', plans); else localStorage.removeItem('subPlansLink');
   const sb = document.getElementById('bkSendBtn'); sb.disabled = true; sb.textContent = 'Sending…';

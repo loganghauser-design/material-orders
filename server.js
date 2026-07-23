@@ -6762,6 +6762,33 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
 // Bulk bid-package send — email the same package to many subs at once (e.g. every
 // plumber). Each email is personalized ({NAME}/{TRADE} filled per sub), logged under
 // that sub, and advances their pipeline exactly like a single ✉ send.
+// Send one bid-package email to a sub: personalize {NAME}/{TRADE}, log it under the
+// sub, and advance the pipeline to Bid Requested. Shared by the bulk send and the
+// combined import-and-send flow so all three paths behave identically. Never throws —
+// returns { id, name, ok, error? }.
+async function sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy }) {
+  const name = sub.company || sub.owner || '(no name)';
+  if (!sub.email) return { id: sub.id, name, ok: false, error: 'no email on file' };
+  try {
+    const personal = String(body || '')
+      .split('{NAME}').join(sub.company || sub.owner || 'there')
+      .split('{TRADE}').join((sub.type || '').split(',')[0].trim() || 'your trade');
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(personal)}</div>`;
+    if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
+    if (sig) html += `<br><br>${sig}`;
+    const sent = await sendMail({ to: sub.email, subject, html });
+    const logBody = plansRaw ? (personal + '\n\nPlans: ' + plansRaw) : personal;
+    await pool.query(
+      "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
+      [sub.id, sub.email, subject, logBody, sentBy, (sent && sent.threadId) || null, (sent && sent.messageId) || null]);
+    await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
+    if (!/active|approv|inactive|reject|black|bid under review|bid request/i.test(sub.status || '')) {
+      await pool.query("UPDATE subcontractors SET status='Bid Requested', group_label='Bid Requested' WHERE id=$1", [sub.id]);
+    }
+    return { id: sub.id, name, ok: true };
+  } catch (e) { return { id: sub.id, name, ok: false, error: e.message }; }
+}
+
 app.post('/subs/send-bulk', requireAuth, async (req, res) => {
   try {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
@@ -6770,6 +6797,7 @@ app.post('/subs/send-bulk', requireAuth, async (req, res) => {
     const plansRaw = String(req.body.plans || '').trim();
     const ids = Array.isArray(req.body.ids) ? [...new Set(req.body.ids.map(Number).filter(Boolean))] : [];
     if (!subject) return res.status(400).json({ ok: false, error: 'Add a subject.' });
+    if (!body.trim()) return res.status(400).json({ ok: false, error: 'Add a message body.' });
     if (!ids.length) return res.status(400).json({ ok: false, error: 'No subs selected.' });
     if (ids.length > 300) return res.status(400).json({ ok: false, error: 'Too many at once (max 300).' });
     if (plansRaw && !/^https?:\/\//i.test(plansRaw)) return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
@@ -6777,26 +6805,7 @@ app.post('/subs/send-bulk', requireAuth, async (req, res) => {
     const sig = await getGmailSignature();
     const results = [];
     for (const sub of subsSel) {
-      const name = sub.company || sub.owner || '(no name)';
-      if (!sub.email) { results.push({ id: sub.id, name, ok: false, error: 'no email on file' }); continue; }
-      try {
-        const personal = body
-          .split('{NAME}').join(sub.company || sub.owner || 'there')
-          .split('{TRADE}').join((sub.type || '').split(',')[0].trim() || 'your trade');
-        let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(personal)}</div>`;
-        if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
-        if (sig) html += `<br><br>${sig}`;
-        const sent = await sendMail({ to: sub.email, subject, html });
-        const logBody = plansRaw ? (personal + '\n\nPlans: ' + plansRaw) : personal;
-        await pool.query(
-          "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
-          [sub.id, sub.email, subject, logBody, sessionKey(req), (sent && sent.threadId) || null, (sent && sent.messageId) || null]);
-        await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
-        if (!/active|approv|inactive|reject|black|bid under review|bid request/i.test(sub.status || '')) {
-          await pool.query("UPDATE subcontractors SET status='Bid Requested', group_label='Bid Requested' WHERE id=$1", [sub.id]);
-        }
-        results.push({ id: sub.id, name, ok: true });
-      } catch (e) { results.push({ id: sub.id, name, ok: false, error: e.message }); }
+      results.push(await sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy: sessionKey(req) }));
     }
     res.json({ ok: true, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
@@ -6952,6 +6961,24 @@ app.post('/subs/import', requireAuth, async (req, res) => {
 // Pull new sub bidders from the Intake Form into the subs list for review.
 // Dedups against existing subs by email, then by name+phone. New rows land in the
 // "Intake — to review" group, tagged 🆕, so they're easy to vet before bidding out.
+// Compute the exact rows to import: reads the sheet, classifies, and (when the browser
+// posts the reviewed `emails` set) restricts to those — re-validated as importable. The
+// single source used by BOTH import routes so "import" and "import & send" match the
+// preview. Returns { toImport, counts }.
+async function intakeImportSet(reviewedJson) {
+  const rows = await readIntakeSheet();
+  const classified = classifyIntakeRows(rows, await intakeExisting());
+  const counts = intakeCounts(classified);
+  let toImport = classified.filter(r => r.status === 'import');
+  let reviewed = null;
+  try { reviewed = JSON.parse(reviewedJson || 'null'); } catch (_) { /* fall back to full set */ }
+  if (Array.isArray(reviewed)) {
+    const okSet = new Set(reviewed.map(e => String(e || '').toLowerCase().trim()));
+    toImport = toImport.filter(r => okSet.has((r.email || '').toLowerCase().trim()));
+  }
+  return { toImport, counts };
+}
+
 // Preview what the Intake Form import WOULD bring in — read-only, no writes. Returns
 // the emailable rows (import + dups) with their classification, plus counts. The
 // ~5k phone-only rows are summarised in counts, never shipped to the browser.
@@ -6964,34 +6991,58 @@ app.get('/subs/import-intake/preview', requireAuth, async (req, res) => {
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+// Insert one classified intake row as a new sub; returns the created row (with id).
+async function insertIntakeSub(s, sortOrder) {
+  const { rows: [sub] } = await pool.query(
+    `INSERT INTO subcontractors (company, owner, type, email, phone, location, status, group_label, category, sort_order, recent_add, bid_status)
+     VALUES ($1,$2,$3,$4,$5,$6,'Under Review',$7,'sub',$8,TRUE,'Intake')
+     RETURNING id, company, owner, email, type, status`,
+    [s.name || null, s.name || null, normalizeType(s.trade) || (s.trade || null),
+     s.email || null, s.phone || null, s.location || null, INTAKE_GROUP, sortOrder]);
+  return sub;
+}
+
 app.post('/subs/import-intake', requireAuth, async (req, res) => {
   try {
     await initDb();
-    const rows = await readIntakeSheet();
-    const classified = classifyIntakeRows(rows, await intakeExisting());
-    const counts = intakeCounts(classified);
-    let toImport = classified.filter(r => r.status === 'import');   // email-only, deduped
-    // Faithful confirm: the preview posts the exact set of emails it showed. Restrict
-    // the insert to those (still re-validated as importable above), so we never add a
-    // bidder the user didn't review even if the sheet changed between preview & confirm.
-    let reviewed = null;
-    try { reviewed = JSON.parse(req.body.emails || 'null'); } catch (_) { /* fall back to full set */ }
-    if (Array.isArray(reviewed)) {
-      const okSet = new Set(reviewed.map(e => String(e || '').toLowerCase().trim()));
-      toImport = toImport.filter(r => okSet.has((r.email || '').toLowerCase().trim()));
-    }
+    const { toImport, counts } = await intakeImportSet(req.body.emails);
     const so0 = await bucketSortOrder('sub', INTAKE_GROUP);
     let i = 0;
-    for (const s of toImport) {
-      await pool.query(
-        `INSERT INTO subcontractors (company, owner, type, email, phone, location, status, group_label, category, sort_order, recent_add, bid_status)
-         VALUES ($1,$2,$3,$4,$5,$6,'Under Review',$7,'sub',$8,TRUE,'Intake')`,
-        [s.name || null, s.name || null, normalizeType(s.trade) || (s.trade || null),
-         s.email || null, s.phone || null, s.location || null, INTAKE_GROUP, so0 + i]);
-      i++;
-    }
+    for (const s of toImport) { await insertIntakeSub(s, so0 + i); i++; }
     res.redirect('/subs?intake=' + toImport.length + '&iskip=' + (counts.dupDb + counts.dupSheet) + '&noemail=' + counts.noEmail);
   } catch (err) { res.status(500).send('Intake import error: ' + err.message); }
+});
+
+// Import the reviewed bidders AND email each of them the bid package in one step.
+// Same email-only import + faithful-confirm as /subs/import-intake, then sends the bid
+// request per new sub via the shared sendBidToSub (logs + advances to Bid Requested).
+app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
+  try {
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
+    const subject = String(req.body.subject || '').trim();
+    const body = String(req.body.body || '');
+    const plansRaw = String(req.body.plans || '').trim();
+    if (!subject) return res.status(400).json({ ok: false, error: 'Add a subject for the bid request.' });
+    if (!body.trim()) return res.status(400).json({ ok: false, error: 'Add a message body for the bid request.' });
+    if (plansRaw && !/^https?:\/\//i.test(plansRaw)) return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
+    // Hard guard: the SEND path must email ONLY the bidders the user reviewed. Require
+    // an explicit reviewed-emails array — never fall back to "email the whole sheet".
+    let reviewed = null;
+    try { reviewed = JSON.parse(req.body.emails || 'null'); } catch (_) { reviewed = null; }
+    if (!Array.isArray(reviewed) || !reviewed.length) return res.status(400).json({ ok: false, error: 'No reviewed bidders — re-open the preview and try again.' });
+    await initDb();
+    const { toImport } = await intakeImportSet(req.body.emails);
+    if (!toImport.length) return res.status(400).json({ ok: false, error: 'No bidders to import — re-open the preview.' });
+    const so0 = await bucketSortOrder('sub', INTAKE_GROUP);
+    const sig = await getGmailSignature();
+    const results = [];
+    let i = 0;
+    for (const s of toImport) {
+      const sub = await insertIntakeSub(s, so0 + i); i++;
+      results.push(await sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy: sessionKey(req) }));
+    }
+    res.json({ ok: true, imported: toImport.length, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // ── Inventory (manual office stock with purchase history + schedule draw-down) ──
