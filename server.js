@@ -6766,13 +6766,22 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
 // sub, and advance the pipeline to Bid Requested. Shared by the bulk send and the
 // combined import-and-send flow so all three paths behave identically. Never throws —
 // returns { id, name, ok, error? }.
+// The {TRADE} word in a bid email = the first word of the sub's first trade
+// ("Foundation Crew" → "Foundation", "Plumber" → "Plumber"), keeping compound
+// trades whole ("Windows & Doors" stays intact).
+function firstTradeWord(type) {
+  const first = String(type || '').split(',')[0].trim();
+  if (!first) return 'your trade';
+  if (first.includes('&')) return first;
+  return first.split(/\s+/)[0];
+}
 async function sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy }) {
   const name = sub.company || sub.owner || '(no name)';
   if (!sub.email) return { id: sub.id, name, ok: false, error: 'no email on file' };
   try {
     const personal = String(body || '')
       .split('{NAME}').join(sub.company || sub.owner || 'there')
-      .split('{TRADE}').join((sub.type || '').split(',')[0].trim() || 'your trade');
+      .split('{TRADE}').join(firstTradeWord(sub.type));
     let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(personal)}</div>`;
     if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
     if (sig) html += `<br><br>${sig}`;
