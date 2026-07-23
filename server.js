@@ -5814,7 +5814,11 @@ app.post('/subs/clear-recent', requireAuth, async (req, res) => {
 });
 
 // Edit a subcontractor
-app.post('/subs/:id', requireAuth, async (req, res) => {
+app.post('/subs/:id', requireAuth, async (req, res, next) => {
+  // Only handle a numeric sub id. Named single-segment routes defined later
+  // (/subs/import, /subs/import-intake, /subs/import-intake-send, /subs/send-bulk)
+  // must fall through to their own handlers instead of being treated as an :id.
+  if (!/^\d+$/.test(req.params.id)) return next();
   try {
     const b = req.body;
     // Re-derive GC vs Sub when an explicit category isn't provided.
