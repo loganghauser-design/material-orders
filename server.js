@@ -6981,14 +6981,23 @@ app.post('/subs/import', requireAuth, async (req, res) => {
 // posts the reviewed `emails` set) restricts to those — re-validated as importable. The
 // single source used by BOTH import routes so "import" and "import & send" match the
 // preview. Returns { toImport, counts }.
-async function intakeImportSet(reviewedJson) {
+// The reviewed-emails set arrives either as a JSON array (fetch/JSON body, from the
+// "Import & send" button) or a JSON string (urlencoded form field, from "Import only").
+// Normalize both to an array — or null if absent/malformed. Never double-parses.
+function parseReviewedEmails(raw) {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string' && raw.trim()) {
+    try { const v = JSON.parse(raw); return Array.isArray(v) ? v : null; } catch (_) { return null; }
+  }
+  return null;
+}
+async function intakeImportSet(reviewedRaw) {
   const rows = await readIntakeSheet();
   const classified = classifyIntakeRows(rows, await intakeExisting());
   const counts = intakeCounts(classified);
   let toImport = classified.filter(r => r.status === 'import');
-  let reviewed = null;
-  try { reviewed = JSON.parse(reviewedJson || 'null'); } catch (_) { /* fall back to full set */ }
-  if (Array.isArray(reviewed)) {
+  const reviewed = parseReviewedEmails(reviewedRaw);
+  if (reviewed) {
     const okSet = new Set(reviewed.map(e => String(e || '').toLowerCase().trim()));
     toImport = toImport.filter(r => okSet.has((r.email || '').toLowerCase().trim()));
   }
@@ -7042,10 +7051,9 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
     if (!body.trim()) return res.status(400).json({ ok: false, error: 'Add a message body for the bid request.' });
     if (plansRaw && !/^https?:\/\//i.test(plansRaw)) return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
     // Hard guard: the SEND path must email ONLY the bidders the user reviewed. Require
-    // an explicit reviewed-emails array — never fall back to "email the whole sheet".
-    let reviewed = null;
-    try { reviewed = JSON.parse(req.body.emails || 'null'); } catch (_) { reviewed = null; }
-    if (!Array.isArray(reviewed) || !reviewed.length) return res.status(400).json({ ok: false, error: 'No reviewed bidders — re-open the preview and try again.' });
+    // an explicit reviewed-emails list — never fall back to "email the whole sheet".
+    const reviewed = parseReviewedEmails(req.body.emails);
+    if (!reviewed || !reviewed.length) return res.status(400).json({ ok: false, error: 'No reviewed bidders — re-open the preview and try again.' });
     await initDb();
     const { toImport } = await intakeImportSet(req.body.emails);
     if (!toImport.length) return res.status(400).json({ ok: false, error: 'No bidders to import — re-open the preview.' });
