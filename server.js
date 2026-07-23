@@ -6775,13 +6775,20 @@ function firstTradeWord(type) {
   if (first.includes('&')) return first;
   return first.split(/\s+/)[0];
 }
+// Nicer phrasing for the email sentence ("…in addition to Plumbing"). Reworded a few
+// trades that read awkwardly as the bare word.
+const TRADE_PHRASE = { 'plumber': 'Plumbing', 'plumbing': 'Plumbing', 'foundation': 'Foundation work' };
+function tradePhrase(type) {
+  const w = firstTradeWord(type);
+  return TRADE_PHRASE[w.toLowerCase()] || w;
+}
 async function sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy }) {
   const name = sub.company || sub.owner || '(no name)';
   if (!sub.email) return { id: sub.id, name, ok: false, error: 'no email on file' };
   try {
     const personal = String(body || '')
       .split('{NAME}').join(sub.company || sub.owner || 'there')
-      .split('{TRADE}').join(firstTradeWord(sub.type));
+      .split('{TRADE}').join(tradePhrase(sub.type));
     let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(personal)}</div>`;
     if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
     if (sig) html += `<br><br>${sig}`;
