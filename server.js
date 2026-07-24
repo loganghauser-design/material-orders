@@ -1943,6 +1943,7 @@ async function initDb() {
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS warranty_doc_name VARCHAR(255);
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS warranty_doc_mime VARCHAR(255);
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS warranty_doc_data BYTEA;
+    ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS bid_plans_link TEXT;
 
     -- Client-facing warranty claims (submitted via the public /warranty page)
     CREATE TABLE IF NOT EXISTS warranty_claims (
@@ -5487,7 +5488,10 @@ app.get('/subs', requireAuth, async (req, res) => {
     // with the Excel export at /subs/cost-comparison.xlsx).
     let costComparison = [];
     try { costComparison = await computeCostComparison(); } catch (e) { /* baselines table brand new */ }
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
+    // Last CD-set/plans link sent from ANY computer — pre-fills the email dialogs.
+    let bidPlansLink = '';
+    try { const { rows: [as] } = await pool.query('SELECT bid_plans_link FROM app_settings WHERE id=1'); bidPlansLink = (as && as.bid_plans_link) || ''; } catch (e) {}
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, bidPlansLink, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -6723,6 +6727,18 @@ app.post('/subs/:id/delete', requireAuth, async (req, res) => {
   catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
+// Remember the last CD-set/plans link SENT, server-side, so every computer's dialogs
+// pre-fill it (localStorage only remembered it per browser — the "not autofilling on
+// my other computer" bug). Fire-and-forget; never blocks a send.
+async function saveBidPlansLink(plansRaw) {
+  if (!plansRaw) return;
+  try {
+    await pool.query(
+      `INSERT INTO app_settings (id, bid_plans_link, updated_at) VALUES (1, $1, NOW())
+       ON CONFLICT (id) DO UPDATE SET bid_plans_link = $1`, [String(plansRaw).slice(0, 1000)]);
+  } catch (e) { console.error('saveBidPlansLink:', e.message); }
+}
+
 // Email a subcontractor and log it under that sub
 app.post('/subs/:id/email', requireAuth, async (req, res) => {
   try {
@@ -6745,6 +6761,7 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     const sig = await getGmailSignature();
     if (sig) html += `<br><br>${sig}`;
     const sent = await sendMail({ to: sub.email, subject, html });
+    saveBidPlansLink(plansRaw);
     const logBody = plansRaw ? (body + (body ? '\n\n' : '') + 'Plans: ' + plansRaw) : body;
     await pool.query(
       "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
@@ -6827,6 +6844,7 @@ app.post('/subs/send-bulk', requireAuth, async (req, res) => {
     for (const sub of subsSel) {
       results.push(await sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy: sessionKey(req) }));
     }
+    if (results.some(r => r.ok)) saveBidPlansLink(plansRaw);
     res.json({ ok: true, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -7069,6 +7087,7 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
       const sub = await insertIntakeSub(s, so0 + i); i++;
       results.push(await sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy: sessionKey(req) }));
     }
+    if (results.some(r => r.ok)) saveBidPlansLink(plansRaw);
     res.json({ ok: true, imported: toImport.length, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });

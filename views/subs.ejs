@@ -1989,6 +1989,7 @@ function closeEmlogAll() {
 document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeEmlogAll(); });
 // Apply the default tab's filtering on first paint (hides GCs + flagged from the Subs tab)
 document.addEventListener('DOMContentLoaded', function () { filterSubs(); });
+const SERVER_PLANS_LINK = <%- JSON.stringify((typeof bidPlansLink !== 'undefined' && bidPlansLink) || '') %>;   // last CD-set link sent from any computer
 function openCompose(btn) {
   const email = btn.dataset.email || '';
   if (!email) { alert('No email on file for this sub — add one first with the ✏️ in the Email column.'); return; }
@@ -1999,7 +2000,7 @@ function openCompose(btn) {
   document.getElementById('emTemplate').value = '';
   document.getElementById('emSubject').value = EMAIL_SUBJECT;
   document.getElementById('emBody').value = '';
-  document.getElementById('emPlans').value = localStorage.getItem('subPlansLink') || '';
+  document.getElementById('emPlans').value = SERVER_PLANS_LINK || localStorage.getItem('subPlansLink') || '';
   document.getElementById('emDeadline').value = localStorage.getItem('subDeadline') || defaultDeadline();
   const sb = document.getElementById('emSendBtn'); sb.disabled = false; sb.textContent = 'Send email';
   document.getElementById('emailModal').classList.add('show');
@@ -2063,7 +2064,7 @@ function intakeDefaultBody(deadline) {
 function intakeComposer(n) {
   if (!INTAKE_EMAIL_ENABLED || n <= 0) return '';
   const deadline = localStorage.getItem('subDeadline') || defaultDeadline();
-  const plans = localStorage.getItem('subPlansLink') || '';
+  const plans = SERVER_PLANS_LINK || localStorage.getItem('subPlansLink') || '';
   const body = intakeDefaultBody(deadline);
   return '<div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem">'
     + '<div style="font-weight:700;font-size:.9rem;margin-bottom:.1rem">Bid request email</div>'
@@ -2142,7 +2143,7 @@ function openBulk() {
   document.getElementById('bkTemplate').value = '';
   document.getElementById('bkSubject').value = EMAIL_SUBJECT;
   document.getElementById('bkBody').value = '';
-  document.getElementById('bkPlans').value = localStorage.getItem('subPlansLink') || '';
+  document.getElementById('bkPlans').value = SERVER_PLANS_LINK || localStorage.getItem('subPlansLink') || '';
   document.getElementById('bkDeadline').value = localStorage.getItem('subDeadline') || defaultDeadline();
   document.getElementById('bkResult').style.display = 'none';
   const sb = document.getElementById('bkSendBtn'); sb.disabled = false;
