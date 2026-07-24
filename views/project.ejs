@@ -329,7 +329,7 @@
         <div class="del-row">
           <span class="del-date"><%= _sd.toLocaleDateString('en-US', { month:'short', day:'numeric' }) %></span>
           <span class="del-items"><%= n.items %></span>
-          <span class="del-method"><%= n.method === 'ups' ? '📦 UPS' : '🚚 Truck' %></span>
+          <span class="del-method"><%= n.method === 'ups' ? '📦 UPS' : n.method === 'fedex' ? '📦 FedEx' : '🚚 Truck' %></span>
           <span class="del-to"><%= _siteNames || '—' %></span>
         </div>
       <% }) %>

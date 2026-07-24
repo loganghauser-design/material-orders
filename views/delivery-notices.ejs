@@ -101,14 +101,15 @@
         <div class="dn-card" data-id="<%= n.id %>">
           <div class="dn-top">
             <span class="dn-name"><%= n.jobName %></span>
-            <span class="dn-method dn-method-<%= n.method === 'ups' ? 'ups' : 'truck' %>"><%= n.method === 'ups' ? '📦 UPS' : '🚚 Truck' %></span>
+            <span class="dn-method dn-method-<%= n.method === 'truck' ? 'truck' : 'ups' %>"><%= n.method === 'ups' ? '📦 UPS' : n.method === 'fedex' ? '📦 FedEx' : '🚚 Truck' %></span>
             <span class="dn-when"><%= ago <= 0 ? 'just now' : (ago < 24 ? ago + 'h ago' : Math.floor(ago/24) + 'd ago') %></span>
           </div>
           <div class="dn-edit">
             <label class="dn-fld"><span class="lbl">Method</span>
               <select class="dn-in dn-method-sel" onchange="dnSave(<%= n.id %>)">
-                <option value="truck"<%= n.method === 'ups' ? '' : ' selected' %>>🚚 Truck</option>
+                <option value="truck"<%= n.method === 'ups' || n.method === 'fedex' ? '' : ' selected' %>>🚚 Truck</option>
                 <option value="ups"<%= n.method === 'ups' ? ' selected' : '' %>>📦 UPS</option>
+                <option value="fedex"<%= n.method === 'fedex' ? ' selected' : '' %>>📦 FedEx</option>
               </select>
             </label>
             <label class="dn-fld"><span class="lbl">Delivery date</span>
@@ -161,7 +162,7 @@ async function dnSave(id){
     const d = await r.json();
     if (!d.ok) { showToast(d.error || 'Could not save changes', true); return false; }
     const badge = card.querySelector('.dn-method');   // keep the top badge in sync with the chosen method
-    if (badge) { badge.textContent = method === 'ups' ? '📦 UPS' : '🚚 Truck'; badge.className = 'dn-method dn-method-' + (method === 'ups' ? 'ups' : 'truck'); }
+    if (badge) { badge.textContent = method === 'ups' ? '📦 UPS' : method === 'fedex' ? '📦 FedEx' : '🚚 Truck'; badge.className = 'dn-method dn-method-' + (method === 'truck' ? 'truck' : 'ups'); }
     return true;
   } catch (e) { showToast('Could not save changes', true); return false; }
 }

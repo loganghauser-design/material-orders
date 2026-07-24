@@ -2746,7 +2746,7 @@ app.get('/delivery-notices/:id/preview', requireAuth, async (req, res) => {
 app.post('/delivery-notices/:id/update', requireAuth, async (req, res) => {
   try {
     const { method, tracking, window, date } = req.body;
-    const m = method === 'ups' ? 'ups' : 'truck';
+    const m = (method === 'ups' || method === 'fedex') ? method : 'truck';
     const sd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || '')) ? date : null;   // confirmed delivery date drives the reminder
     const r = await pool.query(
       "UPDATE pending_delivery_notices SET method=$1, tracking=$2, delivery_window=$3, source_date=COALESCE($4, source_date) WHERE id=$5 AND status='pending' RETURNING id",
@@ -3566,7 +3566,7 @@ app.post('/projects/:id/notice', requireAuth, async (req, res) => {
     let { codes, method, tracking, window } = req.body;
     if (typeof codes === 'string') codes = codes.split(',').map(c => c.trim()).filter(Boolean);
     if (!Array.isArray(codes) || !codes.length) return res.status(400).json({ ok: false, error: 'No categories given.' });
-    const m = method === 'ups' ? 'ups' : 'truck';
+    const m = (method === 'ups' || method === 'fedex') ? method : 'truck';
     const r = await enqueueDeliveryNotice({ projectId: req.params.id, codes, window: window || null, method: m, tracking: tracking || null, source: 'manual' });
     if (!r.ok) return res.json({ ok: false, error: r.reason || 'Could not queue the notice.' });
     res.json({ ok: true, queued: r.queued !== false, duplicate: !!r.duplicate });
@@ -7849,15 +7849,17 @@ function stripBrands(s) {
   return t.replace(/\s{2,}/g, ' ').replace(/^[\s,\-–—]+/, '').trim();
 }
 function deliveryNoticeEmail({ contactName, jobName, stage, supplier, groups, window, method, tracking }) {
-  const isUps = String(method || '').toLowerCase() === 'ups';
-  // Parcel carrier by tracking format: 1Z… is UPS; 12/15-digit numeric is FedEx
-  // (Mineral Tiles etc. ship FedEx Ground) — link to the right tracker either way.
-  const isFedex = !!tracking && /^\d{12}(\d{3})?$/.test(String(tracking).replace(/\s/g, ''));
-  const carrierName = isFedex ? 'FedEx' : 'UPS';
+  const methodLc = String(method || '').toLowerCase();
+  // isUps = "parcel shipment" (UPS or FedEx) vs freight truck — name kept for the
+  // template below. Carrier comes from the method, with a tracking-format fallback
+  // (1Z… is UPS; 12/15-digit numeric is FedEx) for older rows stored as 'ups'.
+  const isFedexNum = !!tracking && /^\d{12}(\d{3})?$/.test(String(tracking).replace(/\s/g, ''));
+  const isUps = methodLc === 'ups' || methodLc === 'fedex';
+  const carrierName = methodLc === 'fedex' || isFedexNum ? 'FedEx' : 'UPS';
   const methodText = isUps ? carrierName + ' Parcel' : 'Delivery Truck';
   const trackUrl = tracking
-    ? (isFedex ? 'https://www.fedex.com/fedextrack/?trknbr=' + encodeURIComponent(tracking)
-               : 'https://www.ups.com/track?loc=en_US&requester=ST&tracknum=' + encodeURIComponent(tracking))
+    ? (carrierName === 'FedEx' ? 'https://www.fedex.com/fedextrack/?trknbr=' + encodeURIComponent(tracking)
+                               : 'https://www.ups.com/track?loc=en_US&requester=ST&tracknum=' + encodeURIComponent(tracking))
     : '';
   // Short "Mon, Jul 6" for the subject line, parsed from the window text.
   const shortWhen = (() => {
@@ -8094,7 +8096,7 @@ async function postNoticeForReview(projectId, jobName, codeLabels, method) {
   try {
     const url = process.env.BIDS_WEBHOOK_URL;
     if (!url) return;
-    const m = method === 'ups' ? '📦 UPS' : '🚚 Truck';
+    const m = method === 'ups' ? '📦 UPS' : method === 'fedex' ? '📦 FedEx' : '🚚 Truck';
     const cats = (codeLabels || []).filter(Boolean).join(', ');
     const text = `🔔 *Delivery notice ready to review* — *${jobName || 'a project'}*`
       + (cats ? `\n${cats}` : '') + `  ·  ${m}`
