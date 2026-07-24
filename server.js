@@ -5337,20 +5337,26 @@ async function computeCostComparison() {
   const { rows: priced } = await pool.query("SELECT id, company, type, bid_price FROM subcontractors WHERE bid_price IS NOT NULL AND bid_price <> ''");
   const byTradeCmp = {};
   baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
-  const seenSubBid = new Set();
+  // The sub's bid_price field is the CURRENT standing bid — ingestion writes it and
+  // Logan edits it by hand (e.g. after negotiating). When it parses, it wins over the
+  // raw ingested bid rows (4 Seasons: PDF said $16,000, Logan re-typed $27,500 — the
+  // card must show $27,500). Ingested rows only show for subs with no usable bid_price.
+  const manualAmt = new Map();
+  priced.forEach(s => { const a = parseMoney(s.bid_price); if (a) manualAmt.set(s.id, a); });
+  const latestProject = new Map();
+  bidRows.forEach(r => { if (!latestProject.has(r.sub_id)) latestProject.set(r.sub_id, r.address || ''); });
   bidRows.forEach(r => {
+    if (manualAmt.has(r.sub_id)) return;   // bid_price supersedes this sub's raw rows
     const trade = baselineTradeFor(r.type);
     if (!trade || !byTradeCmp[trade]) return;
     byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company, amount: Number(r.amount), project: r.address || '', when: r.received_at });
-    seenSubBid.add(r.sub_id);
   });
   priced.forEach(s => {
-    if (seenSubBid.has(s.id)) return;
-    const amt = parseMoney(s.bid_price);
+    const amt = manualAmt.get(s.id);
     if (!amt) return;
     const trade = baselineTradeFor(s.type);
     if (!trade || !byTradeCmp[trade]) return;
-    byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: '', when: null });
+    byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: latestProject.get(s.id) || '', when: null });
   });
   Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
   return Object.values(byTradeCmp);
