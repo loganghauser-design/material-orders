@@ -1577,6 +1577,8 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS reject_reason TEXT;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_status VARCHAR(40);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_price VARCHAR(40);
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_campaign_at TIMESTAMPTZ;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_followup_count INTEGER DEFAULT 0;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS licensed BOOLEAN;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_number VARCHAR(80);
     CREATE TABLE IF NOT EXISTS super_contacts (
@@ -6775,7 +6777,8 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     );
     // Sending an email advances the pipeline to "Bid Sent" — but only from the early
     // vetting stages; Actives, Approved, Bid Under Review, and flagged subs stay put.
-    await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
+    // It also (re)arms the auto follow-up cycle: nudges resume until the sub replies.
+    await pool.query("UPDATE subcontractors SET bid_status='Bid Sent', bid_campaign_at=NOW(), bid_followup_count=0 WHERE id=$1", [sub.id]);
     let advanced = null;
     const { rows: [cur] } = await pool.query('SELECT status FROM subcontractors WHERE id=$1', [sub.id]);
     if (cur && !/active|approv|inactive|reject|black|bid under review|bid request/i.test(cur.status || '')) {
@@ -6824,12 +6827,63 @@ async function sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy }) {
     await pool.query(
       "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
       [sub.id, sub.email, subject, logBody, sentBy, (sent && sent.threadId) || null, (sent && sent.messageId) || null]);
-    await pool.query("UPDATE subcontractors SET bid_status='Bid Sent' WHERE id=$1", [sub.id]);
+    await pool.query("UPDATE subcontractors SET bid_status='Bid Sent', bid_campaign_at=NOW(), bid_followup_count=0 WHERE id=$1", [sub.id]);
     if (!/active|approv|inactive|reject|black|bid under review|bid request/i.test(sub.status || '')) {
       await pool.query("UPDATE subcontractors SET status='Bid Requested', group_label='Bid Requested' WHERE id=$1", [sub.id]);
     }
     return { id: sub.id, name, ok: true };
   } catch (e) { return { id: sub.id, name, ok: false, error: e.message }; }
+}
+
+// Auto follow-up on bid requests: ~3 days after the last email to a sub who hasn't
+// replied, send a short nudge in the same thread — up to 3 nudges per campaign.
+// Stops the moment ANY reply from the sub lands after the campaign started, when the
+// pipeline moves past "Bid Sent" (bid received / active / rejected / …), or if the
+// address bounced. Sending a new bid email re-arms the cycle from zero.
+async function sendBidFollowups() {
+  const out = { due: 0, sent: 0, errors: 0 };
+  if (!useGmail) return out;
+  try {
+    const { rows } = await pool.query(`
+      SELECT s.id, s.company, s.owner, s.email, s.type, COALESCE(s.bid_followup_count,0) AS n,
+             le.subject AS last_subject, le.gmail_thread_id AS thread_id, le.created_at AS last_out
+      FROM subcontractors s
+      JOIN LATERAL (
+        SELECT subject, gmail_thread_id, created_at FROM sub_emails
+        WHERE sub_id = s.id AND direction = 'out'
+        ORDER BY created_at DESC LIMIT 1
+      ) le ON TRUE
+      WHERE s.bid_status = 'Bid Sent'
+        AND s.bid_campaign_at IS NOT NULL
+        AND COALESCE(s.bid_followup_count,0) < 3
+        AND COALESCE(s.email,'') <> ''
+        AND s.email_bounced_at IS NULL
+        AND COALESCE(s.status,'') !~* 'active|approv|inactive|reject|black|bid under review'
+        AND le.created_at < NOW() - INTERVAL '3 days'
+        AND NOT EXISTS (SELECT 1 FROM sub_emails i WHERE i.sub_id = s.id AND i.direction = 'in' AND i.created_at > s.bid_campaign_at)
+      ORDER BY le.created_at DESC
+      LIMIT 25`);   /* per-run cap: drains a backlog over days instead of one blast (kinder to Gmail's spam filters too) */
+    out.due = rows.length;
+    const sig = await getGmailSignature();
+    for (const r of rows) {
+      try {
+        const name = r.company || r.owner || 'there';
+        const body = `Hi ${name},\n\nJust following up on the bid request below for ${tradePhrase(r.type)} — wanted to make sure it didn't get buried. Let me know if you have any questions or need anything else to put a number together.\n\nThank you!`;
+        let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+        if (sig) html += `<br><br>${sig}`;
+        const subject = /^re:/i.test(r.last_subject || '') ? r.last_subject : 'Re: ' + (r.last_subject || 'Bid request');
+        const sent = await sendMail({ to: r.email, subject, html, threadId: r.thread_id || undefined });
+        await pool.query(
+          "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,'auto follow-up','out',$5,$6)",
+          [r.id, r.email, subject, body, (sent && sent.threadId) || r.thread_id || null, (sent && sent.messageId) || null]);
+        await pool.query('UPDATE subcontractors SET bid_followup_count = COALESCE(bid_followup_count,0) + 1 WHERE id=$1', [r.id]);
+        out.sent++;
+        console.log('bid follow-up #' + (Number(r.n) + 1) + ' → ' + name);
+      } catch (e) { out.errors++; console.error('bid follow-up (' + r.id + '):', e.message); }
+    }
+    if (out.due) console.log('bid follow-ups:', JSON.stringify(out));
+  } catch (e) { console.error('sendBidFollowups:', e.message); }
+  return out;
 }
 
 app.post('/subs/send-bulk', requireAuth, async (req, res) => {
@@ -9081,6 +9135,7 @@ app.get('/_test/run', async (req, res) => {
     'delivery-reminder': sendDeliveryReminder, 'delivery-confirmations': sendDeliveryConfirmations,
     'day-before-reminders': dayBeforeDeliveryReminders,
     'requeue-missed-notices': requeueMissedNotices,
+    'bid-followups': sendBidFollowups,
     'license-watchdog': licenseWatchdog, 'insurance-scan': insuranceScanAll,
     'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
     'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
@@ -9135,6 +9190,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
+  cron.schedule('30 16 * * 1-5', sendBidFollowups);    // weekdays ~9:30am PT — nudge unanswered bid requests (3-day gap, max 3)
   cron.schedule('10 15 * * *', dayBeforeDeliveryReminders); // daily ~7am PT — auto-send day-before delivery reminders
   cron.schedule('0 14 * * *', sendMorningBrief);        // daily 7am PT — the everything brief (Bids space)
   if (process.env.RUN_BRIEF_ON_BOOT === '1') sendMorningBrief();   // local testing hook
