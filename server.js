@@ -7454,6 +7454,22 @@ async function processDeliveryReplies() {
   } catch (e) { console.error('processDeliveryReplies:', e.message); }
 }
 
+// A sub's reply often carries their CSLB license number ("CSLB #1043002",
+// "License No. 987654", "Lic 1076518" in the signature). Capture it when the sub has
+// none on file — never overwrite a number Logan typed — then run the normal CSLB
+// verification on it so the license badge/expiry fill in too. The keyword anchor
+// (cslb/license/lic) keeps phone numbers and zips from false-matching.
+async function maybeCaptureLicense(subId, textRaw) {
+  const m = String(textRaw || '').match(/\b(?:cslb|lic(?:en[cs]e)?s?)\b[^\d]{0,15}(\d{6,8})\b/i);
+  if (!m) return;
+  const { rows: [sub] } = await pool.query('SELECT id, company, notes, license_number FROM subcontractors WHERE id=$1', [subId]);
+  if (!sub || String(sub.license_number || '').trim()) return;
+  await pool.query('UPDATE subcontractors SET license_number=$1 WHERE id=$2', [m[1], subId]);
+  console.log('license captured from reply: ' + m[1] + ' → ' + (sub.company || ('sub #' + subId)));
+  try { await verifySubLicense({ ...sub, license_number: m[1] }); }
+  catch (e) { console.error('license verify (captured):', e.message); }
+}
+
 // Pull subcontractor REPLIES into each sub's email log + flag an unread badge.
 // Mirrors checkUnreadThreads (the supplier version): for every email we sent a sub,
 // fetch its Gmail thread, store any inbound messages we haven't logged yet, and mark
@@ -7517,6 +7533,9 @@ async function checkSubReplies() {
           // Bid attached? Read it and put it in the pipeline — same as a QuickBooks estimate.
           try { await maybeIngestDirectBid(r.sub_id, m.id, atts, m.subject || r.subject, text, when); }
           catch (e) { console.error('direct bid ingest:', e.message); }
+          // License number in the reply ("CSLB #1043002", "Lic 987654")? Capture + verify it.
+          try { await maybeCaptureLicense(r.sub_id, (m.body || '') + ' ' + (m.subject || '')); }
+          catch (e) { console.error('license capture:', e.message); }
         }
         const latest = new Date(Math.max(...inbound.map(m => new Date(m.date).getTime())));
         const { rows: [sub] } = await pool.query('SELECT replies_viewed_at FROM subcontractors WHERE id=$1', [r.sub_id]);
