@@ -377,19 +377,23 @@
         <div style="background:var(--bg);border:1px solid var(--border);border-radius:11px;padding:.6rem .75rem">
           <div style="display:flex;align-items:baseline;gap:.45rem;margin-bottom:.35rem">
             <strong style="font-size:.85rem"><%= t.trade %></strong>
+            <% if (t.baseline != null) { %>
             <span style="margin-left:auto;font-size:.82rem;font-weight:700;color:var(--text)" title="Baseline (<%= t.label %>)"><%= _fmt$(t.baseline) %></span>
             <% if (!isSuper && canEdit) { %><button type="button" onclick="ccEditBaseline('<%= t.trade.replace(/'/g, "\\'") %>', <%= t.baseline %>)" title="Edit this baseline amount" style="border:none;background:none;cursor:pointer;color:var(--muted);font-size:.8rem;padding:0">✎</button><% } %>
+            <% } else { %>
+            <span style="margin-left:auto;font-size:.72rem;font-weight:600;color:var(--muted)">whole-build proposals</span>
+            <% } %>
           </div>
           <% if (!t.bids.length) { %>
             <div style="font-size:.76rem;color:var(--muted)">No bids yet.</div>
           <% } else { %>
             <% t.bids.forEach(function (b) { %>
-              <% var d = b.amount - t.baseline; var pct = Math.round(d / t.baseline * 100); %>
+              <% var d = t.baseline != null ? b.amount - t.baseline : null; var pct = t.baseline ? Math.round(d / t.baseline * 100) : 0; %>
               <div style="display:flex;align-items:baseline;gap:.45rem;padding:.18rem 0;font-size:.8rem;border-top:1px dashed var(--border)">
                 <a href="/subs/profile/<%= b.subId %>" style="color:var(--text);text-decoration:none;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:130px" title="<%= b.company %><%= b.project ? ' — ' + b.project : '' %>"><%= b.company %></a>
                 <% if (b.project) { %><span style="font-size:.7rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:90px"><%= b.project %></span><% } %>
                 <span style="margin-left:auto;font-weight:700"><%= _fmt$(b.amount) %></span>
-                <span style="font-size:.72rem;font-weight:800;padding:.05rem .4rem;border-radius:7px;white-space:nowrap;background:<%= d <= 0 ? '#e7f6ec' : '#fee2e2' %>;color:<%= d <= 0 ? '#176b3a' : '#b91c1c' %>"><%= d <= 0 ? '' : '+' %><%= pct %>%</span>
+                <% if (d != null) { %><span style="font-size:.72rem;font-weight:800;padding:.05rem .4rem;border-radius:7px;white-space:nowrap;background:<%= d <= 0 ? '#e7f6ec' : '#fee2e2' %>;color:<%= d <= 0 ? '#176b3a' : '#b91c1c' %>"><%= d <= 0 ? '' : '+' %><%= pct %>%</span><% } %>
               </div>
             <% }) %>
           <% } %>

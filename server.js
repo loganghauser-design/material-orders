@@ -5335,12 +5335,18 @@ app.post('/subs/baseline', requireAuth, async (req, res) => {
 async function computeCostComparison() {
   const { rows: baselines } = await pool.query('SELECT trade, amount, label FROM bid_baselines ORDER BY amount DESC');
   const { rows: bidRows } = await pool.query(`
-    SELECT b.sub_id, b.amount, b.received_at, s.company, s.type, p.address
+    SELECT b.sub_id, b.amount, b.received_at, s.company, s.type, s.category, p.address
     FROM bids b JOIN subcontractors s ON s.id = b.sub_id LEFT JOIN projects p ON p.id = b.project_id
     WHERE b.amount IS NOT NULL AND b.amount > 0 ORDER BY b.received_at DESC`);
-  const { rows: priced } = await pool.query("SELECT id, company, type, bid_price, bid_price_alt, bid_alt_label FROM subcontractors WHERE (bid_price IS NOT NULL AND bid_price <> '') OR (bid_price_alt IS NOT NULL AND bid_price_alt <> '')");
+  const { rows: priced } = await pool.query("SELECT id, company, type, category, bid_price, bid_price_alt, bid_alt_label FROM subcontractors WHERE (bid_price IS NOT NULL AND bid_price <> '') OR (bid_price_alt IS NOT NULL AND bid_price_alt <> '')");
   const byTradeCmp = {};
   baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
+  // Whole-ADU proposals from GCs get their own box — a $165k build bid has no business
+  // next to $17k foundation bids. No baseline, so the card shows plain amounts.
+  const GC_TRADE = 'GC Bids (full ADU)';
+  byTradeCmp[GC_TRADE] = { trade: GC_TRADE, baseline: null, label: 'no baseline', bids: [] };
+  const isGcSub = s => (s.category === 'gc') || /general\s*contractor|^\s*gc\b/i.test(s.type || '');
+  const tradeFor = s => isGcSub(s) ? GC_TRADE : baselineTradeFor(s.type);
   // The sub's bid_price field is the CURRENT standing bid — ingestion writes it and
   // Logan edits it by hand (e.g. after negotiating). When it parses, it wins over the
   // raw ingested bid rows (4 Seasons: PDF said $16,000, Logan re-typed $27,500 — the
@@ -5351,12 +5357,12 @@ async function computeCostComparison() {
   bidRows.forEach(r => { if (!latestProject.has(r.sub_id)) latestProject.set(r.sub_id, r.address || ''); });
   bidRows.forEach(r => {
     if (manualAmt.has(r.sub_id)) return;   // bid_price supersedes this sub's raw rows
-    const trade = baselineTradeFor(r.type);
+    const trade = tradeFor(r);
     if (!trade || !byTradeCmp[trade]) return;
     byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company, amount: Number(r.amount), project: r.address || '', when: r.received_at });
   });
   priced.forEach(s => {
-    const trade = baselineTradeFor(s.type);
+    const trade = tradeFor(s);
     if (!trade || !byTradeCmp[trade]) return;
     const amt = manualAmt.get(s.id);
     if (amt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: latestProject.get(s.id) || '', when: null });
@@ -5365,7 +5371,9 @@ async function computeCostComparison() {
     if (altAmt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null });
   });
   Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
-  return Object.values(byTradeCmp);
+  // Baseline trades always show (a bidless tile = a coverage gap worth seeing);
+  // the GC box only shows when a GC proposal actually exists.
+  return Object.values(byTradeCmp).filter(t => t.baseline !== null || t.bids.length);
 }
 
 // Download the cost comparison as a formatted Excel file
@@ -5396,11 +5404,14 @@ app.get('/subs/cost-comparison.xlsx', requireAuth, async (req, res) => {
         return;
       }
       t.bids.forEach(b => {
-        const d = b.amount - t.baseline;
-        const row = ws.addRow({ trade: t.trade, baseline: t.baseline, company: b.company, project: b.project || '', bid: b.amount, d, pct: d / t.baseline, when: b.when ? new Date(b.when) : null });
-        const color = { argb: d <= 0 ? GREEN : RED };
-        row.getCell('d').font = { color, bold: true };
-        row.getCell('pct').font = { color, bold: true };
+        const hasBase = t.baseline != null && t.baseline > 0;
+        const d = hasBase ? b.amount - t.baseline : null;
+        const row = ws.addRow({ trade: t.trade, baseline: hasBase ? t.baseline : null, company: b.company, project: b.project || '', bid: b.amount, d, pct: hasBase ? d / t.baseline : null, when: b.when ? new Date(b.when) : null });
+        if (hasBase) {
+          const color = { argb: d <= 0 ? GREEN : RED };
+          row.getCell('d').font = { color, bold: true };
+          row.getCell('pct').font = { color, bold: true };
+        }
       });
     });
     ['baseline', 'bid', 'd'].forEach(k => ws.getColumn(k).numFmt = '$#,##0');
