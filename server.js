@@ -1579,6 +1579,8 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_price VARCHAR(40);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_campaign_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_followup_count INTEGER DEFAULT 0;
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_price_alt VARCHAR(40);
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_alt_label VARCHAR(60);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS licensed BOOLEAN;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_number VARCHAR(80);
     CREATE TABLE IF NOT EXISTS super_contacts (
@@ -5336,7 +5338,7 @@ async function computeCostComparison() {
     SELECT b.sub_id, b.amount, b.received_at, s.company, s.type, p.address
     FROM bids b JOIN subcontractors s ON s.id = b.sub_id LEFT JOIN projects p ON p.id = b.project_id
     WHERE b.amount IS NOT NULL AND b.amount > 0 ORDER BY b.received_at DESC`);
-  const { rows: priced } = await pool.query("SELECT id, company, type, bid_price FROM subcontractors WHERE bid_price IS NOT NULL AND bid_price <> ''");
+  const { rows: priced } = await pool.query("SELECT id, company, type, bid_price, bid_price_alt, bid_alt_label FROM subcontractors WHERE (bid_price IS NOT NULL AND bid_price <> '') OR (bid_price_alt IS NOT NULL AND bid_price_alt <> '')");
   const byTradeCmp = {};
   baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
   // The sub's bid_price field is the CURRENT standing bid — ingestion writes it and
@@ -5354,11 +5356,13 @@ async function computeCostComparison() {
     byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company, amount: Number(r.amount), project: r.address || '', when: r.received_at });
   });
   priced.forEach(s => {
-    const amt = manualAmt.get(s.id);
-    if (!amt) return;
     const trade = baselineTradeFor(s.type);
     if (!trade || !byTradeCmp[trade]) return;
-    byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: latestProject.get(s.id) || '', when: null });
+    const amt = manualAmt.get(s.id);
+    if (amt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: latestProject.get(s.id) || '', when: null });
+    // Alternate bid (e.g. Santiago's labor-only option next to their full number)
+    const altAmt = parseMoney(s.bid_price_alt);
+    if (altAmt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null });
   });
   Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
   return Object.values(byTradeCmp);
