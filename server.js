@@ -5335,10 +5335,10 @@ app.post('/subs/baseline', requireAuth, async (req, res) => {
 async function computeCostComparison() {
   const { rows: baselines } = await pool.query('SELECT trade, amount, label FROM bid_baselines ORDER BY amount DESC');
   const { rows: bidRows } = await pool.query(`
-    SELECT b.sub_id, b.amount, b.received_at, s.company, s.type, s.category, p.address
+    SELECT b.sub_id, b.amount, b.received_at, s.company, s.owner, s.type, s.category, p.address
     FROM bids b JOIN subcontractors s ON s.id = b.sub_id LEFT JOIN projects p ON p.id = b.project_id
     WHERE b.amount IS NOT NULL AND b.amount > 0 ORDER BY b.received_at DESC`);
-  const { rows: priced } = await pool.query("SELECT id, company, type, category, bid_price, bid_price_alt, bid_alt_label FROM subcontractors WHERE (bid_price IS NOT NULL AND bid_price <> '') OR (bid_price_alt IS NOT NULL AND bid_price_alt <> '')");
+  const { rows: priced } = await pool.query("SELECT id, company, owner, type, category, bid_price, bid_price_alt, bid_alt_label FROM subcontractors WHERE (bid_price IS NOT NULL AND bid_price <> '') OR (bid_price_alt IS NOT NULL AND bid_price_alt <> '')");
   const byTradeCmp = {};
   baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
   // Whole-ADU proposals from GCs get their own box — a $165k build bid has no business
@@ -5359,16 +5359,16 @@ async function computeCostComparison() {
     if (manualAmt.has(r.sub_id)) return;   // bid_price supersedes this sub's raw rows
     const trade = tradeFor(r);
     if (!trade || !byTradeCmp[trade]) return;
-    byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company, amount: Number(r.amount), project: r.address || '', when: r.received_at });
+    byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company || r.owner || ('Sub #' + r.sub_id), amount: Number(r.amount), project: r.address || '', when: r.received_at });
   });
   priced.forEach(s => {
     const trade = tradeFor(s);
     if (!trade || !byTradeCmp[trade]) return;
     const amt = manualAmt.get(s.id);
-    if (amt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company, amount: amt, project: latestProject.get(s.id) || '', when: null });
+    if (amt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company || s.owner || ('Sub #' + s.id), amount: amt, project: latestProject.get(s.id) || '', when: null });
     // Alternate bid (e.g. Santiago's labor-only option next to their full number)
     const altAmt = parseMoney(s.bid_price_alt);
-    if (altAmt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null });
+    if (altAmt) byTradeCmp[trade].bids.push({ subId: s.id, company: (s.company || s.owner || ('Sub #' + s.id)) + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null });
   });
   Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
   // Baseline trades always show (a bidless tile = a coverage gap worth seeing);
