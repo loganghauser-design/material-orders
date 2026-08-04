@@ -5372,7 +5372,13 @@ async function computeCostComparison() {
     if (amt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company || s.owner || ('Sub #' + s.id), amount: amt, project: latestProject.get(s.id) || '', when: null });
     // Alternate bid (e.g. Santiago's labor-only option next to their full number)
     const altAmt = parseMoney(s.bid_price_alt);
-    if (altAmt) byTradeCmp[trade].bids.push({ subId: s.id, company: (s.company || s.owner || ('Sub #' + s.id)) + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null });
+    if (altAmt) {
+      // If the alternate's label names a trade ("framing (labor + materials)"), it
+      // lands in THAT tile — RJ bids both foundation and framing, one row in each.
+      // Labels like "labor only" match no trade and stay with the sub's own tile.
+      const altTrade = baselineTradeFor(s.bid_alt_label || '') || trade;
+      (byTradeCmp[altTrade] || byTradeCmp[trade]).bids.push({ subId: s.id, company: (s.company || s.owner || ('Sub #' + s.id)) + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null });
+    }
   });
   Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
   // Baseline trades always show (a bidless tile = a coverage gap worth seeing);
