@@ -6085,7 +6085,7 @@ function coiDates(text) {
   }
   return out;
 }
-const COI_FILE_RE = /coi|acord|certificat|insur|liab|workers.?comp|\bwc\b|policy/i;
+const COI_FILE_RE = /coi|acord|certificat|insur|liab|workers.?comp|\bwc\b|policy|proof.?of.?insurance|(?:^|[^a-z0-9])poi(?:[^a-z0-9]|$)/i;
 async function scanSubInsurance(subId) {
   const { rows } = await pool.query(`
     SELECT a.filename, a.mime, a.gmail_message_id, a.gmail_attachment_id
@@ -8815,7 +8815,7 @@ async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyTe
     const att = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId: gmailMessageId, id: a.attachmentId });
     const buf = Buffer.from(String(att.data.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
     const text = await docTextOrOcr(buf, a.filename);
-    if (!text || /certificate of liability|acord\b|workers'? comp(?:ensation)? insurance/i.test(text.slice(0, 1500))) continue;
+    if (!text || /certificate of liability|acord\b|workers'? comp(?:ensation)? insurance|proof of insurance|each occurrence|policy (?:number|limits)/i.test(text.slice(0, 1500))) continue;
     const bidish = BIDDOC_RE.test(a.filename || '') || BIDDOC_RE.test(String(subject || '')) || BIDDOC_RE.test(text.slice(0, 1200));
     if (!bidish) continue;
     const amount = parseBidTotal(text);
