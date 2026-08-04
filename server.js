@@ -6851,7 +6851,8 @@ async function sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy }) {
 }
 
 // Auto follow-up on bid requests: ~3 days after the last email to a sub who hasn't
-// replied, send a short nudge in the same thread — up to 3 nudges per campaign.
+// replied, send a short nudge in the same thread — capped at 2 nudges per campaign
+// (so a sub gets at most 3 emails total: the bid request + two follow-ups).
 // Stops the moment ANY reply from the sub lands after the campaign started, when the
 // pipeline moves past "Bid Sent" (bid received / active / rejected / …), or if the
 // address bounced. Sending a new bid email re-arms the cycle from zero.
@@ -6870,7 +6871,7 @@ async function sendBidFollowups() {
       ) le ON TRUE
       WHERE s.bid_status = 'Bid Sent'
         AND s.bid_campaign_at IS NOT NULL
-        AND COALESCE(s.bid_followup_count,0) < 3
+        AND COALESCE(s.bid_followup_count,0) < 2
         AND COALESCE(s.email,'') <> ''
         AND s.email_bounced_at IS NULL
         AND COALESCE(s.status,'') !~* 'active|approv|inactive|reject|black|bid under review'
@@ -9224,7 +9225,7 @@ function startCron() {
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
-  cron.schedule('30 16 * * 1-5', sendBidFollowups);    // weekdays ~9:30am PT — nudge unanswered bid requests (3-day gap, max 3)
+  cron.schedule('30 16 * * 1-5', sendBidFollowups);    // weekdays ~9:30am PT — nudge unanswered bid requests (3-day gap, max 2)
   cron.schedule('10 15 * * *', dayBeforeDeliveryReminders); // daily ~7am PT — auto-send day-before delivery reminders
   cron.schedule('0 14 * * *', sendMorningBrief);        // daily 7am PT — the everything brief (Bids space)
   if (process.env.RUN_BRIEF_ON_BOOT === '1') sendMorningBrief();   // local testing hook
