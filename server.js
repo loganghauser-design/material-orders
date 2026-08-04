@@ -5346,8 +5346,11 @@ async function computeCostComparison() {
   // next to $17k foundation bids. No baseline, so the card shows plain amounts.
   const GC_TRADE = 'GC Bids (full ADU)';
   byTradeCmp[GC_TRADE] = { trade: GC_TRADE, baseline: null, label: 'no baseline', bids: [] };
+  // Trades with no baseline row (Cabinets, etc.) still show — every bid is visible.
+  const OTHER_TRADE = 'Other trades';
+  byTradeCmp[OTHER_TRADE] = { trade: OTHER_TRADE, baseline: null, label: 'no baseline', bids: [] };
   const isGcSub = s => (s.category === 'gc') || /general\s*contractor|^\s*gc\b/i.test(s.type || '');
-  const tradeFor = s => isGcSub(s) ? GC_TRADE : baselineTradeFor(s.type);
+  const tradeFor = s => isGcSub(s) ? GC_TRADE : (baselineTradeFor(s.type) || OTHER_TRADE);
   // The sub's bid_price field is the CURRENT standing bid — ingestion writes it and
   // Logan edits it by hand (e.g. after negotiating). When it parses, it wins over the
   // raw ingested bid rows (4 Seasons: PDF said $16,000, Logan re-typed $27,500 — the
@@ -6173,7 +6176,21 @@ app.post('/subs/:id/field', requireAuth, async (req, res) => {
     if ('email' in req.body) { sets.push('email_bounced_at=NULL'); sets.push('email_bounce_note=NULL'); }
     vals.push(req.params.id);
     await pool.query(`UPDATE subcontractors SET ${sets.join(', ')} WHERE id=$${vals.length}`, vals);
-    res.json({ ok: true });
+    // Typing a dollar bid advances the pipeline exactly like an ingested bid doc:
+    // Bid Received + move to the Bid Under Review section (never touching subs that
+    // are already Active/Approved/flagged, and never downgrading awarded).
+    let advanced = null;
+    if ('bid_price' in req.body && parseMoney(req.body.bid_price)) {
+      const { rows: [cur] } = await pool.query('SELECT status, bid_status FROM subcontractors WHERE id=$1', [req.params.id]);
+      if (cur) {
+        if (!/awarded/i.test(cur.bid_status || '')) await pool.query("UPDATE subcontractors SET bid_status='Bid Received' WHERE id=$1", [req.params.id]);
+        if (!/active|approv|inactive|reject|black|bid under review/i.test(cur.status || '')) {
+          await pool.query("UPDATE subcontractors SET status='Bid Under Review', group_label='Bid Under Review' WHERE id=$1", [req.params.id]);
+          advanced = 'Bid Under Review';
+        }
+      }
+    }
+    res.json({ ok: true, advanced });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
