@@ -8774,13 +8774,23 @@ ${phone ? `<p style="margin:10px 0 4px">For urgent issues (active leak, no power
   return { subject, html, attachments };
 }
 
-// Send the warranty welcome for one project (button in the Warranty tab).
+// Send the warranty welcome for one project (compose card in the Warranty tab).
+// A typed name/email is saved onto the project first, so entering it once fills the
+// record for good — next time it autofills.
 app.post('/projects/:id/warranty-welcome', requireAuth, async (req, res) => {
   try {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
+    const typedName = String((req.body || {}).client_name || '').trim().slice(0, 150);
+    const typedEmail = String((req.body || {}).client_email || '').trim().slice(0, 250);
+    if (typedName || typedEmail) {
+      await pool.query(
+        `UPDATE projects SET client_name = COALESCE(NULLIF($1,''), client_name),
+                             client_email = COALESCE(NULLIF($2,''), client_email) WHERE id=$3`,
+        [typedName, typedEmail, req.params.id]);
+    }
     const { rows: [p] } = await pool.query('SELECT id, address, full_address, client_name, client_email, warranty_started_at FROM projects WHERE id=$1', [req.params.id]);
     if (!p) return res.status(404).json({ ok: false, error: 'Project not found.' });
-    if (!p.client_email || !p.client_email.trim()) return res.status(400).json({ ok: false, error: 'No client email on this project — add one via Edit Project.' });
+    if (!p.client_email || !p.client_email.trim()) return res.status(400).json({ ok: false, error: 'Type the client\'s email first.' });
     let phone = '';
     try { const { rows: [as] } = await pool.query('SELECT emergency_phone FROM app_settings WHERE id=1'); phone = (as && as.emergency_phone) || ''; } catch (e) {}
     const { subject, html, attachments } = await buildWarrantyWelcome(p, phone);

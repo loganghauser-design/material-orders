@@ -52,37 +52,60 @@
   <% var _wl = (typeof welcomes !== 'undefined' && welcomes) || []; %>
   <% if (_wl.length && typeof isSuper !== 'undefined' && !isSuper) { %>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:.85rem 1.1rem;margin-bottom:1.4rem;max-width:none">
-    <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.55rem">
-      <strong style="font-size:.95rem">🛡 Warranty welcome emails</strong>
-      <span style="font-size:.78rem;color:var(--muted)"><%= _wl.filter(function(w){return w.warranty_welcomed_at;}).length %> of <%= _wl.length %> sent · one click emails the client their coverage dates, the claim link, and the appliance-warranty transfer</span>
+    <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.6rem">
+      <strong style="font-size:.95rem">🛡 Warranty welcome email</strong>
+      <span style="font-size:.78rem;color:var(--muted)">pick the project, type the client's name + email — the dates, claim link, and warranty transfer fill in automatically</span>
     </div>
-    <% _wl.forEach(function (w) { %>
-    <div style="display:flex;align-items:baseline;gap:.6rem;padding:.28rem 0;border-top:1px dashed var(--border);font-size:.84rem" data-ww="<%= w.id %>">
-      <strong style="min-width:170px"><%= w.address %></strong>
-      <span style="color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px"><%= w.client_name || '—' %></span>
-      <span style="margin-left:auto"></span>
-      <% if (w.warranty_welcomed_at) { %>
-        <span class="ww-state" style="font-size:.76rem;font-weight:700;color:#176b3a;background:#e7f6ec;padding:.14rem .55rem;border-radius:8px">✓ Sent <%= new Date(w.warranty_welcomed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %></span>
-      <% } else if (!w.client_email || !w.client_email.trim()) { %>
-        <a href="/projects/<%= w.id %>" class="ww-state" style="font-size:.76rem;color:#9a6b00;background:#fdf0d5;padding:.14rem .55rem;border-radius:8px;text-decoration:none" title="Add the client's email via Edit Project, then the Send button appears">no client email</a>
-      <% } else { %>
-        <span style="font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px"><%= w.client_email %></span>
-        <button type="button" class="btn btn-primary btn-sm ww-send" onclick="wwSend(<%= w.id %>, this)">📧 Send</button>
-      <% } %>
+    <div style="display:flex;align-items:center;gap:.55rem;flex-wrap:wrap">
+      <select id="wwProj" onchange="wwPick()" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:220px">
+        <option value="">— pick a project —</option>
+        <% _wl.forEach(function (w) { %>
+        <option value="<%= w.id %>" data-name="<%= (w.client_name || '').replace(/"/g,'&quot;') %>" data-email="<%= (w.client_email || '').replace(/"/g,'&quot;') %>" data-sent="<%= w.warranty_welcomed_at ? new Date(w.warranty_welcomed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '' %>"><%= w.address %><%= w.warranty_welcomed_at ? ' · ✓ sent' : '' %></option>
+        <% }) %>
+      </select>
+      <input id="wwName" type="text" placeholder="Client name(s)" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:180px">
+      <input id="wwEmail" type="text" placeholder="client@email.com (comma for two)" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:230px;flex:1">
+      <button type="button" class="btn btn-primary btn-sm" id="wwSendBtn" onclick="wwSendForm()">📧 Send warranty email</button>
     </div>
-    <% }) %>
+    <div id="wwNote" style="font-size:.76rem;color:var(--muted);margin-top:.4rem"></div>
+    <div style="margin-top:.7rem;border-top:1px solid var(--border);padding-top:.5rem">
+      <div style="font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:.3rem">Sent tracker · <%= _wl.filter(function(w){return w.warranty_welcomed_at;}).length %> of <%= _wl.length %></div>
+      <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+        <% _wl.forEach(function (w) { %>
+          <span id="wwtrack<%= w.id %>" style="font-size:.74rem;padding:.16rem .55rem;border-radius:8px;<%= w.warranty_welcomed_at ? 'background:#e7f6ec;color:#176b3a;font-weight:700' : 'background:var(--bg);color:var(--muted);border:1px dashed var(--border)' %>"><%= w.address %><%= w.warranty_welcomed_at ? ' ✓ ' + new Date(w.warranty_welcomed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '' %></span>
+        <% }) %>
+      </div>
+    </div>
   </div>
   <script>
-  async function wwSend(id, btn) {
-    if (!confirm('Send the warranty welcome email to this client now?')) return;
+  function wwPick() {
+    const o = document.getElementById('wwProj').selectedOptions[0];
+    if (!o || !o.value) return;
+    document.getElementById('wwName').value = o.dataset.name || '';
+    document.getElementById('wwEmail').value = o.dataset.email || '';
+    document.getElementById('wwNote').textContent = o.dataset.sent ? ('Already sent ' + o.dataset.sent + ' — sending again is allowed but goes to the client a second time.') : '';
+  }
+  async function wwSendForm() {
+    const id = document.getElementById('wwProj').value;
+    const name = document.getElementById('wwName').value.trim();
+    const email = document.getElementById('wwEmail').value.trim();
+    if (!id) { alert('Pick a project first.'); return; }
+    if (!email) { alert("Type the client's email."); return; }
+    const o = document.getElementById('wwProj').selectedOptions[0];
+    if (!confirm('Send the warranty email to ' + email + ' for ' + o.text.replace(' · ✓ sent','') + '?')) return;
+    const btn = document.getElementById('wwSendBtn');
     btn.disabled = true; btn.textContent = 'Sending…';
     try {
-      const r = await fetch('/projects/' + id + '/warranty-welcome', { method: 'POST' });
+      const r = await fetch('/projects/' + id + '/warranty-welcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_name: name, client_email: email }) });
       const d = await r.json();
-      if (!d.ok) { alert(d.error || 'Send failed'); btn.disabled = false; btn.textContent = '📧 Send'; return; }
-      const row = document.querySelector('[data-ww="' + id + '"]');
-      btn.outerHTML = '<span style="font-size:.76rem;font-weight:700;color:#176b3a;background:#e7f6ec;padding:.14rem .55rem;border-radius:8px">✓ Sent just now</span>';
-    } catch (e) { alert('Send failed: ' + e.message); btn.disabled = false; btn.textContent = '📧 Send'; }
+      if (!d.ok) { alert(d.error || 'Send failed'); return; }
+      const t = document.getElementById('wwtrack' + id);
+      if (t) { t.style.cssText = 'font-size:.74rem;padding:.16rem .55rem;border-radius:8px;background:#e7f6ec;color:#176b3a;font-weight:700'; t.textContent = t.textContent.replace(/ ✓.*$/,'') + ' ✓ just now'; }
+      o.dataset.sent = 'just now'; o.dataset.name = name; o.dataset.email = email;
+      if (!/✓ sent/.test(o.text)) o.text += ' · ✓ sent';
+      document.getElementById('wwNote').textContent = '✓ Sent to ' + d.sentTo;
+    } catch (e) { alert('Send failed: ' + e.message); }
+    finally { btn.disabled = false; btn.textContent = '📧 Send warranty email'; }
   }
   </script>
   <% } %>
