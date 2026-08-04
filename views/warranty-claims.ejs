@@ -44,13 +44,16 @@
 <% } %>
 
 <div class="container">
-  <div class="page-header"><h1>Warranty Claims</h1></div>
-  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:720px">
-    Submitted by clients through the public warranty link. Share the link from Settings.
-  </p>
-
+  <div class="page-header"><h1>Warranty</h1></div>
   <% var _wl = (typeof welcomes !== 'undefined' && welcomes) || []; %>
-  <% if (_wl.length && typeof isSuper !== 'undefined' && !isSuper) { %>
+  <% var _showWrap = _wl.length && typeof isSuper !== 'undefined' && !isSuper; %>
+  <div style="display:flex;gap:.4rem;margin-bottom:1.1rem">
+    <button type="button" class="wtab on" data-wtab="claims" onclick="wTab('claims')" style="font:inherit;font-size:.86rem;font-weight:700;padding:.45rem .95rem;border:1px solid var(--border);border-radius:9px;background:#111318;color:#fff;cursor:pointer">🔧 Claims</button>
+    <% if (_showWrap) { %><button type="button" class="wtab" data-wtab="wrapup" onclick="wTab('wrapup')" style="font:inherit;font-size:.86rem;font-weight:700;padding:.45rem .95rem;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--muted);cursor:pointer">🎁 Wrap Up</button><% } %>
+  </div>
+
+  <div class="wpanel" data-wpanel="wrapup" style="display:none">
+  <% if (_showWrap) { %>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:.85rem 1.1rem;margin-bottom:1.4rem;max-width:none">
     <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.6rem">
       <strong style="font-size:.95rem">🛡 Warranty welcome email</strong>
@@ -109,7 +112,12 @@
   }
   </script>
   <% } %>
+  </div><!-- /wrapup -->
 
+  <div class="wpanel" data-wpanel="claims">
+  <p style="color:var(--muted);font-size:.9rem;margin-bottom:1.25rem;max-width:720px">
+    Submitted by clients through the public warranty link. Share the link from Settings.
+  </p>
   <% const open = claims.filter(c => c.status !== 'Resolved'); const done = claims.filter(c => c.status === 'Resolved'); %>
   <% if (!claims.length) { %>
     <div class="wc" style="color:var(--muted)">No warranty claims yet. When a client submits one through the warranty link, it shows up here.</div>
@@ -163,7 +171,22 @@
     <div class="sec-divider">✓ Resolved (<%= done.length %>)</div>
     <% done.forEach(c => renderClaim(c)) %>
   <% } %>
+  </div><!-- /claims -->
 </div>
+
+<script>
+function wTab(t) {
+  document.querySelectorAll('.wpanel').forEach(p => p.style.display = p.dataset.wpanel === t ? 'block' : 'none');
+  document.querySelectorAll('.wtab').forEach(b => {
+    const on = b.dataset.wtab === t;
+    b.style.background = on ? '#111318' : 'var(--surface)';
+    b.style.color = on ? '#fff' : 'var(--muted)';
+  });
+}
+document.addEventListener('DOMContentLoaded', () => {
+  if (new URLSearchParams(location.search).get('tab') === 'wrapup') wTab('wrapup');
+});
+</script>
 
 <script>
 async function setStatus(id, status) {
