@@ -6923,6 +6923,7 @@ async function alertStaleEngagements() {
         AND li.created_at > s.bid_campaign_at
         AND li.created_at < NOW() - INTERVAL '4 days'
         AND s.stale_alerted_at IS NULL
+        AND s.email_bounced_at IS NULL
         AND COALESCE(s.status,'') !~* 'active|approv|inactive|reject|black|bid under review'
       ORDER BY li.created_at`);
     out.stale = rows.length;
