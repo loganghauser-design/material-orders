@@ -5665,7 +5665,14 @@ app.get('/warranty-claims', requireAuth, async (req, res) => {
     const { rows: photoRows } = await pool.query('SELECT id, claim_id FROM warranty_photos ORDER BY id');
     const photosByClaim = {};
     photoRows.forEach(p => (photosByClaim[p.claim_id] = photosByClaim[p.claim_id] || []).push(p.id));
-    res.render('warranty-claims', { claims, photosByClaim, isSuper: req.session.role === 'super' });
+    // Warranty-welcome tracker: every Under Warranty project (plus any already
+    // welcomed), with whether/when the client email went out.
+    const { rows: welcomes } = await pool.query(`
+      SELECT id, address, client_name, client_email, warranty_started_at, warranty_welcomed_at
+      FROM projects
+      WHERE phase = 'Under Warranty' OR warranty_welcomed_at IS NOT NULL
+      ORDER BY warranty_welcomed_at NULLS FIRST, address`);
+    res.render('warranty-claims', { claims, photosByClaim, welcomes, isSuper: req.session.role === 'super' });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
@@ -8738,31 +8745,17 @@ async function sendWeeklyDigest() {
 }
 
 // A year after a project enters Under Warranty it graduates to Complete on its own.
-// Client warranty-welcome: any project sitting in Under Warranty with a client email
-// and no welcome yet gets a branded email DRAFTED in Gmail (never auto-sent — Logan
-// reviews + sends) + a Bids-chat ping. Covers both fresh phase flips and projects
-// whose client email is added later. Runs daily; manual job warranty-welcomes.
-async function draftWarrantyWelcomes() {
-  const out = { drafted: 0 };
-  if (!useGmail) return out;
-  try {
-    const { rows } = await pool.query(`
-      SELECT id, address, full_address, client_name, client_email, warranty_started_at
-      FROM projects
-      WHERE phase = 'Under Warranty' AND warranty_welcomed_at IS NULL
-        AND client_email IS NOT NULL AND TRIM(client_email) <> ''`);
-    if (!rows.length) return out;
-    let phone = '';
-    try { const { rows: [as] } = await pool.query('SELECT emergency_phone FROM app_settings WHERE id=1'); phone = (as && as.emergency_phone) || ''; } catch (e) {}
-    for (const p of rows) {
-      try {
-        const started = p.warranty_started_at ? new Date(p.warranty_started_at) : new Date();
-        const ends = new Date(started); ends.setFullYear(ends.getFullYear() + 1);
-        const fmt = d => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-        const firstName = String(p.client_name || '').trim() || 'there';
-        const addr = p.full_address || p.address;
-        const subject = 'Your Buildoly Warranty — ' + p.address;
-        const html =
+// Client warranty-welcome email — built per project, sent ONLY when Logan clicks
+// Send in the Warranty tab's welcome section. warranty_welcomed_at records exactly
+// which projects have had one (that's the tracker column the section displays).
+async function buildWarrantyWelcome(p, phone) {
+  const started = p.warranty_started_at ? new Date(p.warranty_started_at) : new Date();
+  const ends = new Date(started); ends.setFullYear(ends.getFullYear() + 1);
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const firstName = String(p.client_name || '').trim() || 'there';
+  const addr = p.full_address || p.address;
+  const subject = 'Your Buildoly Warranty — ' + p.address;
+  const html =
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.6">
 <p>Hi ${escapeHtml(firstName)},</p>
 <p>Congratulations again on your completed project at <strong style="color:#111827">${escapeHtml(addr)}</strong>! Your <strong style="color:#111827">one-year workmanship warranty</strong> is active: it began <strong style="color:#111827">${fmt(started)}</strong> and runs through <strong style="color:#111827">${fmt(ends)}</strong>.</p>
@@ -8773,21 +8766,29 @@ ${phone ? `<p style="margin:10px 0 4px">For urgent issues (active leak, no power
 <p>It's been a pleasure building for you.</p>
 <p style="margin-top:16px;color:#6b7280">Logan Hauser<br>Buildoly<br>logan@buildoly.com &middot; 213-728-3041</p>
 </div>`;
-        const attachments = [];
-        try {
-          const wp = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
-          if (fs.existsSync(wp)) attachments.push({ filename: 'Appliance Warranty Transfer Document.pdf', mimeType: 'application/pdf', content: fs.readFileSync(wp) });
-        } catch (e) {}
-        await createDraft({ to: p.client_email, subject, html, attachments });
-        await pool.query('UPDATE projects SET warranty_welcomed_at=NOW() WHERE id=$1', [p.id]);
-        out.drafted++;
-        try { await postBidsText('🛡 *Warranty welcome drafted* — ' + p.address + ' → ' + p.client_email + '\nReview + send it from Gmail Drafts.', undefined, true); } catch (e) {}
-        console.log('warranty welcome drafted: ' + p.address + ' → ' + p.client_email);
-      } catch (e) { console.error('warranty welcome (' + p.id + '):', e.message); }
-    }
-  } catch (e) { console.error('draftWarrantyWelcomes:', e.message); }
-  return out;
+  const attachments = [];
+  try {
+    const wp = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
+    if (fs.existsSync(wp)) attachments.push({ filename: 'Appliance Warranty Transfer Document.pdf', mimeType: 'application/pdf', content: fs.readFileSync(wp) });
+  } catch (e) {}
+  return { subject, html, attachments };
 }
+
+// Send the warranty welcome for one project (button in the Warranty tab).
+app.post('/projects/:id/warranty-welcome', requireAuth, async (req, res) => {
+  try {
+    if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email is not configured.' });
+    const { rows: [p] } = await pool.query('SELECT id, address, full_address, client_name, client_email, warranty_started_at FROM projects WHERE id=$1', [req.params.id]);
+    if (!p) return res.status(404).json({ ok: false, error: 'Project not found.' });
+    if (!p.client_email || !p.client_email.trim()) return res.status(400).json({ ok: false, error: 'No client email on this project — add one via Edit Project.' });
+    let phone = '';
+    try { const { rows: [as] } = await pool.query('SELECT emergency_phone FROM app_settings WHERE id=1'); phone = (as && as.emergency_phone) || ''; } catch (e) {}
+    const { subject, html, attachments } = await buildWarrantyWelcome(p, phone);
+    await sendMail({ to: p.client_email, subject, html, attachments });
+    await pool.query('UPDATE projects SET warranty_welcomed_at=NOW() WHERE id=$1', [p.id]);
+    res.json({ ok: true, sentTo: p.client_email });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 
 async function autoCompleteWarranty() {
   try {
@@ -9285,7 +9286,6 @@ app.get('/_test/run', async (req, res) => {
     'requeue-missed-notices': requeueMissedNotices,
     'bid-followups': sendBidFollowups,
     'stale-engagements': alertStaleEngagements,
-    'warranty-welcomes': draftWarrantyWelcomes,
     'license-watchdog': licenseWatchdog, 'insurance-scan': insuranceScanAll,
     'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
     'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
@@ -9339,7 +9339,6 @@ function startCron() {
   cron.schedule('*/20 * * * *', pollEmailBounces);       // every 20 min — flag bounced sub emails on the Subs page
   cron.schedule('*/20 * * * *', fergusonAutoComplete);   // every 20 min — window passed → mark delivered
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
-  cron.schedule('45 15 * * *', draftWarrantyWelcomes); // daily — draft the client warranty-welcome email for new Under Warranty projects
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('30 16 * * 1-5', sendBidFollowups);    // weekdays ~9:30am PT — nudge unanswered bid requests (3-day gap, max 2)
   cron.schedule('35 16 * * 1-5', alertStaleEngagements); // weekdays — ping Logan when a replied sub goes 4+ days quiet without a bid

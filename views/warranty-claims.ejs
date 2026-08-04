@@ -49,6 +49,44 @@
     Submitted by clients through the public warranty link. Share the link from Settings.
   </p>
 
+  <% var _wl = (typeof welcomes !== 'undefined' && welcomes) || []; %>
+  <% if (_wl.length && typeof isSuper !== 'undefined' && !isSuper) { %>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:.85rem 1.1rem;margin-bottom:1.4rem;max-width:none">
+    <div style="display:flex;align-items:baseline;gap:.6rem;margin-bottom:.55rem">
+      <strong style="font-size:.95rem">🛡 Warranty welcome emails</strong>
+      <span style="font-size:.78rem;color:var(--muted)"><%= _wl.filter(function(w){return w.warranty_welcomed_at;}).length %> of <%= _wl.length %> sent · one click emails the client their coverage dates, the claim link, and the appliance-warranty transfer</span>
+    </div>
+    <% _wl.forEach(function (w) { %>
+    <div style="display:flex;align-items:baseline;gap:.6rem;padding:.28rem 0;border-top:1px dashed var(--border);font-size:.84rem" data-ww="<%= w.id %>">
+      <strong style="min-width:170px"><%= w.address %></strong>
+      <span style="color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:180px"><%= w.client_name || '—' %></span>
+      <span style="margin-left:auto"></span>
+      <% if (w.warranty_welcomed_at) { %>
+        <span class="ww-state" style="font-size:.76rem;font-weight:700;color:#176b3a;background:#e7f6ec;padding:.14rem .55rem;border-radius:8px">✓ Sent <%= new Date(w.warranty_welcomed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) %></span>
+      <% } else if (!w.client_email || !w.client_email.trim()) { %>
+        <a href="/projects/<%= w.id %>" class="ww-state" style="font-size:.76rem;color:#9a6b00;background:#fdf0d5;padding:.14rem .55rem;border-radius:8px;text-decoration:none" title="Add the client's email via Edit Project, then the Send button appears">no client email</a>
+      <% } else { %>
+        <span style="font-size:.74rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:200px"><%= w.client_email %></span>
+        <button type="button" class="btn btn-primary btn-sm ww-send" onclick="wwSend(<%= w.id %>, this)">📧 Send</button>
+      <% } %>
+    </div>
+    <% }) %>
+  </div>
+  <script>
+  async function wwSend(id, btn) {
+    if (!confirm('Send the warranty welcome email to this client now?')) return;
+    btn.disabled = true; btn.textContent = 'Sending…';
+    try {
+      const r = await fetch('/projects/' + id + '/warranty-welcome', { method: 'POST' });
+      const d = await r.json();
+      if (!d.ok) { alert(d.error || 'Send failed'); btn.disabled = false; btn.textContent = '📧 Send'; return; }
+      const row = document.querySelector('[data-ww="' + id + '"]');
+      btn.outerHTML = '<span style="font-size:.76rem;font-weight:700;color:#176b3a;background:#e7f6ec;padding:.14rem .55rem;border-radius:8px">✓ Sent just now</span>';
+    } catch (e) { alert('Send failed: ' + e.message); btn.disabled = false; btn.textContent = '📧 Send'; }
+  }
+  </script>
+  <% } %>
+
   <% const open = claims.filter(c => c.status !== 'Resolved'); const done = claims.filter(c => c.status === 'Resolved'); %>
   <% if (!claims.length) { %>
     <div class="wc" style="color:var(--muted)">No warranty claims yet. When a client submits one through the warranty link, it shows up here.</div>
