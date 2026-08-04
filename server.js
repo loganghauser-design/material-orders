@@ -1581,6 +1581,7 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_followup_count INTEGER DEFAULT 0;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_price_alt VARCHAR(40);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_alt_label VARCHAR(60);
+    ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS stale_alerted_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS licensed BOOLEAN;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS license_number VARCHAR(80);
     CREATE TABLE IF NOT EXISTS super_contacts (
@@ -6902,6 +6903,39 @@ async function sendBidFollowups() {
   return out;
 }
 
+// A sub who REPLIED ("working on it", "bid coming Tuesday") never gets auto-nudged —
+// that conversation is Logan's. Instead: once they've been quiet 4+ days without a
+// bid landing, ping Logan's Bids chat ONCE (batched, force — bypasses CHAT_PAUSED).
+// The flag clears when they write again, so a new silence can re-alert.
+async function alertStaleEngagements() {
+  const out = { stale: 0 };
+  try {
+    const { rows } = await pool.query(`
+      SELECT s.id, COALESCE(NULLIF(TRIM(s.company),''), s.owner, 'Sub #'||s.id) AS name, s.type,
+             li.created_at AS last_in, LEFT(li.body, 90) AS snippet
+      FROM subcontractors s
+      JOIN LATERAL (
+        SELECT created_at, body FROM sub_emails
+        WHERE sub_id = s.id AND direction = 'in' ORDER BY created_at DESC LIMIT 1
+      ) li ON TRUE
+      WHERE s.bid_status = 'Bid Sent'
+        AND s.bid_campaign_at IS NOT NULL
+        AND li.created_at > s.bid_campaign_at
+        AND li.created_at < NOW() - INTERVAL '4 days'
+        AND s.stale_alerted_at IS NULL
+        AND COALESCE(s.status,'') !~* 'active|approv|inactive|reject|black|bid under review'
+      ORDER BY li.created_at`);
+    out.stale = rows.length;
+    if (!rows.length) return out;
+    const fmt = d => new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const lines = rows.map(r => '· *' + r.name + '*' + (r.type ? ' (' + r.type + ')' : '') + ' — last word ' + fmt(r.last_in) + ': "' + String(r.snippet || '').replace(/\s+/g, ' ').trim().slice(0, 70) + '…"');
+    await postBidsText('⏳ *Promised bids gone quiet* — replied, then nothing for 4+ days:\n' + lines.join('\n') + '\nWorth a personal nudge → https://buildoly.up.railway.app/subs', undefined, true);
+    await pool.query('UPDATE subcontractors SET stale_alerted_at=NOW() WHERE id = ANY($1)', [rows.map(r => r.id)]);
+    console.log('stale-engagement alert: ' + rows.length + ' sub(s)');
+  } catch (e) { console.error('alertStaleEngagements:', e.message); }
+  return out;
+}
+
 app.post('/subs/send-bulk', requireAuth, async (req, res) => {
   try {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
@@ -7552,6 +7586,9 @@ async function checkSubReplies() {
           // License number in the reply ("CSLB #1043002", "Lic 987654")? Capture + verify it.
           try { await maybeCaptureLicense(r.sub_id, (m.body || '') + ' ' + (m.subject || '')); }
           catch (e) { console.error('license capture:', e.message); }
+          // Fresh word from the sub → clear the went-quiet alert flag so a NEW
+          // silence period can alert Logan again.
+          try { await pool.query('UPDATE subcontractors SET stale_alerted_at=NULL WHERE id=$1', [r.sub_id]); } catch (e) {}
         }
         const latest = new Date(Math.max(...inbound.map(m => new Date(m.date).getTime())));
         const { rows: [sub] } = await pool.query('SELECT replies_viewed_at FROM subcontractors WHERE id=$1', [r.sub_id]);
@@ -9171,6 +9208,7 @@ app.get('/_test/run', async (req, res) => {
     'day-before-reminders': dayBeforeDeliveryReminders,
     'requeue-missed-notices': requeueMissedNotices,
     'bid-followups': sendBidFollowups,
+    'stale-engagements': alertStaleEngagements,
     'license-watchdog': licenseWatchdog, 'insurance-scan': insuranceScanAll,
     'qb-bids': ingestQuickBooksEmails, 'platform-bids': sweepPlatformBids,
     'ferguson-emails': pollFergusonEmails, 'ferguson-autocomplete': fergusonAutoComplete, 'ferguson-orders': sweepFergusonOrders,
@@ -9226,6 +9264,7 @@ function startCron() {
   cron.schedule('20 15 * * *', autoCompleteWarranty);  // daily — 1-year warranty graduation
   cron.schedule('0 15 * * *', sendDeliveryReminder);    // daily ~7am PT
   cron.schedule('30 16 * * 1-5', sendBidFollowups);    // weekdays ~9:30am PT — nudge unanswered bid requests (3-day gap, max 2)
+  cron.schedule('35 16 * * 1-5', alertStaleEngagements); // weekdays — ping Logan when a replied sub goes 4+ days quiet without a bid
   cron.schedule('10 15 * * *', dayBeforeDeliveryReminders); // daily ~7am PT — auto-send day-before delivery reminders
   cron.schedule('0 14 * * *', sendMorningBrief);        // daily 7am PT — the everything brief (Bids space)
   if (process.env.RUN_BRIEF_ON_BOOT === '1') sendMorningBrief();   // local testing hook
