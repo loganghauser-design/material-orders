@@ -8755,17 +8755,16 @@ async function buildWarrantyWelcome(p, phone) {
   const firstName = String(p.client_name || '').trim() || 'there';
   const addr = p.full_address || p.address;
   const subject = 'Buildoly Wrap Up — Warranty Information';
+  // Short + human, one text color throughout, real Gmail signature appended below.
+  const sig = await getGmailSignature();
   const html =
-`<div style="font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.6">
+`<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
 <p>Hi ${escapeHtml(firstName)},</p>
-<p>Congratulations again on your completed project at <strong style="color:#111827">${escapeHtml(addr)}</strong>! Your <strong style="color:#111827">one-year workmanship warranty</strong> is active: it began <strong style="color:#111827">${fmt(started)}</strong> and runs through <strong style="color:#111827">${fmt(ends)}</strong>.</p>
-<p style="margin:14px 0 6px"><strong style="color:#111827">If anything needs attention:</strong></p>
-<p style="margin:0 0 4px">File a warranty claim in under a minute — photos welcome — at:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
-${phone ? `<p style="margin:10px 0 4px">For urgent issues (active leak, no power, no heat), call our line any time: <strong style="color:#111827">${escapeHtml(phone)}</strong></p>` : ''}
-<p>Attached is your <strong style="color:#111827">Buildoly Warranty document</strong> — it covers the warranty for every aspect of your unit, and includes the <strong style="color:#111827">Appliance Warranty Transfer</strong> forms: registering your appliances with each manufacturer activates their separate factory warranties.</p>
-<p>It's been a pleasure building for you.</p>
-<p style="margin-top:16px;color:#6b7280">Logan Hauser<br>Buildoly<br>logan@buildoly.com &middot; 213-728-3041</p>
-</div>`;
+<p>Congrats again on the finished project at ${escapeHtml(addr)}! A couple quick things as we wrap up:</p>
+<p>Your <strong>one-year warranty</strong> runs through <strong>${fmt(ends)}</strong>. If anything comes up, you can file a claim here — takes under a minute:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a>${phone ? `<br>Anything urgent (active leak, no power) — call us at <strong>${escapeHtml(phone)}</strong>.` : ''}</p>
+<p>I've also attached your warranty document — it covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer.</p>
+<p>Thanks again for building with us!</p>
+</div>${sig ? '<br>' + sig : ''}`;
   const attachments = [];
   try {
     const wp = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
