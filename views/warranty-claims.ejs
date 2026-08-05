@@ -63,11 +63,14 @@
       <select id="wwProj" onchange="wwPick()" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:220px">
         <option value="">— pick a project —</option>
         <% _wl.forEach(function (w) { %>
-        <option value="<%= w.id %>" data-name="<%= (w.client_name || '').replace(/"/g,'&quot;') %>" data-email="<%= (w.client_email || '').replace(/"/g,'&quot;') %>" data-sent="<%= w.warranty_welcomed_at ? new Date(w.warranty_welcomed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '' %>"><%= w.address %><%= w.warranty_welcomed_at ? ' · ✓ sent' : '' %></option>
+        <option value="<%= w.id %>" data-start="<%= w.suggest_start ? new Date(w.suggest_start).toISOString().slice(0,10) : '' %>" data-name="<%= (w.client_name || '').replace(/"/g,'&quot;') %>" data-email="<%= (w.client_email || '').replace(/"/g,'&quot;') %>" data-sent="<%= w.warranty_welcomed_at ? new Date(w.warranty_welcomed_at).toLocaleDateString('en-US',{month:'short',day:'numeric'}) : '' %>"><%= w.address %><%= w.warranty_welcomed_at ? ' · ✓ sent' : '' %></option>
         <% }) %>
       </select>
       <input id="wwName" type="text" placeholder="Client name(s)" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:180px">
       <input id="wwEmail" type="text" placeholder="client@email.com (comma for two)" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:230px;flex:1">
+      <label style="display:flex;flex-direction:column;gap:2px;font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Warranty start (final payment date)
+        <input id="wwStart" type="date" style="font:inherit;font-size:.85rem;font-weight:400;text-transform:none;letter-spacing:0;padding:.34rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)">
+      </label>
       <button type="button" class="btn btn-primary btn-sm" id="wwSendBtn" onclick="wwSendForm()">📧 Send warranty email</button>
     </div>
     <div id="wwNote" style="font-size:.76rem;color:var(--muted);margin-top:.4rem"></div>
@@ -86,6 +89,7 @@
     if (!o || !o.value) return;
     document.getElementById('wwName').value = o.dataset.name || '';
     document.getElementById('wwEmail').value = o.dataset.email || '';
+    document.getElementById('wwStart').value = o.dataset.start || '';
     document.getElementById('wwNote').textContent = o.dataset.sent ? ('Already sent ' + o.dataset.sent + ' — sending again is allowed but goes to the client a second time.') : '';
   }
   async function wwSendForm() {
@@ -94,12 +98,14 @@
     const email = document.getElementById('wwEmail').value.trim();
     if (!id) { alert('Pick a project first.'); return; }
     if (!email) { alert("Type the client's email."); return; }
+    const wstart = document.getElementById('wwStart').value;
+    if (!wstart) { alert('Pick the warranty start date (the final payment date).'); return; }
     const o = document.getElementById('wwProj').selectedOptions[0];
     if (!confirm('Send the warranty email to ' + email + ' for ' + o.text.replace(' · ✓ sent','') + '?')) return;
     const btn = document.getElementById('wwSendBtn');
     btn.disabled = true; btn.textContent = 'Sending…';
     try {
-      const r = await fetch('/projects/' + id + '/warranty-welcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_name: name, client_email: email }) });
+      const r = await fetch('/projects/' + id + '/warranty-welcome', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ client_name: name, client_email: email, warranty_start: wstart }) });
       const d = await r.json();
       if (!d.ok) { alert(d.error || 'Send failed'); return; }
       const t = document.getElementById('wwtrack' + id);
