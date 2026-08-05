@@ -8762,7 +8762,10 @@ async function buildWarrantyWelcome(p, phone) {
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
 <p>Hi ${escapeHtml(firstName)},</p>
 <p>Congrats again on the finished project! A couple quick things as we wrap up:</p>
-<p>Your <strong>one-year warranty</strong> runs through <strong>${fmt(ends)}</strong>. If anything comes up, you can file a claim here — takes under a minute:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a>${phone ? `<br>Anything urgent (active leak, no power) — call us at <strong>${escapeHtml(phone)}</strong>.` : ''}</p>
+<p>Your <strong>one-year warranty</strong> runs through <strong>${fmt(ends)}</strong>.</p>
+<p>If you are having any issues, please submit a warranty claim here — we will respond within 24 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
+${phone ? `<p>If it's anything extremely urgent — a water leak, AC out, or something along those lines — please call the emergency line below.</p>
+<p><strong>Emergency line: ${escapeHtml(phone)}</strong></p>` : ''}
 <p>I've also attached your warranty document — it covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer.</p>
 <p>Thanks again for building with us!</p>
 </div>${sig ? '<br>' + sig : ''}`;
