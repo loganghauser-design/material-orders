@@ -8753,14 +8753,15 @@ async function buildWarrantyWelcome(p, phone) {
   const ends = new Date(started); ends.setFullYear(ends.getFullYear() + 1);
   const fmt = d => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const firstName = String(p.client_name || '').trim() || 'there';
-  const addr = p.full_address || p.address;
   const subject = 'Buildoly Wrap Up — Warranty Information';
   // Short + human, one text color throughout, real Gmail signature appended below.
+  // No address in the body — Gmail auto-links it into a blue maps link, which reads
+  // as clutter; the client knows their own address.
   const sig = await getGmailSignature();
   const html =
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
 <p>Hi ${escapeHtml(firstName)},</p>
-<p>Congrats again on the finished project at ${escapeHtml(addr)}! A couple quick things as we wrap up:</p>
+<p>Congrats again on the finished project! A couple quick things as we wrap up:</p>
 <p>Your <strong>one-year warranty</strong> runs through <strong>${fmt(ends)}</strong>. If anything comes up, you can file a claim here — takes under a minute:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a>${phone ? `<br>Anything urgent (active leak, no power) — call us at <strong>${escapeHtml(phone)}</strong>.` : ''}</p>
 <p>I've also attached your warranty document — it covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer.</p>
 <p>Thanks again for building with us!</p>
