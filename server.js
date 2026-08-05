@@ -3644,7 +3644,7 @@ app.post('/projects/:id/send-email', requireAuth, upload.array('attachments', 10
       try {
         const warrantyPath = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
         if (fs.existsSync(warrantyPath)) {
-          attachments.push({ filename: 'Appliance Warranty Transfer Document.pdf', mimeType: 'application/pdf', content: fs.readFileSync(warrantyPath) });
+          attachments.push({ filename: 'Buildoly Warranty & Appliance Transfer.pdf', mimeType: 'application/pdf', content: fs.readFileSync(warrantyPath) });
         }
       } catch (e) { console.error('warranty attach:', e.message); }
     }
@@ -8762,14 +8762,14 @@ async function buildWarrantyWelcome(p, phone) {
 <p style="margin:14px 0 6px"><strong style="color:#111827">If anything needs attention:</strong></p>
 <p style="margin:0 0 4px">File a warranty claim in under a minute — photos welcome — at:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
 ${phone ? `<p style="margin:10px 0 4px">For urgent issues (active leak, no power, no heat), call our line any time: <strong style="color:#111827">${escapeHtml(phone)}</strong></p>` : ''}
-<p>Attached is your <strong style="color:#111827">Appliance Warranty Transfer</strong> document — registering your appliances with each manufacturer activates their separate factory warranties.</p>
+<p>Attached is your <strong style="color:#111827">Buildoly Warranty document</strong> — it covers the warranty for every aspect of your unit, and includes the <strong style="color:#111827">Appliance Warranty Transfer</strong> forms: registering your appliances with each manufacturer activates their separate factory warranties.</p>
 <p>It's been a pleasure building for you.</p>
 <p style="margin-top:16px;color:#6b7280">Logan Hauser<br>Buildoly<br>logan@buildoly.com &middot; 213-728-3041</p>
 </div>`;
   const attachments = [];
   try {
     const wp = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
-    if (fs.existsSync(wp)) attachments.push({ filename: 'Appliance Warranty Transfer Document.pdf', mimeType: 'application/pdf', content: fs.readFileSync(wp) });
+    if (fs.existsSync(wp)) attachments.push({ filename: 'Buildoly Warranty & Appliance Transfer.pdf', mimeType: 'application/pdf', content: fs.readFileSync(wp) });
   } catch (e) {}
   return { subject, html, attachments };
 }
