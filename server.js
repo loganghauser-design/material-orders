@@ -8754,7 +8754,7 @@ async function buildWarrantyWelcome(p, phone) {
   const fmt = d => d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   const firstName = String(p.client_name || '').trim() || 'there';
   const addr = p.full_address || p.address;
-  const subject = 'Your Buildoly Warranty — ' + p.address;
+  const subject = 'Buildoly Wrap Up — Warranty Information';
   const html =
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#374151;line-height:1.6">
 <p>Hi ${escapeHtml(firstName)},</p>
