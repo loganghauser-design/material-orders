@@ -8769,11 +8769,18 @@ ${phone ? `<p>If it's anything extremely urgent — a water leak, AC out, or som
 <p>I've also attached your warranty document — it covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer.</p>
 <p>Thanks again for building with us!</p>
 </div>${sig ? '<br>' + sig : ''}`;
+  // Attach the warranty document uploaded in Settings (the real, current one);
+  // the bundled appliance-transfer PDF is only a fallback if none is uploaded.
   const attachments = [];
   try {
-    const wp = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
-    if (fs.existsSync(wp)) attachments.push({ filename: 'Buildoly Warranty & Appliance Transfer.pdf', mimeType: 'application/pdf', content: fs.readFileSync(wp) });
-  } catch (e) {}
+    const { rows: [doc] } = await pool.query('SELECT warranty_doc_name, warranty_doc_mime, warranty_doc_data FROM app_settings WHERE id=1');
+    if (doc && doc.warranty_doc_data) {
+      attachments.push({ filename: doc.warranty_doc_name || 'Buildoly Warranty.pdf', mimeType: doc.warranty_doc_mime || 'application/pdf', content: doc.warranty_doc_data });
+    } else {
+      const wp = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
+      if (fs.existsSync(wp)) attachments.push({ filename: 'Buildoly Warranty & Appliance Transfer.pdf', mimeType: 'application/pdf', content: fs.readFileSync(wp) });
+    }
+  } catch (e) { console.error('warranty doc attach:', e.message); }
   return { subject, html, attachments };
 }
 
