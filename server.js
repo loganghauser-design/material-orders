@@ -8814,9 +8814,10 @@ app.post('/projects/:id/warranty-welcome', requireAuth, async (req, res) => {
     let phone = '';
     try { const { rows: [as] } = await pool.query('SELECT emergency_phone FROM app_settings WHERE id=1'); phone = (as && as.emergency_phone) || ''; } catch (e) {}
     const { subject, html, attachments } = await buildWarrantyWelcome(p, phone);
-    await sendMail({ to: p.client_email, subject, html, attachments });
+    // DRAFT, don't send — Logan reviews the exact email in Gmail and hits send there.
+    await createDraft({ to: p.client_email, subject, html, attachments });
     await pool.query('UPDATE projects SET warranty_welcomed_at=NOW() WHERE id=$1', [p.id]);
-    res.json({ ok: true, sentTo: p.client_email });
+    res.json({ ok: true, draftedFor: p.client_email });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
