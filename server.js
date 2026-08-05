@@ -8769,7 +8769,7 @@ async function buildWarrantyWelcome(p, phone) {
 <p>If you are having any issues, please submit a warranty claim here — we will respond within 24–48 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
 ${phone ? `<p>If it's anything extremely urgent — an active water leak, a burst pipe, no AC or heat, no power, or a sewer backup — please call the emergency line below.</p>
 <p><strong>Emergency line: ${escapeHtml(phone)}</strong></p>` : ''}
-<p>I've also attached your warranty document — it covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer.</p>
+<p>I've also attached your warranty document — it covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer. Please read the document carefully.</p>
 <p>Thanks again for building with us!</p>
 </div>${sig ? '<br>' + sig : ''}`;
   // Attach the warranty document uploaded in Settings (the real, current one);
