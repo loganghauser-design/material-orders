@@ -82,6 +82,7 @@
       <input type="search" id="resFilter" placeholder="Filter by name, city, or zip…" oninput="renderRows()">
       <label style="font-size:.85rem;display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="clearOnly" checked onchange="renderRows()"> Clear status only</label>
       <label style="font-size:.85rem;display:flex;align-items:center;gap:.3rem"><input type="checkbox" id="hideInList" checked onchange="renderRows()"> Hide ones I have</label>
+      <button class="sf-go" id="expBtn" onclick="exportXlsx(this)" title="Download every match to Excel — not just the 500 shown here">⬇ Export all to Excel</button>
     </div>
     <div class="sf-card" style="padding:0;overflow:auto;max-height:64vh">
       <table class="sf-table">
@@ -211,6 +212,35 @@ async function runSearch() {
     renderRows();
   } catch (e) { showToast('Search failed — try again', true); }
   finally { btn.disabled = false; document.getElementById('loading').style.display = 'none'; }
+}
+
+// Download EVERY match as .xlsx — the table below only renders the first 500.
+// Honors the on-screen filters (search text, clear-only, hide-ones-I-have).
+async function exportXlsx(btn) {
+  if (!picked.length) { showToast('Run a search first', true); return; }
+  const old = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Exporting…';
+  try {
+    const r = await fetch('/subs/finder/export.xlsx', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        classification: document.getElementById('classSel').value.trim(),
+        counties: picked,
+        trade: document.getElementById('tradeSel').value,
+        q: (document.getElementById('resFilter').value || '').trim(),
+        clearOnly: document.getElementById('clearOnly').checked,
+        hideInList: document.getElementById('hideInList').checked,
+      }) });
+    if (!r.ok) { showToast((await r.text()) || 'Export failed', true); return; }
+    const blob = await r.blob();
+    const cd = r.headers.get('content-disposition') || '';
+    const nm = (cd.match(/filename="([^"]+)"/) || [])[1] || 'contractors.xlsx';
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = nm;
+    document.body.appendChild(a); a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    showToast('✓ Exported to Excel');
+  } catch (e) { showToast('Export failed — try again', true); }
+  finally { btn.disabled = false; btn.textContent = old; }
 }
 
 function renderRows() {

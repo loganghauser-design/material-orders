@@ -6434,6 +6434,47 @@ app.post('/subs/finder/search', requireAuth, async (req, res) => {
   } catch (err) { res.json({ ok: false, error: err.message }); }
 });
 
+// Export the FULL CSLB result set to Excel. The on-screen table caps at 500 rows and
+// "Add selected" caps at 100, so a big pull (e.g. B + San Diego ≈ 8,700 GCs) can only
+// come out this way. Re-runs the search server-side and applies the same on-screen
+// filters, then writes the texting-sheet columns plus license detail.
+app.post('/subs/finder/export.xlsx', requireAuth, async (req, res) => {
+  try {
+    const XLSX = require('xlsx');
+    const classification = String(req.body.classification || '').trim().toUpperCase();
+    const counties = [].concat(req.body.counties || []).filter(Boolean);
+    if (!classification) return res.status(400).send('Pick a classification.');
+    if (!counties.length) return res.status(400).send('Pick at least one county.');
+    const trade = String(req.body.trade || '').trim() || 'Contractor';
+    const q = String(req.body.q || '').trim().toLowerCase();
+    let rows = await cslbSearchByCounty(classification, counties);
+    if (req.body.clearOnly) rows = rows.filter(r => /clear/i.test(r.status));
+    if (req.body.hideInList) {
+      const { rows: mine } = await pool.query('SELECT license_number, LOWER(company) co FROM subcontractors');
+      const licSet = new Set(mine.map(m => String(m.license_number || '').replace(/\D/g, '')).filter(Boolean));
+      const nameSet = new Set(mine.map(m => (m.co || '').trim()).filter(Boolean));
+      rows = rows.filter(r => !(licSet.has(String(r.licNum)) || nameSet.has(String(r.name || '').toLowerCase())));
+    }
+    if (q) rows = rows.filter(r => (r.name + ' ' + r.city + ' ' + r.zip).toLowerCase().includes(q));
+    const head = ['Trade', 'Name', 'Phone Number', 'Location', 'Texted Y/N', 'EMAIL', 'License #', 'Status', 'Expires', 'Bonded', 'Workers Comp'];
+    const aoa = [head].concat(rows.map(r => [
+      trade, r.name, String(r.phone || '').replace(/[^0-9]/g, ''),
+      (String(r.city || '').toUpperCase() + ' ' + String(r.zip || '')).trim(),
+      '', '', r.licNum, r.status, r.expires, r.bonded ? 'Yes' : 'No',
+      /exempt/i.test(r.wc || '') ? 'Exempt' : (r.wc ? 'Insured' : ''),
+    ]));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 18 }, { wch: 42 }, { wch: 14 }, { wch: 24 }, { wch: 11 }, { wch: 26 }, { wch: 11 }, { wch: 12 }, { wch: 11 }, { wch: 9 }, { wch: 13 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Contractors');
+    const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+    const fname = (trade + ' - ' + counties.join(', ')).replace(/[^A-Za-z0-9 ,&-]/g, '').slice(0, 80) + '.xlsx';
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + fname + '"');
+    res.send(buf);
+  } catch (err) { res.status(500).send('Export failed: ' + err.message); }
+});
+
 // Add selected CSLB results to the Subs list (Under Vetting), deduped by license #
 app.post('/subs/finder/add', requireAuth, async (req, res) => {
   try {
