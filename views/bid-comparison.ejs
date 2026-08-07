@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Bid Comparison — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css?v=5">
+  <style>
+    .bc-bar { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; }
+    .bc-chip { padding:.35rem .85rem; border:1px solid var(--border); border-radius:999px; background:var(--surface); font-size:.85rem; font-weight:600; cursor:pointer; text-decoration:none; color:var(--text); white-space:nowrap; }
+    .bc-chip.on { background:#111; color:#fff; border-color:#111; }
+    .bc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:.8rem; }
+    .bc-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.75rem .9rem; }
+    .bc-head { display:flex; align-items:baseline; gap:.45rem; margin-bottom:.5rem; }
+    .bc-trade { font-size:.92rem; font-weight:700; }
+    .bc-n { margin-left:auto; font-size:.74rem; color:var(--muted); font-weight:600; }
+    .bc-row { display:flex; align-items:baseline; gap:.5rem; padding:.3rem 0; border-top:1px solid var(--border); font-size:.85rem; }
+    .bc-row:first-of-type { border-top:none; }
+    .bc-co { font-weight:600; }
+    .bc-amt { margin-left:auto; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .bc-meta { font-size:.72rem; color:var(--muted); }
+    .bc-cty { font-size:.66rem; font-weight:700; background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:1px 7px; color:var(--muted); white-space:nowrap; }
+    .bc-stats { display:flex; gap:.5rem; flex-wrap:wrap; font-size:.72rem; color:var(--muted); margin-top:.45rem; padding-top:.4rem; border-top:1px dashed var(--border); }
+    .bc-empty { color:var(--muted); background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:2rem; text-align:center; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'bidcompare' }) %>
+
+<div class="container">
+  <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
+    <div>
+      <h1 style="margin:0">💰 Bid Comparison</h1>
+      <div style="color:var(--muted);font-size:.88rem">Every bid on file, grouped by trade. Filter by county — costs differ by market.</div>
+    </div>
+    <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
+  </div>
+
+  <%
+    var _fmt$ = function (n) { return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
+    var _total = tiles.reduce(function (n, t) { return n + t.bids.length; }, 0);
+    var _qs = function (c, t) {
+      var p = [];
+      if (c) p.push('county=' + encodeURIComponent(c));
+      if (t) p.push('trade=' + encodeURIComponent(t));
+      return '/bid-comparison' + (p.length ? '?' + p.join('&') : '');
+    };
+  %>
+
+  <div class="bc-bar">
+    <span style="font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">County</span>
+    <a class="bc-chip <%= county ? '' : 'on' %>" href="<%= _qs('', trade) %>">All</a>
+    <% counties.forEach(function (c) { %>
+      <a class="bc-chip <%= county === c ? 'on' : '' %>" href="<%= _qs(c, trade) %>"><%= c %></a>
+    <% }) %>
+  </div>
+
+  <% if (tradeNames.length) { %>
+  <div class="bc-bar">
+    <span style="font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Trade</span>
+    <a class="bc-chip <%= trade ? '' : 'on' %>" href="<%= _qs(county, '') %>">All</a>
+    <% tradeNames.forEach(function (t) { %>
+      <a class="bc-chip <%= trade === t ? 'on' : '' %>" href="<%= _qs(county, t) %>"><%= t %></a>
+    <% }) %>
+  </div>
+  <% } %>
+
+  <div style="font-size:.84rem;color:var(--muted);margin-bottom:.8rem">
+    <strong style="color:var(--text)"><%= _total %></strong> bid<%= _total === 1 ? '' : 's' %>
+    <%= county ? 'in ' + county : 'across all counties' %><%= trade ? ' · ' + trade : '' %>
+  </div>
+
+  <% if (!tiles.length) { %>
+    <div class="bc-empty">No bids match this filter yet.</div>
+  <% } else { %>
+    <div class="bc-grid">
+      <% tiles.forEach(function (t) {
+           var amts = t.bids.map(function (b) { return Number(b.amount); }).filter(function (n) { return n > 0; });
+           var lo = amts.length ? Math.min.apply(null, amts) : 0;
+           var hi = amts.length ? Math.max.apply(null, amts) : 0;
+           var avg = amts.length ? Math.round(amts.reduce(function (a, b) { return a + b; }, 0) / amts.length) : 0;
+           var sorted = t.bids.slice().sort(function (a, b) { return Number(a.amount) - Number(b.amount); });
+      %>
+        <div class="bc-card">
+          <div class="bc-head">
+            <span class="bc-trade"><%= t.trade %></span>
+            <span class="bc-n"><%= t.bids.length %> bid<%= t.bids.length === 1 ? '' : 's' %></span>
+          </div>
+          <% sorted.forEach(function (b) { %>
+            <div class="bc-row">
+              <span>
+                <span class="bc-co"><%= b.company %></span>
+                <% if (b.project) { %><div class="bc-meta"><%= b.project %></div><% } %>
+              </span>
+              <span class="bc-amt">
+                <% if (!county && b.county) { %><span class="bc-cty"><%= b.county %></span> <% } %>
+                <%= _fmt$(b.amount) %>
+              </span>
+            </div>
+          <% }) %>
+          <% if (amts.length > 1) { %>
+            <div class="bc-stats">
+              <span>Low <strong style="color:#16a34a"><%= _fmt$(lo) %></strong></span>
+              <span>Avg <strong><%= _fmt$(avg) %></strong></span>
+              <span>High <strong style="color:#b45309"><%= _fmt$(hi) %></strong></span>
+              <span>Spread <strong><%= _fmt$(hi - lo) %></strong></span>
+            </div>
+          <% } %>
+        </div>
+      <% }) %>
+    </div>
+  <% } %>
+</div>
+</body>
+</html>

@@ -1306,6 +1306,7 @@ const PAGE_META = [
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
   { key: 'notices', label: 'Delivery Notices', path: '/delivery-notices' },
   { key: 'subs', label: 'Subs', path: '/subs' },
+  { key: 'bidcompare', label: 'Bid Comparison', path: '/bid-comparison' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
   { key: 'catalog', label: 'Master Catalog', path: '/catalog' },
@@ -1350,6 +1351,7 @@ function allowedPagesFor(key, role) {
 }
 function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
+  if (p.startsWith('/bid-comparison')) return 'bidcompare';
   if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
   if (p.startsWith('/ordering')) return 'ordering';
@@ -5352,13 +5354,21 @@ app.post('/subs/baseline', requireAuth, async (req, res) => {
 
 // Cost comparison data — every dollar bid grouped under its baseline trade.
 // Shared by the Subs page card and the Excel export.
-async function computeCostComparison() {
+// Costs vary by market, so the comparison can be narrowed to one county. `county`
+// is the contractor's service area for now — structure first; the source can move to
+// the project's county later without touching the rest of this.
+function bidCountyOf(location) {
+  const a = intakeArea(location);
+  return (a && a !== 'Unknown area') ? a : 'Unassigned';
+}
+async function computeCostComparison(countyFilter) {
+  const county = String(countyFilter || '').trim();
   const { rows: baselines } = await pool.query('SELECT trade, amount, label FROM bid_baselines ORDER BY amount DESC');
   const { rows: bidRows } = await pool.query(`
-    SELECT b.sub_id, b.amount, b.received_at, s.company, s.owner, s.type, s.category, p.address
+    SELECT b.sub_id, b.amount, b.received_at, s.company, s.owner, s.type, s.category, s.location, p.address
     FROM bids b JOIN subcontractors s ON s.id = b.sub_id LEFT JOIN projects p ON p.id = b.project_id
     WHERE b.amount IS NOT NULL AND b.amount > 0 ORDER BY b.received_at DESC`);
-  const { rows: priced } = await pool.query("SELECT id, company, owner, type, category, bid_price, bid_price_alt, bid_alt_label FROM subcontractors WHERE (bid_price IS NOT NULL AND bid_price <> '') OR (bid_price_alt IS NOT NULL AND bid_price_alt <> '')");
+  const { rows: priced } = await pool.query("SELECT id, company, owner, type, category, location, bid_price, bid_price_alt, bid_alt_label FROM subcontractors WHERE (bid_price IS NOT NULL AND bid_price <> '') OR (bid_price_alt IS NOT NULL AND bid_price_alt <> '')");
   const byTradeCmp = {};
   baselines.forEach(b => byTradeCmp[b.trade] = { trade: b.trade, baseline: Number(b.amount), label: b.label, bids: [] });
   // Whole-ADU proposals from GCs get their own box — a $165k build bid has no business
@@ -5382,13 +5392,13 @@ async function computeCostComparison() {
     if (manualAmt.has(r.sub_id)) return;   // bid_price supersedes this sub's raw rows
     const trade = tradeFor(r);
     if (!trade || !byTradeCmp[trade]) return;
-    byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company || r.owner || ('Sub #' + r.sub_id), amount: Number(r.amount), project: r.address || '', when: r.received_at });
+    byTradeCmp[trade].bids.push({ subId: r.sub_id, company: r.company || r.owner || ('Sub #' + r.sub_id), amount: Number(r.amount), project: r.address || '', when: r.received_at, county: bidCountyOf(r.location) });
   });
   priced.forEach(s => {
     const trade = tradeFor(s);
     if (!trade || !byTradeCmp[trade]) return;
     const amt = manualAmt.get(s.id);
-    if (amt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company || s.owner || ('Sub #' + s.id), amount: amt, project: latestProject.get(s.id) || '', when: null });
+    if (amt) byTradeCmp[trade].bids.push({ subId: s.id, company: s.company || s.owner || ('Sub #' + s.id), amount: amt, project: latestProject.get(s.id) || '', when: null, county: bidCountyOf(s.location) });
     // Alternate bid (e.g. Santiago's labor-only option next to their full number)
     const altAmt = parseMoney(s.bid_price_alt);
     if (altAmt) {
@@ -5396,14 +5406,44 @@ async function computeCostComparison() {
       // lands in THAT tile — RJ bids both foundation and framing, one row in each.
       // Labels like "labor only" match no trade and stay with the sub's own tile.
       const altTrade = baselineTradeFor(s.bid_alt_label || '') || trade;
-      (byTradeCmp[altTrade] || byTradeCmp[trade]).bids.push({ subId: s.id, company: (s.company || s.owner || ('Sub #' + s.id)) + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null });
+      (byTradeCmp[altTrade] || byTradeCmp[trade]).bids.push({ subId: s.id, company: (s.company || s.owner || ('Sub #' + s.id)) + ' — ' + (s.bid_alt_label || 'alternate'), amount: altAmt, project: latestProject.get(s.id) || '', when: null, county: bidCountyOf(s.location) });
     }
   });
   Object.values(byTradeCmp).forEach(t => t.bids.sort((a, b) => a.amount - b.amount));
   // Baseline trades always show (a bidless tile = a coverage gap worth seeing);
   // the GC box only shows when a GC proposal actually exists.
-  return Object.values(byTradeCmp).filter(t => t.baseline !== null || t.bids.length);
+  let tiles = Object.values(byTradeCmp);
+  if (county) {   // narrowed to one county: drop other counties' bids, and empty tiles
+    tiles = tiles.map(t => Object.assign({}, t, { bids: t.bids.filter(b => b.county === county) }))
+                 .filter(t => t.bids.length);
+  }
+  return tiles.filter(t => t.baseline !== null || t.bids.length);
 }
+// Every county represented in the bid data (for the comparison page's filter).
+async function bidCountiesList() {
+  try {
+    const { rows } = await pool.query(`
+      SELECT DISTINCT s.location loc FROM subcontractors s
+      WHERE (s.bid_price IS NOT NULL AND s.bid_price <> '') OR (s.bid_price_alt IS NOT NULL AND s.bid_price_alt <> '')
+         OR EXISTS (SELECT 1 FROM bids b WHERE b.sub_id = s.id AND b.amount > 0)`);
+    const set = new Set(rows.map(r => bidCountyOf(r.loc)));
+    return [...set].sort();
+  } catch (e) { return []; }
+}
+
+// Dedicated Bid Comparison page — same data as the Subs card, with filters.
+app.get('/bid-comparison', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const county = String(req.query.county || '').trim();
+    const trade = String(req.query.trade || '').trim();
+    const [counties, allTiles] = await Promise.all([bidCountiesList(), computeCostComparison(county)]);
+    const tiles = trade ? allTiles.filter(t => t.trade === trade) : allTiles;
+    const tradeNames = allTiles.map(t => t.trade);
+    res.render('bid-comparison', { tiles, counties, tradeNames, county, trade,
+      isSuper: req.session.role === 'super', canEdit: req.session.role !== 'super' });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
+});
 
 // Download the cost comparison as a formatted Excel file
 app.get('/subs/cost-comparison.xlsx', requireAuth, async (req, res) => {
