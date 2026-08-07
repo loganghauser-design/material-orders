@@ -5283,7 +5283,8 @@ function classifyIntakeRows(rows, existing) {
     else if (dbEmail.has(email) || (hasNp && dbNamePhone.has(np))) status = 'dup-db';
     else if (batchEmail.has(email) || (hasNp && batchNamePhone.has(np))) status = 'dup-sheet';
     else { status = 'import'; batchEmail.add(email); if (hasNp) batchNamePhone.add(np); }
-    return { row: s.row, name: s.name || '', trade: s.trade || '', phone: s.phone || '', email: s.email || '', location: s.location || '', status };
+    return { row: s.row, name: s.name || '', trade: s.trade || '', phone: s.phone || '', email: s.email || '', location: s.location || '', status,
+             cat: intakeCategory(s.trade) };   // 'gc' | 'sub' → which bid email they get
   });
 }
 function intakeCounts(classified) {
@@ -7239,13 +7240,20 @@ app.get('/subs/import-intake/preview', requireAuth, async (req, res) => {
 });
 
 // Insert one classified intake row as a new sub; returns the created row (with id).
+// A sheet row's Trade column decides whether they're filed as a GC or a trade sub —
+// that category is what picks their bid email, so a mixed sheet routes correctly.
+function intakeCategory(trade) {
+  return /general\s*contractor|^\s*gc\b/i.test(String(trade || '')) ? 'gc' : 'sub';
+}
 async function insertIntakeSub(s, sortOrder) {
+  const type = normalizeType(s.trade) || (s.trade || null);
+  const cat = intakeCategory(type || s.trade);
   const { rows: [sub] } = await pool.query(
     `INSERT INTO subcontractors (company, owner, type, email, phone, location, status, group_label, category, sort_order, recent_add, bid_status)
-     VALUES ($1,$2,$3,$4,$5,$6,'Under Review',$7,'sub',$8,TRUE,'Intake')
-     RETURNING id, company, owner, email, type, status`,
-    [s.name || null, s.name || null, normalizeType(s.trade) || (s.trade || null),
-     s.email || null, s.phone || null, s.location || null, INTAKE_GROUP, sortOrder]);
+     VALUES ($1,$2,$3,$4,$5,$6,'Under Review',$7,$8,$9,TRUE,'Intake')
+     RETURNING id, company, owner, email, type, status, category`,
+    [s.name || null, s.name || null, type,
+     s.email || null, s.phone || null, s.location || null, INTAKE_GROUP, cat, sortOrder]);
   return sub;
 }
 
@@ -7268,6 +7276,10 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
     const subject = String(req.body.subject || '').trim();
     const body = String(req.body.body || '');
+    // A mixed sheet (plumbers + GCs + other trades) sends BOTH versions; each new sub
+    // gets the one matching the category derived from their Trade column.
+    const subjectGc = String(req.body.subjectGc || '').trim();
+    const bodyGc = String(req.body.bodyGc || '');
     const plansRaw = String(req.body.plans || '').trim();
     if (!subject) return res.status(400).json({ ok: false, error: 'Add a subject for the bid request.' });
     if (!body.trim()) return res.status(400).json({ ok: false, error: 'Add a message body for the bid request.' });
@@ -7279,13 +7291,19 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
     await initDb();
     const { toImport } = await intakeImportSet(req.body.emails);
     if (!toImport.length) return res.status(400).json({ ok: false, error: 'No bidders to import — re-open the preview.' });
+    // Don't quietly send sub-worded copy to general contractors: if this batch has any
+    // GCs, the GC version must be supplied.
+    const gcCount = toImport.filter(s => intakeCategory(normalizeType(s.trade) || s.trade) === 'gc').length;
+    if (gcCount && !bodyGc.trim()) {
+      return res.status(400).json({ ok: false, error: 'This batch has ' + gcCount + ' general contractor(s) but no GC email — re-open the preview so both versions load.' });
+    }
     const so0 = await bucketSortOrder('sub', INTAKE_GROUP);
     const sig = await getGmailSignature();
     const results = [];
     let i = 0;
     for (const s of toImport) {
       const sub = await insertIntakeSub(s, so0 + i); i++;
-      results.push(await sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy: sessionKey(req) }));
+      results.push(await sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, sig, sentBy: sessionKey(req) }));
     }
     if (results.some(r => r.ok)) saveBidPlansLink(plansRaw);
     res.json({ ok: true, imported: toImport.length, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
