@@ -863,7 +863,7 @@
           <option value="altadena">Met in person (Altadena)</option>
           <option value="marvin">Referred by Marvin Han</option>
         </select>
-        <div style="font-size:.72rem;color:var(--muted);margin-top:.3rem">Leave {NAME}, {TRADE} and {LICENSE_ASK} as-is — they fill in per recipient. {LICENSE_ASK} becomes the license bullet, or nothing when we already have it on file.</div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:.3rem">Leave {NAME} and {TRADE} as-is — they fill in per recipient. (Add {LICENSE_ASK} if you want the license bullet back; it drops out for anyone whose license we already hold.)</div>
       </div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="bkSubject" required></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Proposal due date</label><input type="date" id="bkDeadline" onchange="bkUpdateDeadline(this)"></div>
@@ -1867,7 +1867,6 @@ We have a project ready to bid and I'd like to get your number on it. The bid fo
 
 To get you set up on our end, send over:
 
-{LICENSE_ASK}
 • Workers' comp certificate
 • General liability (COI)
 • The areas you cover, and any other trades you self-perform besides {TRADE}
@@ -1947,7 +1946,6 @@ We have ground-up ADU and single-family projects coming up, and I'd like to get 
 
 To get you set up on our end, send over:
 
-{LICENSE_ASK}
 • Workers' comp certificate
 • General liability (COI)
 • Bonding capacity, if you carry it
@@ -2232,7 +2230,7 @@ function intakeComposer(n) {
           <option value="generic">Generic outreach</option><option value="altadena">Met in person (Altadena)</option><option value="marvin">Referred by Marvin Han</option>'
     +   '</select>'
     +   '<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--muted)">Due <input type="date" id="ikDeadline" value="' + deadline + '" onchange="ikUpdateDeadline(this)" style="padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)"></label>'
-    + '<div style="font-size:.72rem;color:var(--muted);margin:-.15rem 0 .1rem">Leave <strong>{NAME}</strong>, <strong>{TRADE}</strong> and <strong>{LICENSE_ASK}</strong> as-is — they fill in per recipient. {LICENSE_ASK} becomes the license bullet, or drops out for anyone whose license is already on file.</div>'
+    + '<div style="font-size:.72rem;color:var(--muted);margin:-.15rem 0 .1rem">Leave <strong>{NAME}</strong> and <strong>{TRADE}</strong> as-is — they fill in per recipient. We already have these licenses from CSLB, so the email doesn\'t ask for one.</div>'
     + '</div>';
   // Sub version
   h += '<div style="font-weight:700;font-size:.86rem;margin:.5rem 0 .1rem">' + intakeWhichEmail('sub') + ' &nbsp;<span style="color:var(--muted);font-weight:400;font-size:.78rem">to ' + subN + ' subcontractor' + (subN === 1 ? '' : 's') + '</span></div>'
