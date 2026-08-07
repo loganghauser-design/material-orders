@@ -2035,6 +2035,8 @@ document.addEventListener('DOMContentLoaded', function () { filterSubs(); });
 const SERVER_PLANS_LINK = <%- JSON.stringify((typeof bidPlansLink !== 'undefined' && bidPlansLink) || '') %>;   // last CD-set link sent from any computer
 // ── Saved CD-set links, one per project/area (bid plans differ by area) ──────
 let PLANS_LINKS = <%- JSON.stringify((typeof plansLinks !== 'undefined' && plansLinks) || []).replace(/</g, '\\u003c') %>;
+// Standing plans link per area — set once, pre-filled on every later import.
+const AREA_PLANS = <%- JSON.stringify((typeof areaPlans !== 'undefined' && areaPlans) || {}).replace(/</g, '\\u003c') %>;
 // Renders the picker used by every composer: choose a saved project link, or paste a
 // new one and save it under a name. `urlId` is the id of the URL <input> it drives.
 function plansPickerHtml(urlId, value) {
@@ -2199,11 +2201,14 @@ function intakeComposer(n) {
     + (intakeAreas.length === 1 ? '' : 's') + ' — set the project plans each one should receive.</div>';
   intakeAreas.forEach(function (a, idx) {
     const id = 'ikPlans_' + idx;
+    const saved = AREA_PLANS[a.area] || '';   // set once — carries over to every import
     h += '<div style="border:1px solid var(--border);border-radius:8px;padding:.5rem .6rem;margin-bottom:.45rem;background:var(--surface)">'
       + '<div style="font-size:.82rem;font-weight:700;margin-bottom:.3rem">' + bkEsc(a.area)
-      + ' <span style="color:var(--muted);font-weight:400">— ' + a.n + ' bidder' + (a.n === 1 ? '' : 's') + '</span></div>'
-      + '<div data-plans-picker="' + id + '">' + plansPickerHtml(id, '') + '</div>'
-      + '<input type="url" id="' + id + '" value="" placeholder="https://drive.google.com/… plans for ' + bkEsc(a.area) + '" style="' + box + ';margin-bottom:0">'
+      + ' <span style="color:var(--muted);font-weight:400">— ' + a.n + ' bidder' + (a.n === 1 ? '' : 's') + '</span>'
+      + (saved ? ' <span style="background:#dcfce7;color:#166534;font-weight:700;font-size:.66rem;padding:1px 7px;border-radius:999px">saved</span>' : '')
+      + '</div>'
+      + '<div data-plans-picker="' + id + '">' + plansPickerHtml(id, saved) + '</div>'
+      + '<input type="url" id="' + id + '" value="' + bkEsc(saved) + '" placeholder="https://drive.google.com/… plans for ' + bkEsc(a.area) + '" style="' + box + ';margin-bottom:0">'
       + '</div>';
   });
   h += '</div>';

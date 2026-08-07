@@ -1960,6 +1960,12 @@ async function initDb() {
       last_used_at TIMESTAMPTZ,
       created_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Each area's standing plans link: set once, auto-filled on every later import.
+    CREATE TABLE IF NOT EXISTS area_plans_links (
+      area TEXT PRIMARY KEY,
+      url TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
 
     -- Client-facing warranty claims (submitted via the public /warranty page)
     CREATE TABLE IF NOT EXISTS warranty_claims (
@@ -5537,8 +5543,8 @@ app.get('/subs', requireAuth, async (req, res) => {
     // Last CD-set/plans link sent from ANY computer — pre-fills the email dialogs.
     let bidPlansLink = '';
     try { const { rows: [as] } = await pool.query('SELECT bid_plans_link FROM app_settings WHERE id=1'); bidPlansLink = (as && as.bid_plans_link) || ''; } catch (e) {}
-    const plansLinks = await getPlansLinks();
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, bidPlansLink, plansLinks, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
+    const [plansLinks, areaPlans] = await Promise.all([getPlansLinks(), getAreaPlans()]);
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, bidPlansLink, plansLinks, areaPlans, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -6889,6 +6895,27 @@ async function touchPlansLink(url) {
   if (!url) return;
   try { await pool.query('UPDATE bid_plans_links SET last_used_at=NOW() WHERE url=$1', [String(url)]); } catch (e) {}
 }
+// Each area's standing plans link — set once, then pre-filled on every later import.
+async function getAreaPlans() {
+  try {
+    const { rows } = await pool.query('SELECT area, url FROM area_plans_links');
+    const out = {};
+    rows.forEach(r => { out[r.area] = r.url; });
+    return out;
+  } catch (e) { return {}; }
+}
+async function saveAreaPlans(map) {
+  for (const [area, url] of Object.entries(map || {})) {
+    const u = String(url || '').trim();
+    if (!area || !/^https?:\/\//i.test(u)) continue;
+    try {
+      await pool.query(
+        `INSERT INTO area_plans_links (area, url, updated_at) VALUES ($1,$2,NOW())
+         ON CONFLICT (area) DO UPDATE SET url = EXCLUDED.url, updated_at = NOW()`,
+        [String(area).slice(0, 120), u.slice(0, 1000)]);
+    } catch (e) { console.error('saveAreaPlans:', e.message); }
+  }
+}
 
 // Email a subcontractor and log it under that sub
 app.post('/subs/:id/email', requireAuth, async (req, res) => {
@@ -7310,12 +7337,17 @@ function intakeArea(location) {
 async function insertIntakeSub(s, sortOrder) {
   const type = normalizeType(s.trade) || (s.trade || null);
   const cat = intakeCategory(type || s.trade);
+  // Store the normalized service area ("LA County") like CSLB-sourced subs do, so
+  // county grouping works across both sources; keep the raw city/zip in notes.
+  const area = intakeArea(s.location);
+  const loc = (area && area !== 'Unknown area') ? area : (s.location || null);
+  const note = s.location ? ('Intake sheet · ' + s.location).slice(0, 480) : null;
   const { rows: [sub] } = await pool.query(
-    `INSERT INTO subcontractors (company, owner, type, email, phone, location, status, group_label, category, sort_order, recent_add, bid_status)
-     VALUES ($1,$2,$3,$4,$5,$6,'Under Review',$7,$8,$9,TRUE,'Intake')
+    `INSERT INTO subcontractors (company, owner, type, email, phone, location, notes, status, group_label, category, sort_order, recent_add, bid_status)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,'Under Review',$8,$9,$10,TRUE,'Intake')
      RETURNING id, company, owner, email, type, status, category`,
     [s.name || null, s.name || null, type,
-     s.email || null, s.phone || null, s.location || null, INTAKE_GROUP, cat, sortOrder]);
+     s.email || null, s.phone || null, loc, note, INTAKE_GROUP, cat, sortOrder]);
   return sub;
 }
 
@@ -7378,7 +7410,11 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
       if (rowPlans) usedPlans.add(rowPlans);
       results.push(await sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw: rowPlans, sig, sentBy: sessionKey(req) }));
     }
-    if (results.some(r => r.ok)) { usedPlans.forEach(u => touchPlansLink(u)); if (plansRaw) saveBidPlansLink(plansRaw); }
+    if (results.some(r => r.ok)) {
+      usedPlans.forEach(u => touchPlansLink(u));
+      saveAreaPlans(plansByArea);   // set once — these pre-fill on every later import
+      if (plansRaw) saveBidPlansLink(plansRaw);
+    }
     res.json({ ok: true, imported: toImport.length, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
