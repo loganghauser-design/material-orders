@@ -33,7 +33,10 @@
       <h1 style="margin:0">💰 Bid Comparison</h1>
       <div style="color:var(--muted);font-size:.88rem">Every bid on file, grouped by trade. Filter by county — costs differ by market.</div>
     </div>
-    <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
+    <div style="display:flex;gap:.5rem;align-items:center">
+      <a href="/subs" class="btn btn-ghost btn-sm">← Back to Subs</a>
+      <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
+    </div>
   </div>
 
   <%
@@ -43,7 +46,7 @@
       var p = [];
       if (c) p.push('county=' + encodeURIComponent(c));
       if (t) p.push('trade=' + encodeURIComponent(t));
-      return '/bid-comparison' + (p.length ? '?' + p.join('&') : '');
+      return '/subs/bids' + (p.length ? '?' + p.join('&') : '');
     };
   %>
 

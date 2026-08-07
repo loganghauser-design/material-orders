@@ -30,10 +30,13 @@
     signout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/>'
   };
   function icon(k){ return '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (IC[k] || '') + '</svg>'; }
-  function item(key, href, label, badge){
+  function item(key, href, label, badge, sub){
     if (!can(key)) return '';
     var b = badge ? '<span class="navbadge">' + badge + '</span>' : '';
-    return '<a href="' + href + '" class="sb-item ' + (A === key ? 'active' : '') + '">' + icon(key) + '<span>' + label + '</span>' + b + '</a>';
+    // `sub` renders a nested child (e.g. Bids under Subs): indented, no icon.
+    var style = sub ? ' style="padding-left:2.55rem;font-size:.86rem"' : '';
+    return '<a href="' + href + '" class="sb-item ' + (A === key ? 'active' : '') + '"' + style + '>'
+      + (sub ? '' : icon(key)) + '<span>' + label + '</span>' + b + '</a>';
   }
 %>
 <style>@media (min-width: 901px) { body { padding-left: 222px; } }</style>
@@ -55,7 +58,7 @@
     <%- item('deliveries', '/deliveries', 'Deliveries') %>
     <%- item('ordering', '/ordering', 'Order Planner') %>
     <%- item('subs', '/subs', 'Subs') %>
-    <%- item('bidcompare', '/bid-comparison', 'Bid Comparison') %>
+    <%- item('bidcompare', '/subs/bids', 'Bids', null, true) %>
 
     <% if (can('requests') || can('issues') || can('warranty') || can('notices') || can('request_form')) { %><div class="sb-sec">Attention</div><% } %>
     <%- item('requests', '/requests', 'Requests', pReq) %>

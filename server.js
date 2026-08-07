@@ -1306,7 +1306,7 @@ const PAGE_META = [
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
   { key: 'notices', label: 'Delivery Notices', path: '/delivery-notices' },
   { key: 'subs', label: 'Subs', path: '/subs' },
-  { key: 'bidcompare', label: 'Bid Comparison', path: '/bid-comparison' },
+  { key: 'bidcompare', label: 'Bids (comparison)', path: '/subs/bids' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
   { key: 'catalog', label: 'Master Catalog', path: '/catalog' },
@@ -1351,7 +1351,7 @@ function allowedPagesFor(key, role) {
 }
 function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
-  if (p.startsWith('/bid-comparison')) return 'bidcompare';
+  if (p === '/subs/bids' || p.startsWith('/subs/bids') || p.startsWith('/bid-comparison')) return 'bidcompare';
   if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
   if (p.startsWith('/ordering')) return 'ordering';
@@ -5431,8 +5431,13 @@ async function bidCountiesList() {
   } catch (e) { return []; }
 }
 
-// Dedicated Bid Comparison page — same data as the Subs card, with filters.
-app.get('/bid-comparison', requireAuth, async (req, res) => {
+// Bid comparison lives under Subs (/subs/bids). Old path kept as a redirect.
+app.get('/bid-comparison', requireAuth, (req, res) => {
+  const qs = req._parsedUrl && req._parsedUrl.search ? req._parsedUrl.search : '';
+  res.redirect('/subs/bids' + qs);
+});
+// Same data as the Subs cost card, with county + trade filters.
+app.get('/subs/bids', requireAuth, async (req, res) => {
   try {
     await initDb();
     const county = String(req.query.county || '').trim();
