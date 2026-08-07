@@ -5294,7 +5294,8 @@ function classifyIntakeRows(rows, existing) {
     else if (batchEmail.has(email) || (hasNp && batchNamePhone.has(np))) status = 'dup-sheet';
     else { status = 'import'; batchEmail.add(email); if (hasNp) batchNamePhone.add(np); }
     return { row: s.row, name: s.name || '', trade: s.trade || '', phone: s.phone || '', email: s.email || '', location: s.location || '', status,
-             cat: intakeCategory(s.trade) };   // 'gc' | 'sub' → which bid email they get
+             cat: intakeCategory(s.trade),     // 'gc' | 'sub' → which bid email they get
+             area: intakeArea(s.location) };   // county/city → which project's plans they get
   });
 }
 function intakeCounts(classified) {
@@ -7295,6 +7296,17 @@ app.get('/subs/import-intake/preview', requireAuth, async (req, res) => {
 function intakeCategory(trade) {
   return /general\s*contractor|^\s*gc\b/i.test(String(trade || '')) ? 'gc' : 'sub';
 }
+// A sheet row's Location ("SAN DIEGO 92106") decides WHICH project's plans they get —
+// one sheet often spans several areas, so the CD-set link is chosen per area, not per
+// batch. Prefers the county from the zip; falls back to the city text.
+function intakeArea(location) {
+  const loc = String(location || '').trim();
+  if (!loc) return 'Unknown area';
+  const county = countyFromZip(loc);
+  if (county) return county;
+  const city = loc.replace(/\b\d{5}(-\d{4})?\b/g, '').replace(/\s+/g, ' ').trim();
+  return city ? city.replace(/\b\w/g, c => c.toUpperCase()) : 'Unknown area';
+}
 async function insertIntakeSub(s, sortOrder) {
   const type = normalizeType(s.trade) || (s.trade || null);
   const cat = intakeCategory(type || s.trade);
@@ -7331,6 +7343,13 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
     const subjectGc = String(req.body.subjectGc || '').trim();
     const bodyGc = String(req.body.bodyGc || '');
     const plansRaw = String(req.body.plans || '').trim();
+    // One sheet can span several areas, so plans are chosen per area. Any area with
+    // nothing set falls back to the single `plans` link.
+    const plansByArea = (req.body.plansByArea && typeof req.body.plansByArea === 'object') ? req.body.plansByArea : {};
+    for (const [k, v] of Object.entries(plansByArea)) {
+      const u = String(v || '').trim();
+      if (u && !/^https?:\/\//i.test(u)) return res.status(400).json({ ok: false, error: 'The plans link for ' + k + ' must start with http:// or https://' });
+    }
     if (!subject) return res.status(400).json({ ok: false, error: 'Add a subject for the bid request.' });
     if (!body.trim()) return res.status(400).json({ ok: false, error: 'Add a message body for the bid request.' });
     if (plansRaw && !/^https?:\/\//i.test(plansRaw)) return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
@@ -7351,11 +7370,15 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
     const sig = await getGmailSignature();
     const results = [];
     let i = 0;
+    const usedPlans = new Set();
     for (const s of toImport) {
       const sub = await insertIntakeSub(s, so0 + i); i++;
-      results.push(await sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, sig, sentBy: sessionKey(req) }));
+      // Each bidder gets their own area's plans; fall back to the batch link.
+      const rowPlans = String(plansByArea[intakeArea(s.location)] || '').trim() || plansRaw;
+      if (rowPlans) usedPlans.add(rowPlans);
+      results.push(await sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw: rowPlans, sig, sentBy: sessionKey(req) }));
     }
-    if (results.some(r => r.ok)) { saveBidPlansLink(plansRaw); touchPlansLink(plansRaw); }
+    if (results.some(r => r.ok)) { usedPlans.forEach(u => touchPlansLink(u)); if (plansRaw) saveBidPlansLink(plansRaw); }
     res.json({ ok: true, imported: toImport.length, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
