@@ -809,7 +809,9 @@
       <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="emSubject" required></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Proposal due date <span style="font-weight:400;color:var(--muted)">(sets the deadline in the email)</span></label><input type="date" id="emDeadline" onchange="updateDeadline(this)"></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Message</label><textarea id="emBody" rows="8" placeholder="Write your message…"></textarea></div>
-      <div class="form-group" style="margin-bottom:.7rem"><label>Plans link — Google Drive CD set <span style="font-weight:400;color:var(--muted)">(saved & auto-filled next time)</span></label><input type="url" id="emPlans" placeholder="https://drive.google.com/…"></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Plans (CD set) <span style="font-weight:400;color:var(--muted)">— pick the project, or paste a link</span></label>
+        <div data-plans-picker="emPlans" id="emPlansPicker"></div>
+        <input type="url" id="emPlans" placeholder="https://drive.google.com/…"></div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
         <button type="button" class="btn btn-ghost" onclick="closeEmail()">Cancel</button>
         <button type="submit" class="btn btn-primary" id="emSendBtn">Send email</button>
@@ -863,7 +865,9 @@
       <div class="form-group" style="margin-bottom:.7rem"><label>Subject</label><input type="text" id="bkSubject" required></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Proposal due date</label><input type="date" id="bkDeadline" onchange="bkUpdateDeadline(this)"></div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Message</label><textarea id="bkBody" rows="8" placeholder="Write your message…"></textarea></div>
-      <div class="form-group" style="margin-bottom:.7rem"><label>Plans link — Google Drive CD set</label><input type="url" id="bkPlans" placeholder="https://drive.google.com/…"></div>
+      <div class="form-group" style="margin-bottom:.7rem"><label>Plans (CD set) <span style="font-weight:400;color:var(--muted)">— pick the project, or paste a link</span></label>
+        <div data-plans-picker="bkPlans" id="bkPlansPicker"></div>
+        <input type="url" id="bkPlans" placeholder="https://drive.google.com/…"></div>
       <div id="bkResult" style="display:none;font-size:.84rem;margin-bottom:.7rem"></div>
       <div style="display:flex;gap:.6rem;justify-content:flex-end">
         <button type="button" class="btn btn-ghost" onclick="closeBulk()">Cancel</button>
@@ -2029,6 +2033,45 @@ document.addEventListener('keydown', function (e) { if (e.key === 'Escape') clos
 // Apply the default tab's filtering on first paint (hides GCs + flagged from the Subs tab)
 document.addEventListener('DOMContentLoaded', function () { filterSubs(); });
 const SERVER_PLANS_LINK = <%- JSON.stringify((typeof bidPlansLink !== 'undefined' && bidPlansLink) || '') %>;   // last CD-set link sent from any computer
+// ── Saved CD-set links, one per project/area (bid plans differ by area) ──────
+let PLANS_LINKS = <%- JSON.stringify((typeof plansLinks !== 'undefined' && plansLinks) || []).replace(/</g, '\\u003c') %>;
+// Renders the picker used by every composer: choose a saved project link, or paste a
+// new one and save it under a name. `urlId` is the id of the URL <input> it drives.
+function plansPickerHtml(urlId, value) {
+  const opts = PLANS_LINKS.map(function (l) {
+    return '<option value="' + bkEsc(l.url) + '"' + (l.url === value ? ' selected' : '') + '>' + bkEsc(l.label) + '</option>';
+  }).join('');
+  return '<div style="display:flex;gap:.4rem;flex-wrap:wrap;align-items:center;margin-bottom:.35rem">'
+    + '<select onchange="plansPick(this, \'' + urlId + '\')" style="flex:1;min-width:190px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)">'
+    +   '<option value="">— pick a project’s plans —</option>' + opts
+    + '</select>'
+    + '<button type="button" class="btn btn-ghost btn-sm" onclick="plansSave(\'' + urlId + '\')" title="Save the link below under a project or area name">💾 Save this link</button>'
+    + '</div>';
+}
+function plansPick(sel, urlId) {
+  if (!sel.value) return;
+  const inp = document.getElementById(urlId);
+  if (inp) inp.value = sel.value;
+}
+async function plansSave(urlId) {
+  const inp = document.getElementById(urlId);
+  const url = inp ? inp.value.trim() : '';
+  if (!/^https?:\/\//i.test(url)) { alert('Paste the plans link first (it must start with http:// or https://).'); return; }
+  const label = prompt('Name this link — the project or area it belongs to:', '');
+  if (label === null) return;
+  if (!label.trim()) { alert('Give it a name so you can find it next time.'); return; }
+  try {
+    const r = await fetch('/subs/plans-links', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label: label.trim(), url: url }) });
+    const d = await r.json();
+    if (!d.ok) { alert(d.error || 'Could not save'); return; }
+    PLANS_LINKS = d.links || [];
+    // Refresh every visible picker so the new name shows up right away.
+    document.querySelectorAll('[data-plans-picker]').forEach(function (host) {
+      host.innerHTML = plansPickerHtml(host.getAttribute('data-plans-picker'), document.getElementById(host.getAttribute('data-plans-picker')).value);
+    });
+    showToast('✓ Saved “' + label.trim() + '”');
+  } catch (e) { alert('Could not save the link'); }
+}
 function openCompose(btn) {
   const email = btn.dataset.email || '';
   if (!email) { alert('No email on file for this sub — add one first with the ✏️ in the Email column.'); return; }
@@ -2041,6 +2084,7 @@ function openCompose(btn) {
   document.getElementById('emSubject').value = composeIsGc ? GC_EMAIL_SUBJECT : EMAIL_SUBJECT;
   document.getElementById('emBody').value = '';
   document.getElementById('emPlans').value = SERVER_PLANS_LINK || localStorage.getItem('subPlansLink') || '';
+  document.getElementById('emPlansPicker').innerHTML = plansPickerHtml('emPlans', document.getElementById('emPlans').value);
   document.getElementById('emDeadline').value = localStorage.getItem('subDeadline') || defaultDeadline();
   const sb = document.getElementById('emSendBtn'); sb.disabled = false; sb.textContent = 'Send email';
   document.getElementById('emailModal').classList.add('show');
@@ -2142,7 +2186,9 @@ function intakeComposer(n) {
       + '<input type="text" id="ikSubjectGc" value="' + bkEsc(GC_EMAIL_SUBJECT) + '" placeholder="Subject" style="' + box + '">'
       + '<textarea id="ikBodyGc" rows="7" style="' + box + ';font-family:inherit;font-size:.84rem">' + bkEsc(intakeDefaultBody(deadline, true)) + '</textarea>';
   }
-  h += '<input type="url" id="ikPlans" value="' + bkEsc(plans) + '" placeholder="Plans link — Google Drive CD set (optional)" style="' + box + ';margin-bottom:0">'
+  h += '<div style="font-weight:700;font-size:.86rem;margin:.7rem 0 .25rem">Plans (CD set) <span style="color:var(--muted);font-weight:400;font-size:.78rem">— pick the project these bidders should get</span></div>'
+    + '<div data-plans-picker="ikPlans">' + plansPickerHtml('ikPlans', plans) + '</div>'
+    + '<input type="url" id="ikPlans" value="' + bkEsc(plans) + '" placeholder="https://drive.google.com/… (paste a different one any time)" style="' + box + ';margin-bottom:0">'
     + '</div>';
   return h;
 }
@@ -2246,6 +2292,7 @@ function openBulk() {
   document.getElementById('bkSubject').value = EMAIL_SUBJECT;
   document.getElementById('bkBody').value = '';
   document.getElementById('bkPlans').value = SERVER_PLANS_LINK || localStorage.getItem('subPlansLink') || '';
+  document.getElementById('bkPlansPicker').innerHTML = plansPickerHtml('bkPlans', document.getElementById('bkPlans').value);
   document.getElementById('bkDeadline').value = localStorage.getItem('subDeadline') || defaultDeadline();
   document.getElementById('bkResult').style.display = 'none';
   const sb = document.getElementById('bkSendBtn'); sb.disabled = false;

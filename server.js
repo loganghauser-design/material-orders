@@ -1951,6 +1951,16 @@ async function initDb() {
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS warranty_doc_data BYTEA;
     ALTER TABLE app_settings ADD COLUMN IF NOT EXISTS bid_plans_link TEXT;
 
+    -- Saved CD-set / plans links, one per project or area. Bid packages differ by
+    -- area, so there is no universal link — you pick (or paste) the right one per send.
+    CREATE TABLE IF NOT EXISTS bid_plans_links (
+      id SERIAL PRIMARY KEY,
+      label TEXT NOT NULL,
+      url TEXT NOT NULL,
+      last_used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+
     -- Client-facing warranty claims (submitted via the public /warranty page)
     CREATE TABLE IF NOT EXISTS warranty_claims (
       id SERIAL PRIMARY KEY,
@@ -5526,7 +5536,8 @@ app.get('/subs', requireAuth, async (req, res) => {
     // Last CD-set/plans link sent from ANY computer — pre-fills the email dialogs.
     let bidPlansLink = '';
     try { const { rows: [as] } = await pool.query('SELECT bid_plans_link FROM app_settings WHERE id=1'); bidPlansLink = (as && as.bid_plans_link) || ''; } catch (e) {}
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, bidPlansLink, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
+    const plansLinks = await getPlansLinks();
+    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, bidPlansLink, plansLinks, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
@@ -6839,6 +6850,45 @@ async function saveBidPlansLink(plansRaw) {
   } catch (e) { console.error('saveBidPlansLink:', e.message); }
 }
 
+// ── Saved CD-set / plans links (one per project or area) ─────────────────────
+// Bid packages differ by area, so the composer offers a named list to pick from
+// instead of one universal link. Pasting a fresh link still works.
+async function getPlansLinks() {
+  try {
+    const { rows } = await pool.query('SELECT id, label, url FROM bid_plans_links ORDER BY last_used_at DESC NULLS LAST, label');
+    return rows;
+  } catch (e) { return []; }
+}
+app.get('/subs/plans-links', requireAuth, async (req, res) => {
+  try { res.json({ ok: true, links: await getPlansLinks() }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/subs/plans-links', requireAuth, async (req, res) => {
+  try {
+    const label = String(req.body.label || '').trim().slice(0, 120);
+    const url = String(req.body.url || '').trim().slice(0, 1000);
+    if (!label) return res.status(400).json({ ok: false, error: 'Give the link a name (e.g. the project or area).' });
+    if (!/^https?:\/\//i.test(url)) return res.status(400).json({ ok: false, error: 'The link must start with http:// or https://' });
+    await initDb();
+    // Same name = update it, so re-saving a project's link doesn't pile up duplicates.
+    const { rows: [existing] } = await pool.query('SELECT id FROM bid_plans_links WHERE LOWER(label)=LOWER($1)', [label]);
+    if (existing) await pool.query('UPDATE bid_plans_links SET url=$1 WHERE id=$2', [url, existing.id]);
+    else await pool.query('INSERT INTO bid_plans_links (label, url) VALUES ($1,$2)', [label, url]);
+    res.json({ ok: true, links: await getPlansLinks() });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+app.post('/subs/plans-links/remove', requireAuth, async (req, res) => {
+  try {
+    await pool.query('DELETE FROM bid_plans_links WHERE id=$1', [Number(req.body.id) || 0]);
+    res.json({ ok: true, links: await getPlansLinks() });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+// Remember which saved link was used most recently (it sorts to the top next time).
+async function touchPlansLink(url) {
+  if (!url) return;
+  try { await pool.query('UPDATE bid_plans_links SET last_used_at=NOW() WHERE url=$1', [String(url)]); } catch (e) {}
+}
+
 // Email a subcontractor and log it under that sub
 app.post('/subs/:id/email', requireAuth, async (req, res) => {
   try {
@@ -6861,7 +6911,7 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     const sig = await getGmailSignature();
     if (sig) html += `<br><br>${sig}`;
     const sent = await sendMail({ to: sub.email, subject, html });
-    saveBidPlansLink(plansRaw);
+    saveBidPlansLink(plansRaw); touchPlansLink(plansRaw);
     const logBody = plansRaw ? (body + (body ? '\n\n' : '') + 'Plans: ' + plansRaw) : body;
     await pool.query(
       "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
@@ -7045,7 +7095,7 @@ app.post('/subs/send-bulk', requireAuth, async (req, res) => {
     for (const sub of subsSel) {
       results.push(await sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, sig, sentBy: sessionKey(req) }));
     }
-    if (results.some(r => r.ok)) saveBidPlansLink(plansRaw);
+    if (results.some(r => r.ok)) { saveBidPlansLink(plansRaw); touchPlansLink(plansRaw); }
     res.json({ ok: true, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
@@ -7305,7 +7355,7 @@ app.post('/subs/import-intake-send', requireAuth, async (req, res) => {
       const sub = await insertIntakeSub(s, so0 + i); i++;
       results.push(await sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, sig, sentBy: sessionKey(req) }));
     }
-    if (results.some(r => r.ok)) saveBidPlansLink(plansRaw);
+    if (results.some(r => r.ok)) { saveBidPlansLink(plansRaw); touchPlansLink(plansRaw); }
     res.json({ ok: true, imported: toImport.length, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
