@@ -6979,7 +6979,7 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     if (plansRaw && !/^https?:\/\//i.test(plansRaw)) {
       return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
     }
-    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(body)}</div>`;
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${bodyToHtml(body)}</div>`;
     if (plansRaw) {
       html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
     }
@@ -7036,6 +7036,11 @@ function tradePhrase(type) {
 function isGcSub(sub) {
   return (sub && sub.category) === 'gc' || /general\s*contractor|^\s*gc\b/i.test((sub && sub.type) || '');
 }
+// Escape a plain-text body for HTML, then render **bold** as actual bold. Without
+// this the asterisks ship literally, which is a dead giveaway of a mail merge.
+function bodyToHtml(text) {
+  return escapeHtml(String(text || '')).replace(/\*\*(?=\S)([\s\S]*?\S)\*\*/g, '<strong>$1</strong>');
+}
 async function sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, sig, sentBy }) {
   const name = sub.company || sub.owner || '(no name)';
   if (!sub.email) return { id: sub.id, name, ok: false, error: 'no email on file' };
@@ -7046,7 +7051,7 @@ async function sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, s
     const personal = String(useBody || '')
       .split('{NAME}').join(sub.company || sub.owner || 'there')
       .split('{TRADE}').join(tradePhrase(sub.type));
-    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(personal)}</div>`;
+    let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${bodyToHtml(personal)}</div>`;
     if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
     if (sig) html += `<br><br>${sig}`;
     const subject_ = useSubject;

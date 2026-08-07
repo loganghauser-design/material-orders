@@ -802,6 +802,7 @@
       <div class="form-group" style="margin-bottom:.7rem"><label>Template</label>
         <select id="emTemplate" onchange="applyTemplate(this)">
           <option value="">— blank —</option>
+          <option value="warm">Already spoke / texted (follow-up)</option>
           <option value="generic">Generic outreach</option>
           <option value="altadena">Met in person (Altadena)</option>
           <option value="marvin">Referred by Marvin Han</option>
@@ -857,6 +858,7 @@
       <div class="form-group" style="margin-bottom:.7rem"><label>Template</label>
         <select id="bkTemplate" onchange="bkApplyTemplate(this)">
           <option value="">— blank —</option>
+          <option value="warm">Already spoke / texted (follow-up)</option>
           <option value="generic">Generic outreach</option>
           <option value="altadena">Met in person (Altadena)</option>
           <option value="marvin">Referred by Marvin Han</option>
@@ -1848,6 +1850,24 @@ function mapFilter(area) {
 }
 let composeName = '', composeTrade = '', composeIsGc = false;
 const EMAIL_TEMPLATES = {
+  // For contractors we've already texted or called — a cold intro to someone you
+  // just spoke with reads like a mail-merge, so this one picks up the conversation.
+  warm: `Hi {NAME},
+
+Good connecting with you — here's the bid package I mentioned.
+
+We have a project ready to bid and I'd like to get your number on it. The plans are linked below.
+
+To get you set up on our end, send over:
+
+• Contractor license number
+• Workers' comp certificate
+• General liability (COI)
+• The areas you cover, and any other trades you self-perform besides {TRADE}
+
+Reply straight to this email with your bid and those documents attached — that way everything stays in one thread.
+
+I'd need your proposal by {DEADLINE}. If you want to walk the scope first or have any questions, call or text me at (213) 728-3041.`,
   generic: `Hi {NAME},
 
 My name is Logan, and I am with Buildoly. We are a general contractor with more than 60 upcoming Resi + ADU construction projects and are currently expanding our subcontractor network.
@@ -1912,6 +1932,23 @@ Project information is attached for your review. We look forward to learning mor
 // bonding capacity, and how many projects they can run at once — no {TRADE} line.
 const GC_EMAIL_SUBJECT = 'ADU PROJECT BID REQUEST — BUILDOLY';
 const EMAIL_TEMPLATES_GC = {
+  warm: `Hi {NAME},
+
+Good connecting with you — here's the bid package I mentioned.
+
+We have ground-up ADU and single-family projects coming up, and I'd like to get you on the bid list. The plans for the current one are linked below.
+
+To get you set up on our end, send over:
+
+• B license number
+• Workers' comp certificate
+• General liability (COI)
+• Bonding capacity, if you carry it
+• The areas you cover, and how many builds you can run at one time
+
+Reply straight to this email with your bid and those documents attached — that way everything stays in one thread.
+
+I'd need your proposal by {DEADLINE}. If you want to walk the site or talk through scope, call or text me at (213) 728-3041.`,
   generic: `Hi {NAME},
 
 My name is Logan, and I am with Buildoly. We are a general contractor with more than 60 upcoming Resi + ADU construction projects and are currently expanding our network of general contractors to take on full builds.
@@ -2169,7 +2206,9 @@ function intakeWhichEmail(cat) {
 // versions — the sub copy and the GC copy — and each recipient gets the right one.
 function intakeDefaultBody(deadline, gc) {
   const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
-  const tpl = gc ? EMAIL_TEMPLATES_GC.generic : EMAIL_TEMPLATES.generic;
+  // Most intake bidders have already been texted or called, so the follow-up copy
+  // is the default — the cold intro reads wrong to someone you just spoke with.
+  const tpl = gc ? EMAIL_TEMPLATES_GC.warm : EMAIL_TEMPLATES.warm;
   return tpl.split('{AREAS}').join(areas).split('{DEADLINE}').join(formatDeadline(deadline));
 }
 function intakeComposer(n) {
@@ -2181,7 +2220,8 @@ function intakeComposer(n) {
   let h = '<div style="margin-top:1rem;border-top:1px solid var(--border);padding-top:.9rem">'
     + '<div style="display:flex;gap:.5rem;flex-wrap:wrap;margin-bottom:.5rem;align-items:center">'
     +   '<select id="ikTemplate" onchange="ikApplyTemplate(this)" style="flex:1;min-width:170px;padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)">'
-    +     '<option value="generic">Generic outreach</option><option value="altadena">Met in person (Altadena)</option><option value="marvin">Referred by Marvin Han</option>'
+    +     '<option value="warm">Already spoke / texted (follow-up)</option>
+          <option value="generic">Generic outreach</option><option value="altadena">Met in person (Altadena)</option><option value="marvin">Referred by Marvin Han</option>'
     +   '</select>'
     +   '<label style="display:flex;align-items:center;gap:.4rem;font-size:.8rem;color:var(--muted)">Due <input type="date" id="ikDeadline" value="' + deadline + '" onchange="ikUpdateDeadline(this)" style="padding:6px 8px;border:1px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text)"></label>'
     + '</div>';
@@ -2303,7 +2343,7 @@ function bkSetAud(a) {
     ? 'General contractors get the whole-project bid request (no trade line).'
     : 'Subs get the trade bid request.';
   bkFillTrades();
-  bkApplyTemplate({ value: 'generic' });   // load the right default copy for this audience
+  bkApplyTemplate({ value: document.getElementById('bkTemplate').value || 'warm' });   // right copy for this audience
   bkRenderList();
 }
 function bkFillTrades() {
@@ -2319,7 +2359,7 @@ function openBulk() {
   document.querySelectorAll('#bkAudSeg .segbtn').forEach(function (b) { b.classList.toggle('on', b.dataset.aud === 'sub'); });
   document.getElementById('bkAudNote').textContent = 'Subs get the trade bid request.';
   bkFillTrades();
-  document.getElementById('bkTemplate').value = '';
+  document.getElementById('bkTemplate').value = 'warm';
   document.getElementById('bkSubject').value = EMAIL_SUBJECT;
   document.getElementById('bkBody').value = '';
   document.getElementById('bkPlans').value = SERVER_PLANS_LINK || localStorage.getItem('subPlansLink') || '';
