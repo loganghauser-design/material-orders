@@ -6903,21 +6903,32 @@ function tradePhrase(type) {
   const w = firstTradeWord(type);
   return TRADE_PHRASE[w.toLowerCase()] || w;
 }
-async function sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy }) {
+// General contractors and trade subs get DIFFERENT bid emails. The caller passes both
+// versions; each recipient gets the one matching their category, so a mixed batch can
+// never send a sub-worded email to a GC (or vice versa). Falls back to the sub copy
+// when no GC version was supplied.
+function isGcSub(sub) {
+  return (sub && sub.category) === 'gc' || /general\s*contractor|^\s*gc\b/i.test((sub && sub.type) || '');
+}
+async function sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, sig, sentBy }) {
   const name = sub.company || sub.owner || '(no name)';
   if (!sub.email) return { id: sub.id, name, ok: false, error: 'no email on file' };
   try {
-    const personal = String(body || '')
+    const gc = isGcSub(sub);
+    const useBody = (gc && String(bodyGc || '').trim()) ? bodyGc : body;
+    const useSubject = (gc && String(subjectGc || '').trim()) ? subjectGc : subject;
+    const personal = String(useBody || '')
       .split('{NAME}').join(sub.company || sub.owner || 'there')
       .split('{TRADE}').join(tradePhrase(sub.type));
     let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${escapeHtml(personal)}</div>`;
     if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
     if (sig) html += `<br><br>${sig}`;
-    const sent = await sendMail({ to: sub.email, subject, html });
+    const subject_ = useSubject;
+    const sent = await sendMail({ to: sub.email, subject: subject_, html });
     const logBody = plansRaw ? (personal + '\n\nPlans: ' + plansRaw) : personal;
     await pool.query(
       "INSERT INTO sub_emails (sub_id, to_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id) VALUES ($1,$2,$3,$4,$5,'out',$6,$7)",
-      [sub.id, sub.email, subject, logBody, sentBy, (sent && sent.threadId) || null, (sent && sent.messageId) || null]);
+      [sub.id, sub.email, subject_, logBody, sentBy, (sent && sent.threadId) || null, (sent && sent.messageId) || null]);
     await pool.query("UPDATE subcontractors SET bid_status='Bid Sent', bid_campaign_at=NOW(), bid_followup_count=0 WHERE id=$1", [sub.id]);
     if (!/active|approv|inactive|reject|black|bid under review|bid request/i.test(sub.status || '')) {
       await pool.query("UPDATE subcontractors SET status='Bid Requested', group_label='Bid Requested' WHERE id=$1", [sub.id]);
@@ -7017,6 +7028,9 @@ app.post('/subs/send-bulk', requireAuth, async (req, res) => {
     if (!emailEnabled) return res.status(400).json({ ok: false, error: 'Email isn’t configured on the server.' });
     const subject = String(req.body.subject || '').trim();
     const body = String(req.body.body || '');
+    // Optional GC-specific versions — recipients with category 'gc' get these instead.
+    const subjectGc = String(req.body.subjectGc || '').trim();
+    const bodyGc = String(req.body.bodyGc || '');
     const plansRaw = String(req.body.plans || '').trim();
     const ids = Array.isArray(req.body.ids) ? [...new Set(req.body.ids.map(Number).filter(Boolean))] : [];
     if (!subject) return res.status(400).json({ ok: false, error: 'Add a subject.' });
@@ -7024,11 +7038,11 @@ app.post('/subs/send-bulk', requireAuth, async (req, res) => {
     if (!ids.length) return res.status(400).json({ ok: false, error: 'No subs selected.' });
     if (ids.length > 300) return res.status(400).json({ ok: false, error: 'Too many at once (max 300).' });
     if (plansRaw && !/^https?:\/\//i.test(plansRaw)) return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
-    const { rows: subsSel } = await pool.query('SELECT id, company, owner, email, type, status FROM subcontractors WHERE id = ANY($1)', [ids]);
+    const { rows: subsSel } = await pool.query('SELECT id, company, owner, email, type, status, category FROM subcontractors WHERE id = ANY($1)', [ids]);
     const sig = await getGmailSignature();
     const results = [];
     for (const sub of subsSel) {
-      results.push(await sendBidToSub(sub, { subject, body, plansRaw, sig, sentBy: sessionKey(req) }));
+      results.push(await sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, sig, sentBy: sessionKey(req) }));
     }
     if (results.some(r => r.ok)) saveBidPlansLink(plansRaw);
     res.json({ ok: true, sent: results.filter(r => r.ok).length, failed: results.filter(r => !r.ok).length, results });

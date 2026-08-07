@@ -760,7 +760,7 @@
                   <div class="rowmenu">
                     <button type="button" class="rowmenu-btn" onclick="rowMenu(this)" title="Actions — edit, email, photos, delete">⋯</button>
                     <div class="rowmenu-pop">
-                      <button type="button" class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" data-name="<%= s.company || s.owner || '' %>" data-trade="<%= (s.type || '').split(',')[0].trim() %>" onclick="openCompose(this)"<%= s.email ? '' : ' disabled' %>>✉ Send email</button>
+                      <button type="button" class="js-compose" data-id="<%= s.id %>" data-email="<%= s.email || '' %>" data-name="<%= s.company || s.owner || '' %>" data-trade="<%= (s.type || '').split(',')[0].trim() %>" data-cat="<%= (s.category === 'gc' || /general\s*contractor|^\s*gc\b/i.test(s.type || '')) ? 'gc' : 'sub' %>" onclick="openCompose(this)"<%= s.email ? '' : ' disabled' %>>✉ Send email</button>
                       <a href="/subs/profile/<%= s.id %>">👤 Profile &amp; edit</a>
                       <form method="POST" action="/subs/<%= s.id %>/photo" enctype="multipart/form-data" style="margin:0">
                         <label class="upl" title="Pick several at once — work, vehicle, job site">📷 Add photos<input type="file" name="photos" accept="image/*" multiple style="display:none" onchange="this.form.submit()"></label>
@@ -832,8 +832,15 @@
 <div class="modal-bk" id="bulkModal">
   <div class="modal-card" style="max-width:640px">
     <h2>📦 Send bid package</h2>
-    <div style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">Email the same package to every sub in a trade at once. Each email is personalized and logged under that sub.</div>
+    <div style="font-size:.85rem;color:var(--muted);margin-bottom:.8rem">Email the same package to everyone at once. Each email is personalized and logged under that contractor.</div>
     <form id="bulkForm" onsubmit="event.preventDefault();sendBulk()">
+      <div class="form-group" style="margin-bottom:.7rem"><label>Send to</label>
+        <div class="seg" id="bkAudSeg">
+          <button type="button" class="segbtn on" data-aud="sub" onclick="bkSetAud('sub')">🔧 Subcontractors</button>
+          <button type="button" class="segbtn" data-aud="gc" onclick="bkSetAud('gc')">🏗️ General Contractors</button>
+        </div>
+        <div style="font-size:.72rem;color:var(--muted);margin-top:.3rem" id="bkAudNote">Subs get the trade bid request.</div>
+      </div>
       <div class="form-group" style="margin-bottom:.7rem"><label>Trade</label>
         <select id="bkTrade" onchange="bkRenderList()"></select>
       </div>
@@ -1667,7 +1674,7 @@ const EMAIL_SUBJECT = 'ADU BID REQUEST BUILDOLY';
 const AREA_LIST = <%- JSON.stringify(typeof LOCATION_OPTS !== 'undefined' ? LOCATION_OPTS : []) %>;
 
 // ── Bulk bid-package data — every emailable sub (id · name · email · trades) ──
-const BULK_DATA = <%- JSON.stringify(subs.filter(function (s) { return String(s.email || '').trim() && (s.category !== 'gc') && !/reject|black/i.test(s.status || ''); }).map(function (s) { return { id: s.id, n: s.company || s.owner || '(no name)', e: String(s.email).trim(), tr: (s.type || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), st: s.status || '' }; })).replace(/</g, '\\u003c') %>;
+const BULK_DATA = <%- JSON.stringify(subs.filter(function (s) { return String(s.email || '').trim() && !/reject|black/i.test(s.status || ''); }).map(function (s) { return { id: s.id, n: s.company || s.owner || '(no name)', e: String(s.email).trim(), tr: (s.type || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), st: s.status || '', cat: (s.category === 'gc' || /general\s*contractor|^\s*gc\b/i.test(s.type || '')) ? 'gc' : 'sub' }; })).replace(/</g, '\\u003c') %>;
 const INTAKE_EMAIL_ENABLED = <%= emailEnabled ? 'true' : 'false' %>;
 
 // ── Trade coverage panel ──
@@ -1834,7 +1841,7 @@ function mapFilter(area) {
   filterSubs();
   document.querySelector('.subs-toolbar').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-let composeName = '', composeTrade = '';
+let composeName = '', composeTrade = '', composeIsGc = false;
 const EMAIL_TEMPLATES = {
   generic: `Hi {NAME},
 
@@ -1895,6 +1902,31 @@ Project information is attached for your review. We look forward to learning mor
 
 **IMPORTANT: Please reply directly to THIS email with your bid and ALL documents attached — your proposal, contractor license, and insurance (COI) — so everything stays together in one place.**`,
 };
+// ── General contractor versions ──────────────────────────────────────────
+// GCs bid a whole project, not a trade scope, so the ask is different: B license,
+// bonding capacity, and how many projects they can run at once — no {TRADE} line.
+const GC_EMAIL_SUBJECT = 'ADU PROJECT BID REQUEST — BUILDOLY';
+const EMAIL_TEMPLATES_GC = {
+  generic: `Hi {NAME},
+
+My name is Logan, and I am with Buildoly. We are a general contractor with more than 60 upcoming Resi + ADU construction projects and are currently expanding our network of general contractors to take on full builds.
+
+We currently have a project that we would like to invite you to bid on. Before moving forward, could you please provide the following information about your company:
+
+• Contractor license number (B — General Building)
+• Proof of workers' compensation insurance
+• General liability insurance information (COI, if available)
+• Bonding capacity, if applicable
+• Service area(s) you cover (please list all that apply):
+{AREAS}
+• The types of projects you take on (ADU, new construction, remodels) and how many you can run at one time
+
+Project information is attached for your review. We would appreciate receiving your proposal by {DEADLINE}.
+
+**IMPORTANT: Please reply directly to THIS email with your bid and ALL documents attached — your proposal, contractor license, and insurance (COI) — so everything stays together in one place.**
+
+We look forward to the opportunity to work together on this project and future projects.`,
+};
 // Default proposal deadline = one week out (yyyy-mm-dd for the date input).
 function defaultDeadline() {
   const d = new Date(); d.setDate(d.getDate() + 7);
@@ -1915,12 +1947,15 @@ function updateDeadline(inp) {
 }
 function applyTemplate(sel) {
   const key = sel.value;
-  if (!key || !EMAIL_TEMPLATES[key]) return;
-  const name = composeName || '[Subcontractor Name]';
+  // A general contractor gets the GC copy; everyone else gets the trade version.
+  const set = composeIsGc ? EMAIL_TEMPLATES_GC : EMAIL_TEMPLATES;
+  const tpl = set[key] || EMAIL_TEMPLATES[key];
+  if (!key || !tpl) return;
+  const name = composeName || (composeIsGc ? '[Company Name]' : '[Subcontractor Name]');
   const trade = composeTrade || '[trade]';
   const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
-  document.getElementById('emSubject').value = EMAIL_SUBJECT;
-  document.getElementById('emBody').value = EMAIL_TEMPLATES[key]
+  document.getElementById('emSubject').value = composeIsGc ? GC_EMAIL_SUBJECT : EMAIL_SUBJECT;
+  document.getElementById('emBody').value = tpl
     .split('{NAME}').join(name).split('{TRADE}').join(trade).split('{AREAS}').join(areas)
     .split('{DEADLINE}').join(formatDeadline(document.getElementById('emDeadline').value));
 }
@@ -2001,8 +2036,9 @@ function openCompose(btn) {
   document.getElementById('emTo').textContent = email;
   composeName = btn.dataset.name || '';
   composeTrade = btn.dataset.trade || '';
+  composeIsGc = btn.dataset.cat === 'gc';   // GCs get the whole-project template
   document.getElementById('emTemplate').value = '';
-  document.getElementById('emSubject').value = EMAIL_SUBJECT;
+  document.getElementById('emSubject').value = composeIsGc ? GC_EMAIL_SUBJECT : EMAIL_SUBJECT;
   document.getElementById('emBody').value = '';
   document.getElementById('emPlans').value = SERVER_PLANS_LINK || localStorage.getItem('subPlansLink') || '';
   document.getElementById('emDeadline').value = localStorage.getItem('subDeadline') || defaultDeadline();
@@ -2136,14 +2172,34 @@ function confirmIntake(btn) {
 document.getElementById('intakeModal').addEventListener('click', function (e) { if (e.target.id === 'intakeModal') closeIntake(); });
 
 // ── Bulk bid-package send ──────────────────────────────────────────────
-function openBulk() {
-  // Build the trade dropdown from every trade present on emailable subs.
-  const counts = {};
-  BULK_DATA.forEach(function (s) { (s.tr.length ? s.tr : ['(no trade)']).forEach(function (t) { counts[t] = (counts[t] || 0) + 1; }); });
+// Which audience the bulk modal is aimed at — 'sub' or 'gc'. GCs and subs get
+// different bid emails, so switching this swaps both the recipient pool and the
+// template. (The server also picks per recipient by category, as a safety net.)
+let bkAud = 'sub';
+function bkPool() { return BULK_DATA.filter(function (s) { return s.cat === bkAud; }); }
+function bkSetAud(a) {
+  bkAud = (a === 'gc') ? 'gc' : 'sub';
+  document.querySelectorAll('#bkAudSeg .segbtn').forEach(function (b) { b.classList.toggle('on', b.dataset.aud === bkAud); });
+  document.getElementById('bkAudNote').textContent = bkAud === 'gc'
+    ? 'General contractors get the whole-project bid request (no trade line).'
+    : 'Subs get the trade bid request.';
+  bkFillTrades();
+  bkApplyTemplate({ value: 'generic' });   // load the right default copy for this audience
+  bkRenderList();
+}
+function bkFillTrades() {
+  const pool = bkPool(), counts = {};
+  pool.forEach(function (s) { (s.tr.length ? s.tr : ['(no trade)']).forEach(function (t) { counts[t] = (counts[t] || 0) + 1; }); });
   const trades = Object.keys(counts).sort(function (a, b) { return a.localeCompare(b); });
-  const sel = document.getElementById('bkTrade');
-  sel.innerHTML = '<option value="__all">All subs (' + BULK_DATA.length + ')</option>' +
+  const label = bkAud === 'gc' ? 'All general contractors' : 'All subs';
+  document.getElementById('bkTrade').innerHTML = '<option value="__all">' + label + ' (' + pool.length + ')</option>' +
     trades.map(function (t) { return '<option value="' + bkEsc(t) + '">' + bkEsc(t) + ' (' + counts[t] + ')</option>'; }).join('');
+}
+function openBulk() {
+  bkAud = 'sub';
+  document.querySelectorAll('#bkAudSeg .segbtn').forEach(function (b) { b.classList.toggle('on', b.dataset.aud === 'sub'); });
+  document.getElementById('bkAudNote').textContent = 'Subs get the trade bid request.';
+  bkFillTrades();
   document.getElementById('bkTemplate').value = '';
   document.getElementById('bkSubject').value = EMAIL_SUBJECT;
   document.getElementById('bkBody').value = '';
@@ -2157,9 +2213,10 @@ function openBulk() {
 function closeBulk() { document.getElementById('bulkModal').classList.remove('show'); }
 function bkMatches() {
   const t = document.getElementById('bkTrade').value;
-  if (t === '__all') return BULK_DATA.slice();
-  if (t === '(no trade)') return BULK_DATA.filter(function (s) { return !s.tr.length; });
-  return BULK_DATA.filter(function (s) { return s.tr.indexOf(t) !== -1; });
+  const pool = bkPool();
+  if (t === '__all') return pool;
+  if (t === '(no trade)') return pool.filter(function (s) { return !s.tr.length; });
+  return pool.filter(function (s) { return s.tr.indexOf(t) !== -1; });
 }
 function bkRenderList() {
   const list = bkMatches();
@@ -2184,11 +2241,14 @@ function bkCount() {
 }
 function bkApplyTemplate(selEl) {
   const key = selEl.value;
-  if (!key || !EMAIL_TEMPLATES[key]) return;
+  // GCs have their own copy; fall back to the sub template if a GC variant is missing.
+  const set = (bkAud === 'gc') ? EMAIL_TEMPLATES_GC : EMAIL_TEMPLATES;
+  const tpl = set[key] || EMAIL_TEMPLATES[key];
+  if (!key || !tpl) return;
   const areas = AREA_LIST.map(function (a) { return '     • ' + a; }).join('\n');
   // Leave {NAME}/{TRADE} literal — the server fills them per recipient.
-  document.getElementById('bkSubject').value = EMAIL_SUBJECT;
-  document.getElementById('bkBody').value = EMAIL_TEMPLATES[key]
+  document.getElementById('bkSubject').value = (bkAud === 'gc') ? GC_EMAIL_SUBJECT : EMAIL_SUBJECT;
+  document.getElementById('bkBody').value = tpl
     .split('{AREAS}').join(areas)
     .split('{DEADLINE}').join(formatDeadline(document.getElementById('bkDeadline').value));
 }
@@ -2202,15 +2262,20 @@ async function sendBulk() {
   const subject = document.getElementById('bkSubject').value.trim();
   const body = document.getElementById('bkBody').value;
   const plans = document.getElementById('bkPlans').value.trim();
-  if (!ids.length) { alert('Select at least one sub.'); return; }
+  const who = (bkAud === 'gc') ? 'general contractor' : 'sub';
+  if (!ids.length) { alert('Select at least one ' + who + '.'); return; }
   if (!subject) { alert('Add a subject.'); return; }
   if (!body.trim()) { alert('Add a message body.'); return; }
-  if (!confirm('Send this bid package to ' + ids.length + ' sub' + (ids.length === 1 ? '' : 's') + '?')) return;
+  if (!confirm('Send this bid package to ' + ids.length + ' ' + who + (ids.length === 1 ? '' : 's') + '?')) return;
   if (plans) localStorage.setItem('subPlansLink', plans); else localStorage.removeItem('subPlansLink');
   const sb = document.getElementById('bkSendBtn'); sb.disabled = true; sb.textContent = 'Sending…';
   const res = document.getElementById('bkResult');
   try {
-    const r = await fetch('/subs/send-bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: ids, subject: subject, body: body, plans: plans }) });
+    // When aiming at GCs, send the composed copy as the GC version too so the server's
+    // per-recipient pick lands on it regardless of how each row is categorized.
+    const payload = { ids: ids, subject: subject, body: body, plans: plans };
+    if (bkAud === 'gc') { payload.subjectGc = subject; payload.bodyGc = body; }
+    const r = await fetch('/subs/send-bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await r.json();
     if (data.ok) {
       res.style.display = 'block';
