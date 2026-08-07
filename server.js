@@ -5436,17 +5436,19 @@ app.get('/bid-comparison', requireAuth, (req, res) => {
   const qs = req._parsedUrl && req._parsedUrl.search ? req._parsedUrl.search : '';
   res.redirect('/subs/bids' + qs);
 });
-// Same data as the Subs cost card, with county + trade filters.
+// Same data as the Subs cost card. Everything is sent once and filtered in the
+// browser — clicking a county or trade must not cost a page load.
 app.get('/subs/bids', requireAuth, async (req, res) => {
   try {
     await initDb();
-    const county = String(req.query.county || '').trim();
-    const trade = String(req.query.trade || '').trim();
-    const [counties, allTiles] = await Promise.all([bidCountiesList(), computeCostComparison(county)]);
-    const tiles = trade ? allTiles.filter(t => t.trade === trade) : allTiles;
-    const tradeNames = allTiles.map(t => t.trade);
-    res.render('bid-comparison', { tiles, counties, tradeNames, county, trade,
-      isSuper: req.session.role === 'super', canEdit: req.session.role !== 'super' });
+    const [counties, tiles] = await Promise.all([bidCountiesList(), computeCostComparison('')]);
+    const bids = [];
+    tiles.forEach(t => (t.bids || []).forEach(b => bids.push({
+      trade: t.trade, company: b.company, amount: Number(b.amount),
+      county: b.county || 'Unassigned', project: b.project || '', subId: b.subId,
+    })));
+    res.render('bid-comparison', { bids, counties, trades: tiles.map(t => t.trade),
+      initCounty: String(req.query.county || ''), initTrade: String(req.query.trade || '') });
   } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 

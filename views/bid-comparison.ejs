@@ -6,22 +6,45 @@
   <title>Bid Comparison — Buildoly Office</title>
   <link rel="stylesheet" href="/css/app.css?v=5">
   <style>
-    .bc-bar { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; }
-    .bc-chip { padding:.35rem .85rem; border:1px solid var(--border); border-radius:999px; background:var(--surface); font-size:.85rem; font-weight:600; cursor:pointer; text-decoration:none; color:var(--text); white-space:nowrap; }
+    /* Same tab strip as the Subs page (those styles are local to subs.ejs) */
+    .subtabs { display:flex; gap:.35rem; flex-wrap:wrap; border-bottom:2px solid var(--border); margin-bottom:1.1rem; }
+    .subtab { font:inherit; font-size:.92rem; font-weight:700; color:var(--muted); background:none; border:none; border-bottom:3px solid transparent; padding:.55rem .9rem; margin-bottom:-2px; cursor:pointer; white-space:nowrap; text-decoration:none; }
+    .subtab:hover { color:var(--text); background:var(--bg); border-radius:9px 9px 0 0; }
+    .subtab.on { color:var(--text); border-bottom-color:#111; }
+
+    .bc-tools { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.7rem .85rem; margin-bottom:1rem; }
+    .bc-line { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; }
+    .bc-line + .bc-line { margin-top:.55rem; padding-top:.55rem; border-top:1px solid var(--border); }
+    .bc-lab { font-size:.7rem; font-weight:800; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; width:58px; flex:none; }
+    .bc-chip { padding:.3rem .8rem; border:1px solid var(--border); border-radius:999px; background:var(--bg); font-size:.83rem; font-weight:600; cursor:pointer; color:var(--text); white-space:nowrap; user-select:none; display:inline-flex; align-items:center; gap:.35rem; }
+    .bc-chip:hover { border-color:#4f8ef7; }
     .bc-chip.on { background:#111; color:#fff; border-color:#111; }
-    .bc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(300px,1fr)); gap:.8rem; }
+    .bc-chip .dot { width:9px; height:9px; border-radius:3px; display:inline-block; }
+    .bc-chip .n { font-size:.72rem; opacity:.75; font-weight:700; }
+    .bc-search { flex:1; min-width:200px; padding:.4rem .7rem; border:1px solid var(--border); border-radius:9px; background:var(--bg); color:var(--text); font-size:.88rem; font-family:inherit; }
+    .bc-sel { padding:.4rem .6rem; border:1px solid var(--border); border-radius:9px; background:var(--bg); color:var(--text); font-size:.85rem; font-family:inherit; }
+    .bc-clear { background:none; border:none; color:#2563eb; font-size:.82rem; font-weight:600; cursor:pointer; padding:.2rem .3rem; }
+
+    .bc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:.8rem; }
     .bc-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:.75rem .9rem; }
     .bc-head { display:flex; align-items:baseline; gap:.45rem; margin-bottom:.5rem; }
     .bc-trade { font-size:.92rem; font-weight:700; }
     .bc-n { margin-left:auto; font-size:.74rem; color:var(--muted); font-weight:600; }
-    .bc-row { display:flex; align-items:baseline; gap:.5rem; padding:.3rem 0; border-top:1px solid var(--border); font-size:.85rem; }
-    .bc-row:first-of-type { border-top:none; }
-    .bc-co { font-weight:600; }
+    .bc-row { padding:.4rem 0 .3rem; font-size:.85rem; }
+    .bc-rowtop { display:flex; align-items:baseline; gap:.5rem; margin-bottom:.22rem; }
+    .bc-co { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); text-decoration:none; }
+    .bc-co:hover { text-decoration:underline; }
     .bc-amt { margin-left:auto; font-weight:700; font-variant-numeric:tabular-nums; white-space:nowrap; }
-    .bc-meta { font-size:.72rem; color:var(--muted); }
-    .bc-cty { font-size:.66rem; font-weight:700; background:var(--bg); border:1px solid var(--border); border-radius:999px; padding:1px 7px; color:var(--muted); white-space:nowrap; }
+    .bc-meta { font-size:.72rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* Bar: left-anchored, rounded at the data end, on a recessive track */
+    .bc-track { height:9px; background:var(--bg); border-radius:5px; position:relative; overflow:hidden; }
+    .bc-fill { height:100%; border-radius:3px 5px 5px 3px; min-width:3px; }
+    .bc-plot { position:relative; }
+    .bc-avg { position:absolute; top:0; bottom:.3rem; width:0; border-left:1px dashed var(--muted); opacity:.55; pointer-events:none; }
     .bc-stats { display:flex; gap:.5rem; flex-wrap:wrap; font-size:.72rem; color:var(--muted); margin-top:.45rem; padding-top:.4rem; border-top:1px dashed var(--border); }
+    .bc-scale { font-size:.68rem; color:var(--muted); margin-top:.15rem; }
     .bc-empty { color:var(--muted); background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:2rem; text-align:center; }
+    .bc-sum { font-size:.84rem; color:var(--muted); margin-bottom:.7rem; }
   </style>
 </head>
 <body>
@@ -31,93 +54,135 @@
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
     <div>
       <h1 style="margin:0">GC &amp; Sub Database</h1>
-      <div style="color:var(--muted);font-size:.88rem">Every bid on file, grouped by trade. Filter by county — costs differ by market.</div>
+      <div style="color:var(--muted);font-size:.88rem">Every bid on file, grouped by trade. Filters apply instantly — costs differ by market.</div>
     </div>
     <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
   </div>
 
-  <!-- Same tab strip as the Subs page — Bids is a tab of Subs, not a separate section -->
   <div class="subtabs">
-    <a class="subtab" href="/subs" style="text-decoration:none">🔧 Subcontractors</a>
-    <a class="subtab" href="/subs" style="text-decoration:none">🏗 Outside GCs</a>
-    <a class="subtab" href="/subs" style="text-decoration:none">🚩 Flagged</a>
+    <a class="subtab" href="/subs">🔧 Subcontractors</a>
+    <a class="subtab" href="/subs">🏗 Outside GCs</a>
+    <a class="subtab" href="/subs">🚩 Flagged</a>
     <span class="subtab on">💰 Bids</span>
   </div>
 
-  <%
-    var _fmt$ = function (n) { return '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 }); };
-    var _total = tiles.reduce(function (n, t) { return n + t.bids.length; }, 0);
-    var _qs = function (c, t) {
-      var p = [];
-      if (c) p.push('county=' + encodeURIComponent(c));
-      if (t) p.push('trade=' + encodeURIComponent(t));
-      return '/subs/bids' + (p.length ? '?' + p.join('&') : '');
-    };
-  %>
-
-  <div class="bc-bar">
-    <span style="font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">County</span>
-    <a class="bc-chip <%= county ? '' : 'on' %>" href="<%= _qs('', trade) %>">All</a>
-    <% counties.forEach(function (c) { %>
-      <a class="bc-chip <%= county === c ? 'on' : '' %>" href="<%= _qs(c, trade) %>"><%= c %></a>
-    <% }) %>
-  </div>
-
-  <% if (tradeNames.length) { %>
-  <div class="bc-bar">
-    <span style="font-size:.78rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Trade</span>
-    <a class="bc-chip <%= trade ? '' : 'on' %>" href="<%= _qs(county, '') %>">All</a>
-    <% tradeNames.forEach(function (t) { %>
-      <a class="bc-chip <%= trade === t ? 'on' : '' %>" href="<%= _qs(county, t) %>"><%= t %></a>
-    <% }) %>
-  </div>
-  <% } %>
-
-  <div style="font-size:.84rem;color:var(--muted);margin-bottom:.8rem">
-    <strong style="color:var(--text)"><%= _total %></strong> bid<%= _total === 1 ? '' : 's' %>
-    <%= county ? 'in ' + county : 'across all counties' %><%= trade ? ' · ' + trade : '' %>
-  </div>
-
-  <% if (!tiles.length) { %>
-    <div class="bc-empty">No bids match this filter yet.</div>
-  <% } else { %>
-    <div class="bc-grid">
-      <% tiles.forEach(function (t) {
-           var amts = t.bids.map(function (b) { return Number(b.amount); }).filter(function (n) { return n > 0; });
-           var lo = amts.length ? Math.min.apply(null, amts) : 0;
-           var hi = amts.length ? Math.max.apply(null, amts) : 0;
-           var avg = amts.length ? Math.round(amts.reduce(function (a, b) { return a + b; }, 0) / amts.length) : 0;
-           var sorted = t.bids.slice().sort(function (a, b) { return Number(a.amount) - Number(b.amount); });
-      %>
-        <div class="bc-card">
-          <div class="bc-head">
-            <span class="bc-trade"><%= t.trade %></span>
-            <span class="bc-n"><%= t.bids.length %> bid<%= t.bids.length === 1 ? '' : 's' %></span>
-          </div>
-          <% sorted.forEach(function (b) { %>
-            <div class="bc-row">
-              <span>
-                <span class="bc-co"><%= b.company %></span>
-                <% if (b.project) { %><div class="bc-meta"><%= b.project %></div><% } %>
-              </span>
-              <span class="bc-amt">
-                <% if (!county && b.county) { %><span class="bc-cty"><%= b.county %></span> <% } %>
-                <%= _fmt$(b.amount) %>
-              </span>
-            </div>
-          <% }) %>
-          <% if (amts.length > 1) { %>
-            <div class="bc-stats">
-              <span>Low <strong style="color:#16a34a"><%= _fmt$(lo) %></strong></span>
-              <span>Avg <strong><%= _fmt$(avg) %></strong></span>
-              <span>High <strong style="color:#b45309"><%= _fmt$(hi) %></strong></span>
-              <span>Spread <strong><%= _fmt$(hi - lo) %></strong></span>
-            </div>
-          <% } %>
-        </div>
-      <% }) %>
+  <div class="bc-tools">
+    <div class="bc-line">
+      <input type="search" id="q" class="bc-search" placeholder="Search a company, project, trade…" oninput="draw()">
+      <select id="sort" class="bc-sel" onchange="draw()">
+        <option value="low">Cheapest first</option>
+        <option value="high">Most expensive first</option>
+        <option value="spread">Widest spread first</option>
+        <option value="count">Most bids first</option>
+        <option value="trade">Trade A–Z</option>
+      </select>
+      <button type="button" class="bc-clear" onclick="clearAll()">Clear filters</button>
     </div>
-  <% } %>
+    <div class="bc-line"><span class="bc-lab">County</span><span id="ctyChips" style="display:flex;gap:.4rem;flex-wrap:wrap"></span></div>
+    <div class="bc-line"><span class="bc-lab">Trade</span><span id="trdChips" style="display:flex;gap:.4rem;flex-wrap:wrap"></span></div>
+  </div>
+
+  <div class="bc-sum" id="summary"></div>
+  <div id="out"></div>
 </div>
+
+<script>
+const BIDS = <%- JSON.stringify(bids || []).replace(/</g, '\\u003c') %>;
+const COUNTIES = <%- JSON.stringify(counties || []).replace(/</g, '\\u003c') %>;
+const TRADES = <%- JSON.stringify(trades || []).replace(/</g, '\\u003c') %>;
+// Categorical hues in fixed order, keyed to the county's position in the full list —
+// a bar keeps its colour no matter which filters are on.
+const HUES = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7'];
+const hueFor = c => { const i = COUNTIES.indexOf(c); return (i >= 0 && i < HUES.length) ? HUES[i] : '#8a8a80'; };
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const money = n => '$' + Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+
+// Multi-select: empty set = show everything.
+const selCty = new Set(<%- JSON.stringify(initCounty ? [initCounty] : []) %>);
+const selTrd = new Set(<%- JSON.stringify(initTrade ? [initTrade] : []) %>);
+
+function chips() {
+  document.getElementById('ctyChips').innerHTML = COUNTIES.map(c =>
+    '<span class="bc-chip ' + (selCty.has(c) ? 'on' : '') + '" onclick="tog(\'cty\',' + JSON.stringify(c).replace(/"/g, '&quot;') + ')">'
+    + '<span class="dot" style="background:' + hueFor(c) + '"></span>' + esc(c)
+    + '<span class="n">' + BIDS.filter(b => b.county === c).length + '</span></span>').join('');
+  document.getElementById('trdChips').innerHTML = TRADES.map(t =>
+    '<span class="bc-chip ' + (selTrd.has(t) ? 'on' : '') + '" onclick="tog(\'trd\',' + JSON.stringify(t).replace(/"/g, '&quot;') + ')">'
+    + esc(t) + '<span class="n">' + BIDS.filter(b => b.trade === t).length + '</span></span>').join('');
+}
+function tog(kind, val) {
+  const s = kind === 'cty' ? selCty : selTrd;
+  if (s.has(val)) s.delete(val); else s.add(val);
+  chips(); draw();
+}
+function clearAll() {
+  selCty.clear(); selTrd.clear();
+  document.getElementById('q').value = '';
+  chips(); draw();
+}
+function draw() {
+  const q = (document.getElementById('q').value || '').trim().toLowerCase();
+  const sort = document.getElementById('sort').value;
+  const rows = BIDS.filter(b =>
+    (!selCty.size || selCty.has(b.county)) &&
+    (!selTrd.size || selTrd.has(b.trade)) &&
+    (!q || (b.company + ' ' + b.project + ' ' + b.trade + ' ' + b.county).toLowerCase().includes(q)));
+
+  // Group into one card per trade
+  const byTrade = {};
+  rows.forEach(b => { (byTrade[b.trade] = byTrade[b.trade] || []).push(b); });
+  let cards = Object.keys(byTrade).map(t => {
+    const list = byTrade[t].slice().sort((a, b) => a.amount - b.amount);
+    const amts = list.map(b => b.amount).filter(n => n > 0);
+    const lo = amts.length ? Math.min.apply(null, amts) : 0;
+    const hi = amts.length ? Math.max.apply(null, amts) : 0;
+    const avg = amts.length ? Math.round(amts.reduce((x, y) => x + y, 0) / amts.length) : 0;
+    return { trade: t, list, lo, hi, avg, spread: hi - lo };
+  });
+  if (sort === 'low') cards.sort((a, b) => a.lo - b.lo);
+  else if (sort === 'high') cards.sort((a, b) => b.hi - a.hi);
+  else if (sort === 'spread') cards.sort((a, b) => b.spread - a.spread);
+  else if (sort === 'count') cards.sort((a, b) => b.list.length - a.list.length);
+  else cards.sort((a, b) => a.trade.localeCompare(b.trade));
+
+  const shown = [];
+  rows.forEach(b => { if (shown.indexOf(b.county) < 0) shown.push(b.county); });
+  shown.sort((a, b) => COUNTIES.indexOf(a) - COUNTIES.indexOf(b));
+
+  document.getElementById('summary').innerHTML =
+    '<strong style="color:var(--text)">' + rows.length + '</strong> bid' + (rows.length === 1 ? '' : 's')
+    + ' · ' + cards.length + ' trade' + (cards.length === 1 ? '' : 's')
+    + (shown.length > 1 ? ' · ' + shown.map(c => '<span style="display:inline-flex;align-items:center;gap:.25rem;margin-right:.5rem"><span style="width:9px;height:9px;border-radius:3px;background:' + hueFor(c) + ';display:inline-block"></span>' + esc(c) + '</span>').join('') : '')
+    + ' · <span>bar length compares bids <em>within</em> a trade</span>';
+
+  document.getElementById('out').innerHTML = !cards.length
+    ? '<div class="bc-empty">No bids match these filters.</div>'
+    : '<div class="bc-grid">' + cards.map(c => {
+        const bars = c.list.map(b => {
+          const pct = c.hi > 0 ? Math.max(2, Math.round(b.amount / c.hi * 100)) : 0;
+          const meta = [b.county, b.project].filter(Boolean).join(' · ');
+          return '<div class="bc-row">'
+            + '<div class="bc-rowtop"><a class="bc-co" href="/subs/profile/' + b.subId + '" title="' + esc(b.company) + '">' + esc(b.company) + '</a>'
+            + '<span class="bc-amt">' + money(b.amount) + '</span></div>'
+            + '<div class="bc-track" title="' + esc(b.company) + ' — ' + money(b.amount) + (b.county ? ' · ' + esc(b.county) : '') + '">'
+            + '<div class="bc-fill" style="width:' + pct + '%;background:' + hueFor(b.county) + '"></div></div>'
+            + (meta ? '<div class="bc-meta" style="margin-top:.16rem">' + esc(meta) + '</div>' : '')
+            + '</div>';
+        }).join('');
+        const avgLine = (c.list.length > 1 && c.hi > 0)
+          ? '<div class="bc-avg" style="left:' + Math.round(c.avg / c.hi * 100) + '%" title="Average ' + money(c.avg) + '"></div>' : '';
+        const stats = c.list.length > 1
+          ? '<div class="bc-stats"><span>Low <strong style="color:#176b3a">' + money(c.lo) + '</strong></span>'
+            + '<span>Avg <strong>' + money(c.avg) + '</strong></span>'
+            + '<span>High <strong style="color:#8a5a00">' + money(c.hi) + '</strong></span>'
+            + '<span>Spread <strong>' + money(c.spread) + '</strong></span></div>'
+            + '<div class="bc-scale">Dashed line = average</div>' : '';
+        return '<div class="bc-card"><div class="bc-head"><span class="bc-trade">' + esc(c.trade) + '</span>'
+          + '<span class="bc-n">' + c.list.length + ' bid' + (c.list.length === 1 ? '' : 's') + '</span></div>'
+          + '<div class="bc-plot">' + avgLine + bars + '</div>' + stats + '</div>';
+      }).join('') + '</div>';
+}
+chips(); draw();
+</script>
 </body>
 </html>
