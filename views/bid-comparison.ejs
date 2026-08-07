@@ -25,18 +25,23 @@
   </style>
 </head>
 <body>
-<%- include('_nav', { active: 'bidcompare' }) %>
+<%- include('_nav', { active: 'subs' }) %>
 
 <div class="container">
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:1rem">
     <div>
-      <h1 style="margin:0">💰 Bid Comparison</h1>
+      <h1 style="margin:0">GC &amp; Sub Database</h1>
       <div style="color:var(--muted);font-size:.88rem">Every bid on file, grouped by trade. Filter by county — costs differ by market.</div>
     </div>
-    <div style="display:flex;gap:.5rem;align-items:center">
-      <a href="/subs" class="btn btn-ghost btn-sm">← Back to Subs</a>
-      <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
-    </div>
+    <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
+  </div>
+
+  <!-- Same tab strip as the Subs page — Bids is a tab of Subs, not a separate section -->
+  <div class="subtabs">
+    <a class="subtab" href="/subs" style="text-decoration:none">🔧 Subcontractors</a>
+    <a class="subtab" href="/subs" style="text-decoration:none">🏗 Outside GCs</a>
+    <a class="subtab" href="/subs" style="text-decoration:none">🚩 Flagged</a>
+    <span class="subtab on">💰 Bids</span>
   </div>
 
   <%

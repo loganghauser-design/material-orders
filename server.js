@@ -1306,7 +1306,6 @@ const PAGE_META = [
   { key: 'warranty', label: 'Warranty', path: '/warranty-claims' },
   { key: 'notices', label: 'Delivery Notices', path: '/delivery-notices' },
   { key: 'subs', label: 'Subs', path: '/subs' },
-  { key: 'bidcompare', label: 'Bids (comparison)', path: '/subs/bids' },
   { key: 'suppliers', label: 'Suppliers', path: '/suppliers' },
   { key: 'inventory', label: 'Inventory', path: '/inventory' },
   { key: 'catalog', label: 'Master Catalog', path: '/catalog' },
@@ -1351,7 +1350,8 @@ function allowedPagesFor(key, role) {
 }
 function pageForPath(p) {
   if (p === '/') return null;   // dashboard — open to every admin; supers get sent to /my
-  if (p === '/subs/bids' || p.startsWith('/subs/bids') || p.startsWith('/bid-comparison')) return 'bidcompare';
+  // Bids is a tab of Subs, not its own page — it inherits Subs access.
+  if (p.startsWith('/subs/bids') || p.startsWith('/bid-comparison')) return 'subs';
   if (p.startsWith('/projects') || p === '/reorder-projects') return 'projects';
   if (p.startsWith('/deliveries')) return 'deliveries';
   if (p.startsWith('/ordering')) return 'ordering';
