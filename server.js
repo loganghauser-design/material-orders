@@ -6981,7 +6981,7 @@ app.post('/subs/:id/email', requireAuth, async (req, res) => {
     }
     let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${bodyToHtml(body)}</div>`;
     if (plansRaw) {
-      html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
+      html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>Bid folder:</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
     }
     const sig = await getGmailSignature();
     if (sig) html += `<br><br>${sig}`;
@@ -7048,11 +7048,17 @@ async function sendBidToSub(sub, { subject, subjectGc, body, bodyGc, plansRaw, s
     const gc = isGcSub(sub);
     const useBody = (gc && String(bodyGc || '').trim()) ? bodyGc : body;
     const useSubject = (gc && String(subjectGc || '').trim()) ? subjectGc : subject;
+    // Don't ask a contractor for a licence we already hold — that's what makes an
+    // email read like a blast. Drop the bullet when it's on file.
+    const lic = String(sub.license_number || '').trim();
+    const licenseAsk = lic ? '' : (gc ? '• B license number\n' : '• Contractor license number\n');
     const personal = String(useBody || '')
       .split('{NAME}').join(sub.company || sub.owner || 'there')
-      .split('{TRADE}').join(tradePhrase(sub.type));
+      .split('{TRADE}').join(tradePhrase(sub.type))
+      .split('{LICENSE_ASK}\n').join(licenseAsk)   // token on its own line
+      .split('{LICENSE_ASK}').join(licenseAsk.trim());
     let html = `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;white-space:pre-wrap">${bodyToHtml(personal)}</div>`;
-    if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>📐 Full plans (CD set):</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
+    if (plansRaw) html += `<p style="font-family:Arial,sans-serif;font-size:14px;color:#222;margin:14px 0"><strong>Bid folder:</strong> <a href="${escapeHtml(plansRaw)}">${escapeHtml(plansRaw)}</a></p>`;
     if (sig) html += `<br><br>${sig}`;
     const subject_ = useSubject;
     const sent = await sendMail({ to: sub.email, subject: subject_, html });
@@ -7169,7 +7175,7 @@ app.post('/subs/send-bulk', requireAuth, async (req, res) => {
     if (!ids.length) return res.status(400).json({ ok: false, error: 'No subs selected.' });
     if (ids.length > 300) return res.status(400).json({ ok: false, error: 'Too many at once (max 300).' });
     if (plansRaw && !/^https?:\/\//i.test(plansRaw)) return res.status(400).json({ ok: false, error: 'The plans link must start with http:// or https://' });
-    const { rows: subsSel } = await pool.query('SELECT id, company, owner, email, type, status, category FROM subcontractors WHERE id = ANY($1)', [ids]);
+    const { rows: subsSel } = await pool.query('SELECT id, company, owner, email, type, status, category, license_number FROM subcontractors WHERE id = ANY($1)', [ids]);
     const sig = await getGmailSignature();
     const results = [];
     for (const sub of subsSel) {
@@ -7397,7 +7403,7 @@ async function insertIntakeSub(s, sortOrder) {
   const { rows: [sub] } = await pool.query(
     `INSERT INTO subcontractors (company, owner, type, email, phone, location, notes, status, group_label, category, sort_order, recent_add, bid_status)
      VALUES ($1,$2,$3,$4,$5,$6,$7,'Under Review',$8,$9,$10,TRUE,'Intake')
-     RETURNING id, company, owner, email, type, status, category`,
+     RETURNING id, company, owner, email, type, status, category, license_number`,
     [s.name || null, s.name || null, type,
      s.email || null, s.phone || null, loc, note, INTAKE_GROUP, cat, sortOrder]);
   return sub;
