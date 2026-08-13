@@ -1546,6 +1546,8 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS finish_schedule_url TEXT;
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS rec_lighting_source VARCHAR(20);
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
+    -- Which plumbing-fixture package this project gets: 'kohler' (default) or 'moen'.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS fixture_package VARCHAR(10);
     -- Doors (1a) stock toggles: 3-panel bifold is Buildoly stock by default;
     -- the sliding glass door is vendor-supplied by default.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS bifold_source VARCHAR(20);
@@ -4844,6 +4846,17 @@ app.post('/projects/:id/sliding-door-source', requireAuth, async (req, res) => {
 });
 
 // Toggle who supplies the range hood: 'default' (schedule vendor) or 'buildoly' (Buildoly office stock)
+// Kohler ⇄ Moen fixture package. Re-syncs immediately so the materials list and
+// the Ferguson order both reflect the new SKUs rather than waiting for the TTL.
+app.post('/projects/:id/fixture-package', requireAuth, async (req, res) => {
+  try {
+    const pkg = normalizeFixturePackage(req.body && req.body.pkg);
+    await pool.query('UPDATE projects SET fixture_package=$1 WHERE id=$2', [pkg, req.params.id]);
+    const r = await syncProjectExpected(req.params.id).catch(e => ({ ok: false, error: e.message }));
+    res.json({ ok: true, pkg, resynced: !!(r && r.ok) });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 app.post('/projects/:id/range-hood-source', requireAuth, async (req, res) => {
   try {
     const src = req.body.source === 'buildoly' ? 'buildoly' : 'default';
@@ -8013,17 +8026,77 @@ app.post('/catalog/sync', requireAuth, async (req, res) => {
 // read keeps the last good data instead of wiping the list.
 const EXP_SYNC_TTL_MS = 10 * 60 * 1000;
 const _expSyncAt = new Map();   // `${projectId}|${scheduleUrl}` -> last successful sync ms
+// ── Plumbing fixture packages: Kohler (default) or Moen ─────────────────────
+// Taken from a real pair of projects — Silver Lantern runs Kohler, Alvarado runs
+// Moen. Written out slot by slot ON PURPOSE: the product codes look like they
+// encode the brand ("01" Kohler / "02" Moen) but they don't. KT-GDCB01 is Moen,
+// while B-AGB01PC/02PC are grab-bar SIZES and B-SHB01W/02W are drain HANDING —
+// swapping those by rule would order the wrong part from Ferguson.
+const FIXTURE_PACKAGE_SLOTS = [
+  { slot: 'Bath faucet',            kohler: 'B-F01PC',    moen: 'B-F02PC' },
+  { slot: 'Shower kit',             kohler: 'B-SHK01PC',  moen: 'B-SHK02PC' },
+  { slot: 'Shower valve',           kohler: 'B-SHV01',    moen: 'B-SHV02' },
+  { slot: 'Kitchen sink',           kohler: 'KT-S01SS',   moen: 'KT-S02SS' },
+  { slot: 'Kitchen faucet',         kohler: 'KT-F01PC',   moen: 'KT-F02PC' },
+  { slot: 'Garbage disposal',       kohler: 'KT-GD01',    moen: 'KT-GD02' },
+  { slot: 'Disposal switch',        kohler: 'KT-GDS01PC', moen: 'KT-GDS02PC' },
+  { slot: 'Disposal flange',        kohler: 'KT-DF01PC',  moen: 'KT-DF02PC' },
+  { slot: 'Air gap',                kohler: 'KT-AG01PC',  moen: 'KT-AG02PC' },
+  // Moen-only on Alvarado — no Kohler counterpart exists, so these appear only
+  // on a Moen project and are dropped on a Kohler one.
+  { slot: 'Shower curtain rod',     kohler: null,         moen: 'B-SHC04' },
+  { slot: 'Disposal switch controller', kohler: null,     moen: 'KT-GDCB01' },
+];
+function normalizeFixturePackage(v) { return String(v || '').toLowerCase() === 'moen' ? 'moen' : 'kohler'; }
+
+// Rewrite the schedule's fixture rows to the project's package. Rows the package
+// doesn't cover are untouched, so the toilet, tile, vanity etc. stay as specified.
+function applyFixturePackage(rows, pkg, catBy) {
+  const want = normalizeFixturePackage(pkg);
+  const other = want === 'moen' ? 'kohler' : 'moen';
+  const bySource = new Map();      // code that must be replaced → the slot
+  const alreadyRight = new Set();  // code that is already the wanted variant
+  FIXTURE_PACKAGE_SLOTS.forEach(s => {
+    if (s[other]) bySource.set(s[other], s);
+    if (s[want]) alreadyRight.add(s[want]);
+  });
+  const out = [];
+  const present = new Set(rows.map(r => (r.prodCode || '').trim()).filter(Boolean));
+  for (const r of rows) {
+    const code = (r.prodCode || '').trim();
+    const slot = bySource.get(code);
+    if (!slot) { out.push(r); continue; }
+    const target = slot[want];
+    if (!target) continue;                      // wanted package has no such item → drop the row
+    if (present.has(target)) continue;          // sheet already lists the right one → don't duplicate
+    const c = catBy[target] || {};
+    out.push(Object.assign({}, r, {
+      prodCode: target,
+      product: c.product_name || r.product,
+      name: c.product_name || r.name,
+      model: c.model_no || '',
+      supplier: c.supplier || r.supplier,
+    }));
+  }
+  return out;
+}
+
 async function syncProjectExpected(projectId) {
-  const { rows: [proj] } = await pool.query('SELECT id, finish_schedule_url FROM projects WHERE id=$1', [projectId]);
+  const { rows: [proj] } = await pool.query('SELECT id, finish_schedule_url, fixture_package FROM projects WHERE id=$1', [projectId]);
   if (!proj || !proj.finish_schedule_url) return { ok: false, error: 'No finish schedule linked to this project yet.' };
-  const syncKey = projectId + '|' + proj.finish_schedule_url;   // URL in the key → changing the sheet re-syncs immediately
+  const pkg = normalizeFixturePackage(proj.fixture_package);
+  // Package is part of the key: switching Kohler↔Moen must re-sync straight away.
+  const syncKey = projectId + '|' + proj.finish_schedule_url + '|' + pkg;
   const last = _expSyncAt.get(syncKey);
   if (last && (Date.now() - last) < EXP_SYNC_TTL_MS) return { ok: true, cached: true };
   const values = await fetchScheduleValues(proj.finish_schedule_url);
-  const parsed = parseScheduleRows(values).filter(r => r.type === 'item');
-  const { rows: cat } = await pool.query('SELECT prod_code, category_code, model_no, model_norm, supplier FROM item_catalog');
+  let parsed = parseScheduleRows(values).filter(r => r.type === 'item');
+  const { rows: cat } = await pool.query('SELECT prod_code, item_role, brand, product_name, model_no, model_norm, finish, supplier, cost, category_code FROM item_catalog');
   const catBy = {}; cat.forEach(c => { catBy[c.prod_code] = c; });
   const rowsToInsert = [];
+  // Swap the fixture package before anything is stored, so the materials list and
+  // whatever goes to Ferguson agree with the project's selection.
+  parsed = applyFixturePackage(parsed, pkg, catBy);
   for (const it of parsed) {
     const c = catBy[it.prodCode] || {};
     const supplier = normalizeSupplier(it.supplier || c.supplier || '');

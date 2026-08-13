@@ -385,6 +385,12 @@
       </select>
     </label>
     <% } %>
+    <label class="ck-src" title="Swaps the plumbing fixtures — faucets, shower kit &amp; valve, kitchen sink, disposal parts — to that brand's models on the materials list and the Ferguson order">Fixtures
+      <select onchange="setFixturePackage(this.value)">
+        <option value="kohler" <%= project.fixture_package==='moen'?'':'selected' %>>Kohler pkg</option>
+        <option value="moen" <%= project.fixture_package==='moen'?'selected':'' %>>Moen pkg</option>
+      </select>
+    </label>
     <label class="ck-src">Rec. Light
       <select onchange="setRecSource(this.value)">
         <option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option>
@@ -1176,6 +1182,16 @@ async function setOutcome(orderId, outcome, btn) {
     wrap.querySelectorAll('.ocp').forEach(b => b.classList.remove('on'));
     if (!wasOn) btn.classList.add('on');
     showToast(wasOn ? 'Rating cleared' : 'Delivery rated ✓');
+  } catch (e) { showToast('Could not save', true); }
+}
+async function setFixturePackage(pkg) {
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/fixture-package`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pkg }) });
+    const data = await r.json();
+    if (data.ok) {
+      showToast(pkg === 'moen' ? 'Fixtures → Moen package' : 'Fixtures → Kohler package');
+      setTimeout(function () { location.reload(); }, 900);   // re-sync pulls the new SKUs
+    } else showToast(data.error || 'Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }
 async function setRangeHoodSource(source) {
