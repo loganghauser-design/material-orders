@@ -9192,11 +9192,83 @@ function parseBidTotal(text) {
   return best;
 }
 const BIDDOC_RE = /bid|proposal|estimate|quote/i;
+
+// ── Bids written in the email body (no attachment) ──────────────────────────
+// Plenty of subs just type the number: "I can bid it at 8k", "my estimator came up
+// to $264,635". Those used to be invisible to the ingester. Parsing prose is riskier
+// than parsing an estimate PDF, so everything below is about NOT logging a number
+// that isn't a bid.
+
+// Drop the quoted chain — otherwise we read the figures out of our own email.
+function stripQuotedReply(text) {
+  const lines = String(text || '').split(/\r?\n/);
+  const out = [];
+  for (const ln of lines) {
+    if (/^\s*>/.test(ln)) continue;                                  // quoted
+    if (/^\s*On .{0,80}(wrote|schrieb):\s*$/i.test(ln)) break;       // "On ... wrote:"
+    if (/^\s*-{2,}\s*Forwarded message/i.test(ln)) break;
+    if (/^\s*(From|Sent|To|Subject|Date):\s/i.test(ln)) break;       // Outlook header block
+    if (/^\s*_{5,}\s*$/.test(ln)) break;                             // Outlook divider
+    out.push(ln);
+  }
+  return out.join('\n');
+}
+
+// Contexts where a number is definitely NOT the bid total.
+function isDisqualifiedAmount(ctxBefore, ctxAfter, raw) {
+  const b = ctxBefore.toLowerCase(), a = ctxAfter.toLowerCase();
+  if (/(?:lic(?:ense)?\.?\s*#?|cslb|ein|tax\s*id)\s*$/.test(b)) return true;       // license / tax id
+  if (/\b(?:each\s+occurrence|aggregate|policy|limits?|coverage|umbrella|deductible)\b/.test(b)) return true;
+  if (/^\s*\/\s*\$?[\d,]+\s*(?:aggregate|occurrence)/.test(a)) return true;        // $1,000,000/$2,000,000
+  if (/\b(?:phone|cell|call|text|fax)\b[^.\n]{0,15}$/.test(b)) return true;
+  if (/^\d{4}$/.test(raw.replace(/[^\d]/g, '')) && /^(19|20)\d{2}$/.test(raw.replace(/[^\d]/g, ''))) return true;  // a year
+  return false;
+}
+// "$300 a sq ft" / "$350 per square foot" is a RATE, not a total — never a bid amount.
+function isRateAmount(ctxAfter) {
+  return /^\s*(?:\/|per|a|each)?\s*(?:sq(?:uare)?\.?\s*(?:ft|foot|feet)|sf\b|s\.f\.)/i.test(ctxAfter);
+}
+const BID_CUE = /(?:bid|quote|estimate|proposal|price|total|comes?\s+(?:out\s+)?to|came\s+(?:up\s+)?to|do\s+it\s+for|at)\b[^.\n]{0,40}$/i;
+
+// Returns { amount, rate, snippet } — amount is the bid total when we're confident.
+function parseBidFromBody(rawText) {
+  const text = stripQuotedReply(rawText);
+  if (!text.trim()) return null;
+  // An insurance/COI reply is not a bid.
+  if (/certificate of liability|acord\b|each occurrence|policy (?:number|limits)/i.test(text)) return null;
+  const cands = [];
+  const push = (value, idx, len, raw) => {
+    const before = text.slice(Math.max(0, idx - 70), idx);
+    const after = text.slice(idx + len, idx + len + 25);
+    if (isDisqualifiedAmount(before, after, raw)) return;
+    if (isRateAmount(after)) { cands.push({ value, rate: true, before, idx }); return; }
+    if (value < 500 || value > 5000000) return;
+    cands.push({ value, rate: false, before, idx, cued: BID_CUE.test(before) });
+  };
+  let m;
+  const dollar = /\$\s?(\d[\d,]*(?:\.\d{2})?)/g;
+  while ((m = dollar.exec(text))) push(normBidAmount(m[1]), m.index, m[0].length, m[1]);
+  const kshort = /(?:^|[^\w$])(\d{1,4})\s?k\b/gi;   // "8k", "195k"
+  while ((m = kshort.exec(text))) {
+    const idx = m.index + m[0].indexOf(m[1]);
+    push(Number(m[1]) * 1000, idx, m[1].length + 1, m[1]);
+  }
+  const totals = cands.filter(c => !c.rate);
+  if (!totals.length) {
+    const r = cands.find(c => c.rate);
+    return r ? { amount: null, rate: r.value, snippet: text.slice(Math.max(0, r.idx - 60), r.idx + 40).trim() } : null;
+  }
+  // A number introduced by a bid cue ("bid it at 8k") beats a bare figure; else largest.
+  const cued = totals.filter(c => c.cued);
+  const pick = (cued.length ? cued : totals).reduce((a, b) => (b.value > a.value ? b : a));
+  return { amount: pick.value, rate: null, snippet: text.slice(Math.max(0, pick.idx - 70), pick.idx + 40).trim() };
+}
+
 async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyText, when) {
-  if (!atts || !atts.length || !gmailClient) return;
+  if (!gmailClient) return;
   const { rows: [dup] } = await pool.query('SELECT id FROM bids WHERE gmail_message_id=$1 LIMIT 1', [gmailMessageId]);
   if (dup) return;
-  const cands = atts.filter(a => /\.(pdf|docx?|png|jpe?g)$/i.test(a.filename || '') && !COI_FILE_RE.test(a.filename || '')).slice(0, 3);
+  const cands = (atts || []).filter(a => /\.(pdf|docx?|png|jpe?g)$/i.test(a.filename || '') && !COI_FILE_RE.test(a.filename || '')).slice(0, 3);
   for (const a of cands) {
     const att = await gmailClient.users.messages.attachments.get({ userId: 'me', messageId: gmailMessageId, id: a.attachmentId });
     const buf = Buffer.from(String(att.data.data).replace(/-/g, '+').replace(/_/g, '/'), 'base64');
@@ -9227,7 +9299,44 @@ async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyTe
     console.log('direct bid ingested: ' + sub.company + ' ' + priceStr + (proj ? ' -> ' + proj.address : ' (no project match)'));
     return true;
   }
-  return false;
+
+  // No attachment gave us a total — read the message itself. Only for replies that
+  // are actually about a bid, so a scheduling note with a number in it stays out.
+  const bidContext = BIDDOC_RE.test(String(subject || '')) || BIDDOC_RE.test(stripQuotedReply(String(bodyText || '')));
+  if (!bidContext) return false;
+  const parsed = parseBidFromBody(bodyText);
+  if (!parsed) return false;
+  const { rows: [sub] } = await pool.query('SELECT id, company, status, bid_status FROM subcontractors WHERE id=$1', [subId]);
+  if (!sub) return false;
+
+  // A per-square-foot rate isn't a total — flag it for Logan instead of inventing one.
+  if (!parsed.amount && parsed.rate) {
+    await pool.query("UPDATE subcontractors SET bid_status='Rate quoted' WHERE id=$1 AND COALESCE(bid_status,'') NOT IN ('Bid Received','Awarded')", [sub.id]);
+    await postBidToBidsSpace('💬 *' + sub.company + '* quoted a RATE — *$' + parsed.rate.toLocaleString('en-US') + '/sq ft* (no total yet)\n_' + parsed.snippet.replace(/\s+/g, ' ').slice(0, 160) + '_',
+      String(subject || '').slice(0, 140), [], gmailMessageId).catch(() => {});
+    console.log('rate quoted (not a total): ' + sub.company + ' $' + parsed.rate + '/sqft');
+    return false;
+  }
+
+  const amount = parsed.amount;
+  const priceStr = '$' + amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const newBidStatus = /awarded/i.test(sub.bid_status || '') ? sub.bid_status : 'Bid Received';
+  await pool.query('UPDATE subcontractors SET bid_status=$1, bid_price=$2 WHERE id=$3', [newBidStatus, priceStr.slice(0, 40), sub.id]);
+  if (!/active|approv|inactive|reject|black|bid under review/i.test(sub.status || '')) {
+    await pool.query("UPDATE subcontractors SET status='Bid Under Review', group_label='Bid Under Review' WHERE id=$1", [sub.id]);
+  }
+  const hint = bidJobHint(subject, bodyText);
+  const proj = hint ? await matchBidToProject(hint) : null;
+  await pool.query(
+    `INSERT INTO bids (sub_id, project_id, amount, estimate_no, subject, job_hint, gmail_message_id, filename, gmail_attachment_id, auto_matched, received_at, seen)
+     VALUES ($1,$2,$3,NULL,$4,$5,$6,NULL,NULL,$7,$8,false)`,
+    [sub.id, proj ? proj.id : null, amount, String(subject || '').slice(0, 250), hint, gmailMessageId, !!proj, when || new Date()]);
+  await postBidToBidsSpace(
+    '📥 *' + sub.company + '* — *' + priceStr + '*  _(written in the email)_' + (proj ? '\n🏠 ' + proj.address : '')
+      + '\n_“' + parsed.snippet.replace(/\s+/g, ' ').slice(0, 160) + '”_',
+    String(subject || '').slice(0, 140), [], gmailMessageId).catch(() => {});
+  console.log('body bid ingested: ' + sub.company + ' ' + priceStr + (proj ? ' -> ' + proj.address : ' (no project match)'));
+  return true;
 }
 // Post a bid to the Bids chat space — Chat API with the real file attached, webhook links as fallback
 async function postBidToBidsSpace(header, subjectLine, docs, messageId) {
