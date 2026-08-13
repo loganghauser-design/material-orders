@@ -1582,6 +1582,9 @@ async function initDb() {
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_price VARCHAR(40);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_campaign_at TIMESTAMPTZ;
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_followup_count INTEGER DEFAULT 0;
+    -- What a sub's reply actually was: bid | rate | decline | ooo | question | docs | other.
+    -- An out-of-office must not count as "they answered", or follow-ups stop forever.
+    ALTER TABLE sub_emails ADD COLUMN IF NOT EXISTS reply_kind VARCHAR(16);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_price_alt VARCHAR(40);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS bid_alt_label VARCHAR(60);
     ALTER TABLE subcontractors ADD COLUMN IF NOT EXISTS stale_alerted_at TIMESTAMPTZ;
@@ -7100,7 +7103,10 @@ async function sendBidFollowups() {
         AND s.email_bounced_at IS NULL
         AND COALESCE(s.status,'') !~* 'active|approv|inactive|reject|black|bid under review'
         AND le.created_at < NOW() - INTERVAL '3 days'
-        AND NOT EXISTS (SELECT 1 FROM sub_emails i WHERE i.sub_id = s.id AND i.direction = 'in' AND i.created_at > s.bid_campaign_at)
+        /* An out-of-office is not an answer — it must not silence the follow-up. */
+        AND NOT EXISTS (SELECT 1 FROM sub_emails i WHERE i.sub_id = s.id AND i.direction = 'in'
+                          AND i.created_at > s.bid_campaign_at
+                          AND COALESCE(i.reply_kind,'') <> 'ooo')
       ORDER BY le.created_at DESC
       LIMIT 25`);   /* per-run cap: drains a backlog over days instead of one blast (kinder to Gmail's spam filters too) */
     out.due = rows.length;
@@ -7855,9 +7861,15 @@ async function checkSubReplies() {
               "INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)",
               [ins.id, a.filename, a.mimeType || null, a.size || null, m.id, a.attachmentId]);
           }
-          // Bid attached? Read it and put it in the pipeline — same as a QuickBooks estimate.
+          // Bid attached or written in the body? Read it and put it in the pipeline.
           try { await maybeIngestDirectBid(r.sub_id, m.id, atts, m.subject || r.subject, text, when); }
           catch (e) { console.error('direct bid ingest:', e.message); }
+          // Then act on what the reply actually was — a decline stops follow-ups, an
+          // out-of-office must not count as an answer, a question gets surfaced.
+          try {
+            const kind = classifyReply(m.subject || r.subject, text, atts.length > 0);
+            await applyReplyKind(r.sub_id, kind, m.subject || r.subject, text, ins.id);
+          } catch (e) { console.error('classify reply:', e.message); }
           // License number in the reply ("CSLB #1043002", "Lic 987654")? Capture + verify it.
           try { await maybeCaptureLicense(r.sub_id, (m.body || '') + ' ' + (m.subject || '')); }
           catch (e) { console.error('license capture:', e.message); }
@@ -9262,6 +9274,60 @@ function parseBidFromBody(rawText) {
   const cued = totals.filter(c => c.cued);
   const pick = (cued.length ? cued : totals).reduce((a, b) => (b.value > a.value ? b : a));
   return { amount: pick.value, rate: null, snippet: text.slice(Math.max(0, pick.idx - 70), pick.idx + 40).trim() };
+}
+
+// ── What kind of reply is this? ─────────────────────────────────────────────
+// A sub's reply is not just "a reply". Treating them all the same means an
+// auto-responder silences follow-ups forever and a contractor who already said
+// no keeps getting nudged. Order matters: a promise to send later outranks a
+// refusal ("can't get it done by the 12th, will have it by the 14th").
+const RE_OOO = /out of (?:the )?office|automatic reply|auto-?reply|autoresponder|currently (?:away|unavailable)|on vacation|will (?:be )?return(?:ing)? on|away from my desk/i;
+const RE_PROMISE = /(?:i'?ll|i will|we'?ll|we will|going to|plan to)\s+(?:send|get|have|submit|forward|email)|by (?:the )?\d{1,2}(?:th|st|nd|rd)?\b|tomorrow|next week|later today|working on (?:it|your|the)|in progress|hope to (?:complete|finish|have)/i;
+const RE_DECLINE = /(?:will be |am |are |we'?re )?(?:unable|not able) to (?:bid|quote|take|participate)|(?:don'?t|do not|doesn'?t) have the (?:capacity|bandwidth|manpower)|we (?:only|just) (?:do|build|handle|work)|nothing with|respectfully decline|(?:have to |must )?(?:pass|decline) on (?:this|it)|not interested|not a (?:good )?fit for us|we don'?t (?:do|service|cover)/i;
+const RE_QUESTION = /\?|\b(?:a few |some |several )?questions?\b|when (?:do|will|can) you|could you (?:please )?(?:send|clarify|confirm)|clarif(?:y|ication)|need more (?:info|information|detail)/i;
+
+function classifyReply(subject, bodyText, hasAttachments) {
+  const subj = String(subject || '');
+  // Drop URLs before looking for "?" — a tracking link is not a question.
+  const body = stripQuotedReply(String(bodyText || '')).replace(/https?:\/\/\S+/g, ' ');
+  const all = subj + '\n' + body;
+  if (RE_OOO.test(subj) || RE_OOO.test(body.slice(0, 400))) return 'ooo';
+  const bid = parseBidFromBody(body);
+  if (bid && bid.amount) return 'bid';
+  if (bid && bid.rate) return 'rate';
+  // A refusal only counts if they aren't also promising to send something.
+  if (RE_DECLINE.test(all) && !RE_PROMISE.test(all)) return 'decline';
+  if (RE_QUESTION.test(body)) return 'question';
+  if (hasAttachments) return 'docs';
+  return 'other';
+}
+
+// Act on the classification: stop chasing people who said no, don't let an
+// auto-reply count as an answer, and surface real questions so they aren't missed.
+async function applyReplyKind(subId, kind, subject, bodyText, emailRowId) {
+  try {
+    if (emailRowId) await pool.query('UPDATE sub_emails SET reply_kind=$1 WHERE id=$2', [kind, emailRowId]);
+    const { rows: [sub] } = await pool.query('SELECT id, company, status, bid_status FROM subcontractors WHERE id=$1', [subId]);
+    if (!sub) return;
+    const snippet = stripQuotedReply(String(bodyText || '')).replace(/\s+/g, ' ').trim().slice(0, 180);
+
+    if (kind === 'decline') {
+      // Stop the follow-up machine and get them out of the active pipeline.
+      await pool.query(
+        `UPDATE subcontractors SET bid_status='Declined', bid_followup_count=99
+         WHERE id=$1 AND COALESCE(bid_status,'') NOT IN ('Bid Received','Awarded')`, [subId]);
+      if (!/active|approv|reject|black|bid under review/i.test(sub.status || '')) {
+        await pool.query("UPDATE subcontractors SET status='Rejected', group_label='Rejected Subcontractors' WHERE id=$1", [subId]);
+      }
+      await postBidsText('🚫 *' + sub.company + '* declined — follow-ups stopped.\n_“' + snippet + '”_', undefined, true).catch(() => {});
+      console.log('reply=decline: ' + sub.company);
+    } else if (kind === 'question') {
+      await postBidsText('❓ *' + sub.company + '* asked something before pricing:\n_“' + snippet + '”_\nhttps://buildoly.up.railway.app/subs', undefined, true).catch(() => {});
+      console.log('reply=question: ' + sub.company);
+    } else if (kind === 'ooo') {
+      console.log('reply=ooo (ignored for follow-ups): ' + sub.company);
+    }
+  } catch (e) { console.error('applyReplyKind:', e.message); }
 }
 
 async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyText, when) {

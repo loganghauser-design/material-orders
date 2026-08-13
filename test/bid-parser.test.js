@@ -10,8 +10,13 @@ const grab = name => {
     else if (src[j] === '}') { d--; if (started && d === 0) return src.slice(i, j + 1); }
   }
 };
-const code = [ 'normBidAmount', 'stripQuotedReply', 'isDisqualifiedAmount', 'isRateAmount', 'parseBidFromBody' ].map(grab).join('\n')
-  + '\nconst BID_CUE = ' + src.match(/const BID_CUE = (\/.*\/i);/)[1] + ';\n';
+const reOf = name => src.match(new RegExp('const ' + name + ' = (\\/.*\\/i);'))[1];
+const code = [ 'normBidAmount', 'stripQuotedReply', 'isDisqualifiedAmount', 'isRateAmount', 'parseBidFromBody', 'classifyReply' ].map(grab).join('\n')
+  + '\nconst BID_CUE = ' + reOf('BID_CUE') + ';'
+  + '\nconst RE_OOO = ' + reOf('RE_OOO') + ';'
+  + '\nconst RE_PROMISE = ' + reOf('RE_PROMISE') + ';'
+  + '\nconst RE_DECLINE = ' + reOf('RE_DECLINE') + ';'
+  + '\nconst RE_QUESTION = ' + reOf('RE_QUESTION') + ';\n';
 eval(code);
 
 const CASES = [
@@ -38,7 +43,35 @@ const CASES = [
     t: "Hi Logan, Unfortunately at this time we will be unable to bid on your projects. This is mainly due to the pricing." },
 ];
 
+// Reply classification — all taken from real replies in the buildoly inbox.
+const KINDS = [
+  { want: 'bid', label: "J'S ONE STOP — bid in the body", s: 'Re: ADU BID REQUEST BUILDOLY',
+    t: 'Logan after reviewing the plans\n\nI can bid it at 8k\n\n1 bath\n1 laundry room\n1 kitchen' },
+  { want: 'rate', label: 'LOHR FRED — $/sq ft rate', s: 'Re: ADU PROJECT BID REQUEST',
+    t: 'He Logan. Listen we are at $300 a sq ft. Turn key. I can safely do it for that price.' },
+  { want: 'decline', label: 'PROSERVE — unable to bid', s: 'Re: ADU PROJECT BID REQUEST',
+    t: 'Hi Logan, Unfortunately at this time we will be unable to bid on your projects. This is mainly due to the pricing.' },
+  { want: 'decline', label: 'FRASER — only decks and patios', s: 'Re: ADU PROJECT BID REQUEST',
+    t: "Hi Logan, What kind of projects are you looking for specifically? We only build decks and patio covers, nothing with ADU's." },
+  { want: 'decline', label: 'T CONSTRUCTION — no capacity', s: 'Re: ADU PROJECT BID REQUEST',
+    t: "Hi Logan, Thanks for following up. At this time, I don't have the capacity to take on these bid packages." },
+  { want: 'ooo', label: 'POSEIDON — out of office', s: 'Out Of The Office Re: ADU PROJECT BID REQUEST',
+    t: 'Thank you for your email. I am currently out of the office and will return on September 6.' },
+  { want: 'ooo', label: 'Automatic reply beats everything', s: 'Automatic reply: ADU PROJECT BID REQUEST',
+    t: 'Thank you for reaching out. I appreciate your message and look forward to connecting.' },
+  { want: 'question', label: 'MORGAN — permit question', s: 'Re: ADU PROJECT BID REQUEST',
+    t: 'Hi Logan\nWhen do you anticipate permits ?\n\nJon Morgan' },
+  { want: 'question', label: 'MEJIA — scope questions', s: 'Re: ADU PROJECT BID REQUEST',
+    t: 'I have a few questions for you on those plans you sent .\n1. Says we need to upgrade the current panel but thats not in the scope of work.\n2. The roof says shingels and you have a metal roof on the notes ?.' },
+  // A delay is NOT a decline — they still intend to bid, so keep chasing.
+  { want: 'other', label: 'REAL ESTATE REDEV — delayed, not declined', s: 'Re: ADU PROJECT BID REQUEST',
+    t: 'Unfortunately I will not be able to get the complete quote done by the 12th. I hope to complete by the 14th if that is acceptable.' },
+  { want: 'other', label: 'T I INDUSTRY — promises proposal tomorrow', s: 'Re: ADU BID REQUEST BUILDOLY',
+    t: 'Good morning I will send you the proposal tomorrow and the insurance papers.' },
+];
+
 let pass = 0, fail = 0;
+console.log('--- bid amount parsing ---');
 for (const c of CASES) {
   const r = parseBidFromBody(c.t);
   const got = r ? r.amount : null;
@@ -48,4 +81,12 @@ for (const c of CASES) {
   console.log((ok ? '  PASS  ' : '  FAIL  ') + c.label + '  → amount=' + got + (gotRate ? ' rate=' + gotRate : '') + (ok ? '' : '   (wanted ' + c.want + (c.rate ? ' / rate ' + c.rate : '') + ')'));
   ok ? pass++ : fail++;
 }
+console.log('--- reply classification ---');
+for (const c of KINDS) {
+  const got = classifyReply(c.s, c.t, false);
+  const ok = got === c.want;
+  console.log((ok ? '  PASS  ' : '  FAIL  ') + c.label + '  → ' + got + (ok ? '' : '   (wanted ' + c.want + ')'));
+  ok ? pass++ : fail++;
+}
 console.log('\n' + pass + ' passed, ' + fail + ' failed');
+if (fail) process.exit(1);
