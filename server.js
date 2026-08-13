@@ -574,6 +574,20 @@ function normalizeSupplier(s) {
 // 2) Item-name override: shower doors are sometimes filed under finish plumbing → force 3e.
 // 3) recSource='oncall' → move Contractor-procured recessed lighting to 1e / On Call LED.
 function applyRowOverrides(row, opts = {}) {
+  // 0) Fixture package (Kohler ⇄ Moen) — rewrite the row IN PLACE before anything
+  //    reads it, so the materials list and the vendor order email agree. Columns:
+  //    2 = product code, 5 = brand, 6 = description, 7 = model no.
+  if (opts.fixturePkg && opts.pkgCat) {
+    const swap = opts.pkgCat.get((row[2] || '').trim());
+    if (swap) {
+      row = row.slice();
+      row[2] = swap.prod_code;
+      row[5] = swap.brand || row[5];
+      row[6] = swap.product_name || row[6];
+      row[7] = swap.model_no || row[7];
+      if (swap.supplier) row[14] = swap.supplier;
+    }
+  }
   const rawCat = (row[4] || '').trim();
   let supplier = normalizeSupplier((row[14] || '').trim());
   const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
@@ -622,7 +636,7 @@ function applyRowOverrides(row, opts = {}) {
     const isJedco = /jedco/i.test((row[14] || '').trim());
     location = (isHood || isJedco) ? 'office' : 'warehouse';
   }
-  return { cat, supplier, location };
+  return { cat, supplier, location, row };
 }
 // True when a schedule row is the range hood (single, unmistakable by name).
 function isRangeHoodRow(row) {
@@ -631,6 +645,7 @@ function isRangeHoodRow(row) {
 }
 // Read the "Fin Sched" tab and group orderable items by their Supplier
 async function readScheduleVendors(scheduleUrl, opts = {}) {
+  if (opts.fixturePkg && !opts.pkgCat) opts = Object.assign({}, opts, { pkgCat: await fixturePackageMap(opts.fixturePkg) });
   // Read via the same authenticated + cached path as every other schedule reader
   // (works for sheets shared to logan@buildoly.com; doesn't require a public API key).
   const rows = await fetchScheduleValues(scheduleUrl);
@@ -638,8 +653,8 @@ async function readScheduleVendors(scheduleUrl, opts = {}) {
   const SKIP = /contractor to proc|^n\/a$|^#/i;  // skip contractor-procured / N/A / spreadsheet errors (#N/A, #REF!, …) — keep Buildoly Stock (ships from the warehouse)
   const vendors = {};
   for (let i = 5; i < rows.length; i++) {
-    const row = rows[i];
-    const { cat, supplier } = applyRowOverrides(row, opts);
+    let row = rows[i];
+    const { cat, supplier, row: row2 } = applyRowOverrides(row, opts); row = row2;
     if (!CATRE.test(cat)) continue;
     if (!supplier || SKIP.test(supplier)) continue;
     const prodCode = (row[2] || '').trim();
@@ -743,14 +758,15 @@ async function readScheduleRows(scheduleUrl) {
 }
 // Schedule items grouped by material category code (1a..3e) — for the Materials tab drill-down
 async function readScheduleByCategory(scheduleUrl, opts = {}) {
+  if (opts.fixturePkg && !opts.pkgCat) opts = Object.assign({}, opts, { pkgCat: await fixturePackageMap(opts.fixturePkg) });
   const rows = await fetchScheduleValues(scheduleUrl);
   const CATRE = /^(1[a-e]|2[a-e]|3[a-e])\b/i;
   const ROOMRE = /\s-\s[A-Za-z]{1,4}\d*\s*$/;   // a room header like "Bath 1 - BA", "Kitchen - KT"
   const byCode = {};
   let currentRoom = '';
   for (let i = 5; i < rows.length; i++) {
-    const row = rows[i];
-    const { cat, supplier } = applyRowOverrides(row, opts);
+    let row = rows[i];
+    const { cat, supplier, row: row2 } = applyRowOverrides(row, opts); row = row2;
     const m = cat.match(CATRE);
     if (!m) {
       const c0 = (row[0] || '').replace(/\n/g, ' ').trim();
@@ -826,7 +842,7 @@ async function computeHeldUsages(maxAgeMs = 30 * 60 * 1000) {
 }
 async function _computeHeldUsagesRaw() {
   const { rows: projects } = await pool.query(
-    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
+    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
   );
   // Read in concurrent batches of 6 — big parallel bursts get throttled and stall.
   const fetched = []; const fails = [];
@@ -842,10 +858,10 @@ async function _computeHeldUsagesRaw() {
   for (const f of fetched) {
     if (!f) continue;
     const { proj, rows } = f;
-    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source };
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source, fixturePkg: proj.fixture_package };
     for (let i = 5; i < rows.length; i++) {
-      const row = rows[i];
-      const { cat, supplier, location } = applyRowOverrides(row, opts);
+      let row = rows[i];
+      const { cat, supplier, location, row: row2 } = applyRowOverrides(row, opts); row = row2;
       if (!isHeldSupplier(supplier)) continue;
       const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
       if (!name) continue;
@@ -873,15 +889,15 @@ async function _computeHeldUsagesRaw() {
 async function syncHeldStockForCode(projectId, code, delivered) {
   try {
     const { rows: [proj] } = await pool.query(
-      'SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
+      'SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [projectId]);
     if (!proj || !proj.finish_schedule_url) return 0;
     let rows;
     try { rows = await fetchScheduleValues(proj.finish_schedule_url); } catch (e) { return 0; }
-    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source };
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source, fixturePkg: proj.fixture_package };
     const keys = new Set();
     for (let i = 5; i < rows.length; i++) {
-      const row = rows[i];
-      const { cat, supplier } = applyRowOverrides(row, opts);
+      let row = rows[i];
+      const { cat, supplier, row: row2 } = applyRowOverrides(row, opts); row = row2;
       if (!isHeldSupplier(supplier)) continue;
       const rcode = (String(cat).match(/^(1[a-e]|2[a-e]|3[a-e])\b/i) || [])[1];
       if (!rcode || rcode.toLowerCase() !== String(code).toLowerCase()) continue;
@@ -2481,7 +2497,7 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
   try {
     await initDb();
     const email = req.session.superEmail;
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
     if (!superOwnsProject(email, project)) return res.redirect('/my');
     // Already-delivered items can't be requested again
     const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
@@ -2489,7 +2505,7 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
     // Schedule items per category — so each row can "Expand" to show what's in that delivery
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package }); }
       catch (e) { byCode = {}; }
     }
     res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', delivered: deliveredCodes, byCode });
@@ -2547,13 +2563,13 @@ app.get('/request-materials', requireAuth, async (req, res) => {
 });
 app.get('/request-materials/:id', requireAuth, async (req, res) => {
   try {
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/request-materials');
     const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
     const deliveredCodes = pit.filter(r => ['Delivered', 'Delivered from Inv.'].includes(r.status)).map(r => r.item_code);
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package }); }
       catch (e) { byCode = {}; }
     }
     const key = sessionKey(req);
@@ -2598,12 +2614,12 @@ app.get('/my/issue/:id', requireSuper, async (req, res) => {
     await initDb();
     const email = req.session.superEmail;
     // Bobby can report on ANY project; other supers only on their assigned ones
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/my');
     if (!canSuperViewAllProjects(email) && !superOwnsProject(email, project)) return res.redirect('/my');
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package }); }
       catch (e) { byCode = {}; }
     }
     res.render('my-issue', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', byCode });
@@ -4351,9 +4367,9 @@ ${sig ? '<br>' + sig : ''}
 // Vendors (+ their items) from this project's finish schedule, for order auto-fill
 app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package });
     res.json({ ok: true, vendors });
   } catch (err) {
     console.error('schedule-vendors:', err.message);
@@ -4402,7 +4418,7 @@ function termNormName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-
 // ✉ dialog would send to /projects/:id/rfq. Shared by the keyword parser and the AI.
 async function resolveVendorEmailAction(project, codes, t, opts = {}) {
   if (!project.finish_schedule_url) return { ok: false, reply: project.address + ' has no finish schedule linked — add one via Edit Project, or use the ✉ Email a vendor dialog.' };
-  const vendors = await readScheduleVendors(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source });
+  const vendors = await readScheduleVendors(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package });
   let candidates = vendors.map(v => ({ ...v, items: v.items.filter(it => codes.includes(it.code)) })).filter(v => v.items.length);
   if (!candidates.length) return { ok: false, reply: 'No schedule items found under ' + codes.join(', ') + ' for ' + project.address + '.' };
   const nameHint = opts.vendorName || opts.rawText || '';
@@ -4534,7 +4550,7 @@ const TERMINAL_READS = {
   async schedule_vendors(inp) {
     const { rows: [p] } = await pool.query('SELECT * FROM projects WHERE id=$1', [inp.project_id]);
     if (!p || !p.finish_schedule_url) return { error: 'No finish schedule linked.' };
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package });
     return vendors.map(v => ({ name: v.name, categories: [...new Set(v.items.map(i => i.code))], items: v.items.length }));
   },
   async email_history(inp) {
@@ -4762,9 +4778,9 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
 // Schedule items grouped by material category (for the Materials tab drill-down)
 app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
-    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source });
+    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package });
     // Attach saved delivery progress to held items (allocated qty + how many delivered)
     const { rows: hs } = await pool.query('SELECT item_key, status, delivered_qty FROM held_item_status WHERE project_id=$1', [req.params.id]);
     const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r]));
@@ -8049,6 +8065,28 @@ const FIXTURE_PACKAGE_SLOTS = [
 ];
 function normalizeFixturePackage(v) { return String(v || '').toLowerCase() === 'moen' ? 'moen' : 'kohler'; }
 
+// source prod_code → the catalog row it should become for the wanted package.
+// Cached: the catalog rarely changes and this is consulted per schedule row.
+let _pkgCatCache = null, _pkgCatAt = 0;
+async function fixturePackageMap(pkg) {
+  const want = normalizeFixturePackage(pkg);
+  if (!_pkgCatCache || Date.now() - _pkgCatAt > 10 * 60 * 1000) {
+    const codes = FIXTURE_PACKAGE_SLOTS.flatMap(s => [s.kohler, s.moen]).filter(Boolean);
+    const { rows } = await pool.query(
+      'SELECT prod_code, brand, product_name, model_no, supplier FROM item_catalog WHERE prod_code = ANY($1)', [codes]);
+    const byCode = {}; rows.forEach(r => { byCode[r.prod_code] = r; });
+    _pkgCatCache = byCode; _pkgCatAt = Date.now();
+  }
+  const other = want === 'moen' ? 'kohler' : 'moen';
+  const map = new Map();
+  for (const s of FIXTURE_PACKAGE_SLOTS) {
+    if (!s[other] || !s[want]) continue;          // Moen-only slots have nothing to swap from
+    const target = _pkgCatCache[s[want]];
+    if (target) map.set(s[other], target);
+  }
+  return map;
+}
+
 // Rewrite the schedule's fixture rows to the project's package. Rows the package
 // doesn't cover are untouched, so the toilet, tile, vanity etc. stay as specified.
 function applyFixturePackage(rows, pkg, catBy) {
@@ -8453,7 +8491,7 @@ const MODEL_JUNK = /refer to|per plan|see plan|^n\/?a$|^qty|tbd|^\-+$/i;
 //   (e.g. by truck) → the notice lists the bucket MINUS those (the UPS half of a split order).
 async function buildDeliveryNotice({ projectId, codes, window, toOverride, method, tracking, manifestBlob, exceptBlob }) {
   const { rows: [proj] } = await pool.query(
-    'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source FROM projects WHERE id=$1', [projectId]);
+    'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [projectId]);
   if (!proj) return { ok: false, reason: 'no project' };
   const sups = parseSuperEmails(proj.super_email);
   const recipients = toOverride ? [toOverride] : sups.map(s => s.email).filter(Boolean);
