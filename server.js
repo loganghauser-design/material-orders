@@ -9404,6 +9404,64 @@ async function maybeIngestDirectBid(subId, gmailMessageId, atts, subject, bodyTe
   console.log('body bid ingested: ' + sub.company + ' ' + priceStr + (proj ? ' -> ' + proj.address : ' (no project match)'));
   return true;
 }
+// ── Re-scan already-logged replies for bids the ingester missed ─────────────
+// The reply-checker only ingests a message once, on arrival. Anything that came in
+// before the parser got smarter (or that failed for a transient reason) stays
+// invisible. This walks recent inbound replies that produced no bid row and runs
+// them through the current ingester. Read-only against Gmail; safe to re-run.
+async function rescanRecentBids(days) {
+  const out = { scanned: 0, ingested: 0, found: [] };
+  if (!gmailClient) return out;
+  const { rows } = await pool.query(`
+    SELECT e.id, e.sub_id, e.gmail_message_id, e.subject, e.created_at, s.company
+    FROM sub_emails e JOIN subcontractors s ON s.id = e.sub_id
+    WHERE e.direction='in'
+      AND e.gmail_message_id IS NOT NULL
+      AND e.created_at > NOW() - ($1 || ' days')::interval
+      AND NOT EXISTS (SELECT 1 FROM bids b WHERE b.gmail_message_id = e.gmail_message_id)
+      AND NOT EXISTS (SELECT 1 FROM bids b2 WHERE b2.sub_id = e.sub_id AND b2.received_at >= e.created_at)
+    ORDER BY e.created_at DESC
+    LIMIT 300`, [String(Number(days) || 14)]);
+
+  for (const r of rows) {
+    out.scanned++;
+    try {
+      const { data: msg } = await gmailClient.users.messages.get({ userId: 'me', id: r.gmail_message_id, format: 'full' });
+      const atts = [];
+      let body = '';
+      (function walk(p) {
+        if (!p) return;
+        if (p.filename && p.body && p.body.attachmentId) atts.push({ filename: p.filename, attachmentId: p.body.attachmentId, mimeType: p.mimeType });
+        if (p.mimeType === 'text/plain' && p.body && p.body.data) body += Buffer.from(p.body.data, 'base64').toString('utf8') + '\n';
+        (p.parts || []).forEach(walk);
+      })(msg.payload);
+      if (!body) {
+        (function walk(p) {
+          if (!p) return;
+          if (p.mimeType === 'text/html' && p.body && p.body.data) body += Buffer.from(p.body.data, 'base64').toString('utf8').replace(/<[^>]+>/g, ' ');
+          (p.parts || []).forEach(walk);
+        })(msg.payload);
+      }
+      const got = await maybeIngestDirectBid(r.sub_id, r.gmail_message_id, atts, r.subject, body, new Date(r.created_at));
+      if (got) { out.ingested++; out.found.push(r.company); }
+      // Also (re)classify, so old declines stop the follow-up machine.
+      try {
+        const kind = classifyReply(r.subject, body, atts.length > 0);
+        await applyReplyKind(r.sub_id, kind, r.subject, body, r.id);
+      } catch (e) { /* classification is best-effort */ }
+    } catch (e) { console.error('rescan ' + r.company + ': ' + e.message); }
+  }
+  console.log('bid rescan: scanned ' + out.scanned + ', ingested ' + out.ingested);
+  return out;
+}
+app.post('/subs/bids/rescan', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const days = Math.min(60, Math.max(1, Number(req.body && req.body.days) || 14));
+    res.json({ ok: true, ...(await rescanRecentBids(days)) });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // Post a bid to the Bids chat space — Chat API with the real file attached, webhook links as fallback
 async function postBidToBidsSpace(header, subjectLine, docs, messageId) {
   if (CHAT_PAUSED) return;

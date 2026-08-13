@@ -56,8 +56,12 @@
       <h1 style="margin:0">GC &amp; Sub Database</h1>
       <div style="color:var(--muted);font-size:.88rem">Every bid on file, grouped by trade. Filters apply instantly — costs differ by market.</div>
     </div>
-    <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
+    <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+      <button type="button" id="rescanBtn" class="btn btn-ghost btn-sm" onclick="rescanBids(this)" title="Re-read recent replies for bids the ingester missed — including bids typed in the email body">🔄 Re-scan inbox for missed bids</button>
+      <a href="/subs/cost-comparison.xlsx" class="btn btn-ghost btn-sm">⬇ Export</a>
+    </div>
   </div>
+  <div id="rescanOut" style="display:none;font-size:.85rem;margin-bottom:.8rem;padding:.6rem .8rem;border-radius:9px"></div>
 
   <div class="subtabs">
     <a class="subtab" href="/subs">🔧 Subcontractors</a>
@@ -182,6 +186,32 @@ function draw() {
           + '<div class="bc-plot">' + avgLine + bars + '</div>' + stats + '</div>';
       }).join('') + '</div>';
 }
+// Re-read recent replies through the current ingester — catches bids that were
+// typed into the email body, or that arrived before the parser understood them.
+async function rescanBids(btn) {
+  const out = document.getElementById('rescanOut');
+  btn.disabled = true; btn.textContent = 'Scanning inbox…';
+  out.style.display = 'block';
+  out.style.background = 'var(--bg)'; out.style.color = 'var(--muted)';
+  out.textContent = 'Reading recent replies…';
+  try {
+    const r = await fetch('/subs/bids/rescan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: 21 }) });
+    const d = await r.json();
+    if (!d.ok) { out.style.background = '#fdeaea'; out.style.color = '#b42323'; out.textContent = d.error || 'Scan failed'; return; }
+    if (d.ingested) {
+      out.style.background = '#e7f6ec'; out.style.color = '#176b3a';
+      out.innerHTML = '✓ Found <strong>' + d.ingested + '</strong> missed bid' + (d.ingested === 1 ? '' : 's')
+        + ' from ' + d.scanned + ' replies: ' + (d.found || []).map(esc).join(', ') + ' — reloading…';
+      setTimeout(function () { location.reload(); }, 1800);
+    } else {
+      out.style.background = 'var(--bg)'; out.style.color = 'var(--muted)';
+      out.textContent = 'Scanned ' + d.scanned + ' recent replies — no missed bids found.';
+    }
+  } catch (e) {
+    out.style.background = '#fdeaea'; out.style.color = '#b42323'; out.textContent = 'Scan failed: ' + e.message;
+  } finally { btn.disabled = false; btn.textContent = '🔄 Re-scan inbox for missed bids'; }
+}
+
 chips(); draw();
 </script>
 </body>
