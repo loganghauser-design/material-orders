@@ -44,6 +44,29 @@
     .bc-stats { display:flex; gap:.5rem; flex-wrap:wrap; font-size:.72rem; color:var(--muted); margin-top:.45rem; padding-top:.4rem; border-top:1px dashed var(--border); }
     .bc-scale { font-size:.68rem; color:var(--muted); margin-top:.15rem; }
     .bc-empty { color:var(--muted); background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:2rem; text-align:center; }
+    /* Whole-project GC bids — their own section, grouped by job. A $200k build bid
+       has no business sharing a scale with a $3k tile bid. */
+    .gc-sec { margin-bottom:1.4rem; }
+    .gc-h { display:flex; align-items:baseline; gap:.5rem; margin:0 0 .6rem; }
+    .gc-h h2 { margin:0; font-size:1rem; }
+    .gc-h .sub { font-size:.78rem; color:var(--muted); }
+    .gc-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:.8rem; }
+    .gc-card { background:var(--surface); border:1px solid var(--border); border-radius:12px; overflow:hidden; }
+    .gc-top { padding:.7rem .9rem .55rem; border-bottom:1px solid var(--border); background:var(--bg); }
+    .gc-proj { font-size:.95rem; font-weight:700; }
+    .gc-meta { font-size:.74rem; color:var(--muted); margin-top:.15rem; }
+    .gc-body { padding:.6rem .9rem .8rem; }
+    .gc-row { padding:.42rem 0 .3rem; border-top:1px solid var(--border); }
+    .gc-row:first-child { border-top:none; }
+    .gc-line { display:flex; align-items:baseline; gap:.5rem; margin-bottom:.25rem; }
+    .gc-co { font-weight:600; font-size:.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); text-decoration:none; }
+    .gc-co:hover { text-decoration:underline; }
+    .gc-amt { margin-left:auto; font-weight:700; font-size:.92rem; font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .gc-track { height:10px; background:var(--bg); border-radius:5px; overflow:hidden; }
+    .gc-fill { height:100%; border-radius:3px 5px 5px 3px; min-width:4px; }
+    .gc-rank { font-size:.64rem; font-weight:800; padding:1px 6px; border-radius:999px; white-space:nowrap; }
+    .gc-low { background:#e7f6ec; color:#176b3a; } .gc-high { background:#fdeaea; color:#b42323; }
+    .gc-stats { display:flex; gap:.8rem; flex-wrap:wrap; font-size:.72rem; color:var(--muted); margin-top:.55rem; padding-top:.45rem; border-top:1px dashed var(--border); }
     .bc-sum { font-size:.84rem; color:var(--muted); margin-bottom:.7rem; }
   </style>
 </head>
@@ -87,6 +110,7 @@
   </div>
 
   <div class="bc-sum" id="summary"></div>
+  <div id="gcOut"></div>
   <div id="out"></div>
 </div>
 
@@ -124,13 +148,64 @@ function clearAll() {
   document.getElementById('q').value = '';
   chips(); draw();
 }
+// Trades that mean "a whole build", not a scope of work.
+const GC_TRADES = ['GC Bids (full ADU)', 'General Contractor'];
+
+// Whole-project bids, grouped by the job they're for — that's the decision you're
+// actually making: who builds Plumosa.
+function drawGc(rows) {
+  const host = document.getElementById('gcOut');
+  if (!rows.length) { host.innerHTML = ''; return; }
+  const byProj = {};
+  rows.forEach(b => { const k = b.project || 'Unassigned project'; (byProj[k] = byProj[k] || []).push(b); });
+  // Most-bid job first, so the live decision floats to the top.
+  const projects = Object.keys(byProj).sort((a, b) => byProj[b].length - byProj[a].length || a.localeCompare(b));
+  const cards = projects.map(p => {
+    const list = byProj[p].slice().sort((a, b) => a.amount - b.amount);
+    const amts = list.map(b => b.amount).filter(n => n > 0);
+    const lo = Math.min.apply(null, amts), hi = Math.max.apply(null, amts);
+    const avg = Math.round(amts.reduce((x, y) => x + y, 0) / amts.length);
+    const bars = list.map((b, i) => {
+      const pct = hi > 0 ? Math.max(4, Math.round(b.amount / hi * 100)) : 0;
+      const tag = (list.length > 1 && i === 0) ? '<span class="gc-rank gc-low">lowest</span>'
+                : (list.length > 1 && i === list.length - 1) ? '<span class="gc-rank gc-high">highest</span>' : '';
+      return '<div class="gc-row">'
+        + '<div class="gc-line"><a class="gc-co" href="/subs/profile/' + b.subId + '" title="' + esc(b.company) + '">' + esc(b.company) + '</a>'
+        + tag + '<span class="gc-amt">' + money(b.amount) + '</span></div>'
+        + '<div class="gc-track" title="' + esc(b.company) + ' — ' + money(b.amount) + '"><div class="gc-fill" style="width:' + pct + '%;background:' + hueFor(b.county) + '"></div></div>'
+        + (b.county ? '<div class="bc-meta" style="margin-top:.15rem">' + esc(b.county) + '</div>' : '')
+        + '</div>';
+    }).join('');
+    const stats = amts.length > 1
+      ? '<div class="gc-stats"><span>Low <strong style="color:#176b3a">' + money(lo) + '</strong></span>'
+        + '<span>Avg <strong>' + money(avg) + '</strong></span>'
+        + '<span>High <strong style="color:#b45309">' + money(hi) + '</strong></span>'
+        + '<span>Spread <strong>' + money(hi - lo) + '</strong></span></div>' : '';
+    return '<div class="gc-card"><div class="gc-top"><div class="gc-proj">' + esc(p) + '</div>'
+      + '<div class="gc-meta">' + list.length + ' whole-project bid' + (list.length === 1 ? '' : 's')
+      + (amts.length > 1 ? ' · ' + money(lo) + ' – ' + money(hi) : '') + '</div></div>'
+      + '<div class="gc-body">' + bars + stats + '</div></div>';
+  }).join('');
+  host.innerHTML = '<div class="gc-sec"><div class="gc-h"><h2>🏗 Whole-project bids</h2>'
+    + '<span class="sub">' + rows.length + ' bid' + (rows.length === 1 ? '' : 's') + ' across ' + projects.length + ' project' + (projects.length === 1 ? '' : 's')
+    + ' — kept separate so they don\'t flatten the trade chart</span></div>'
+    + '<div class="gc-grid">' + cards + '</div></div>';
+}
+
 function draw() {
   const q = (document.getElementById('q').value || '').trim().toLowerCase();
   const sort = document.getElementById('sort').value;
-  const rows = BIDS.filter(b =>
+  let rows = BIDS.filter(b =>
     (!selCty.size || selCty.has(b.county)) &&
     (!selTrd.size || selTrd.has(b.trade)) &&
     (!q || (b.company + ' ' + b.project + ' ' + b.trade + ' ' + b.county).toLowerCase().includes(q)));
+
+  // Whole-project GC bids are a different animal — pull them out so they don't
+  // squash every trade bar against a $200k build number.
+  const gcRows = rows.filter(b => GC_TRADES.indexOf(b.trade) !== -1);
+  const tradeRows = rows.filter(b => GC_TRADES.indexOf(b.trade) === -1);
+  drawGc(gcRows);
+  rows = tradeRows;
 
   // Group into one card per trade
   const byTrade = {};
