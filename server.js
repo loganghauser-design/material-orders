@@ -6204,7 +6204,7 @@ function coiDates(text) {
   }
   return out;
 }
-const COI_FILE_RE = /coi|acord|certificat|insur|liab|workers.?comp|\bwc\b|policy|proof.?of.?insurance|(?:^|[^a-z0-9])poi(?:[^a-z0-9]|$)/i;
+const COI_FILE_RE = /coi|acord|certificat|insur|liab|workers.?comp|\bwc\b|policy|proof.?of.?insurance|\bbonds?\b|surety|(?:^|[^a-z0-9])poi(?:[^a-z0-9]|$)/i;
 async function scanSubInsurance(subId) {
   const { rows } = await pool.query(`
     SELECT a.filename, a.mime, a.gmail_message_id, a.gmail_attachment_id
