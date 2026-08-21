@@ -7840,7 +7840,7 @@ async function maybeCaptureLicense(subId, textRaw) {
 // started, so a bid sent as a fresh email is invisible. This does the opposite:
 // ONE list call for recent inbound mail, then work only on messages we haven't
 // logged yet. Cheap enough to run every few minutes.
-const FREEMAIL = /^(gmail|yahoo|hotmail|outlook|aol|icloud|ymail|msn|live|comcast|sbcglobal|att|cox|verizon|me|mac|protonmail|pm)./i;
+const FREEMAIL = /^(gmail|yahoo|hotmail|outlook|aol|icloud|ymail|msn|live|comcast|sbcglobal|att|cox|verizon|me|mac|protonmail|pm)\./i;
 function senderAddr(from) {
   const m = String(from || '').match(/<([^>]+)>/);
   return (m ? m[1] : String(from || '')).toLowerCase().trim();
@@ -7891,7 +7891,7 @@ async function sweepInbox(hours) {
       const raw = plain ? stripQuotedPlain(plain, false) : (msg.snippet || '');
       const text = raw.length > 2000 ? raw.slice(0, 2000) + '…' : raw;
       const atts = (extractAttachments(msg.payload) || []).filter(a => a.filename
-        && !(a.inline && /^image//i.test(a.mimeType || '') && (a.size || 0) < 15000));
+        && !(a.inline && /^image\//i.test(a.mimeType || '') && (a.size || 0) < 15000));
       const { rows: [ins] } = await pool.query(
         "INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at) VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8) RETURNING id",
         [sub.id, gmailUser, from, subject, text, msg.threadId, id, when]);
