@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Subs — Buildoly Office</title>
+  <link rel="stylesheet" href="/css/app.css?v=5">
+  <style>
+    .v2-head { display:flex; align-items:flex-end; gap:1rem; flex-wrap:wrap; margin-bottom:.9rem; }
+    .v2-head h1 { margin:0; font-size:1.2rem; letter-spacing:-.01em; }
+    .v2-head .meta { font-size:.78rem; color:var(--muted); }
+    .v2-head .right { margin-left:auto; display:flex; gap:.4rem; flex-wrap:wrap; }
+    .v2-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:8px; margin-bottom:.85rem; }
+    .v2-kpi { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:.55rem .7rem; cursor:pointer; }
+    .v2-kpi:hover { border-color:#4f8ef7; }
+    .v2-kpi.on { border-color:#111; box-shadow:inset 0 0 0 1px #111; }
+    .v2-kpi .n { font-size:1.32rem; font-weight:650; line-height:1.1; font-variant-numeric:tabular-nums; }
+    .v2-kpi .l { font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700; margin-top:1px; }
+    .v2-kpi .bar { height:3px; border-radius:2px; margin-top:.4rem; }
+    .v2-tool { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:.5rem .6rem; display:flex; gap:.45rem; align-items:center; flex-wrap:wrap; margin-bottom:.7rem; }
+    .v2-tool input[type=search] { flex:1; min-width:210px; border:1px solid var(--border); border-radius:7px; padding:.4rem .6rem; font:inherit; font-size:.86rem; background:var(--bg); color:var(--text); }
+    .v2-chip { border:1px solid var(--border); background:var(--bg); border-radius:7px; padding:.28rem .6rem; font-size:.78rem; font-weight:600; color:var(--text); cursor:pointer; display:inline-flex; gap:.35rem; align-items:center; white-space:nowrap; user-select:none; }
+    .v2-chip:hover { border-color:#4f8ef7; }
+    .v2-chip.on { background:#111; color:#fff; border-color:#111; }
+    .v2-chip .c { font-size:.7rem; opacity:.7; font-variant-numeric:tabular-nums; }
+    table.v2-t { width:100%; border-collapse:separate; border-spacing:0; background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:hidden; }
+    .v2-t th { font-size:.66rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); font-weight:700; text-align:left; padding:.5rem .6rem; background:var(--bg); border-bottom:1px solid var(--border); white-space:nowrap; cursor:pointer; user-select:none; }
+    .v2-t th:hover { color:var(--text); }
+    .v2-t th .ar { opacity:.5; font-size:.7rem; }
+    .v2-t td { padding:.42rem .6rem; border-bottom:1px solid var(--border); font-size:.84rem; vertical-align:middle; }
+    .v2-t tr:last-child td { border-bottom:none; }
+    .v2-t tbody tr { cursor:pointer; }
+    .v2-t tbody tr:hover td { background:var(--bg); }
+    .v2-co { font-weight:600; }
+    .v2-sm { color:var(--muted); font-size:.72rem; }
+    .v2-num { font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .v2-amt { text-align:right; font-weight:650; }
+    .v2-pill { font-size:.64rem; font-weight:800; padding:1px 7px; border-radius:5px; white-space:nowrap; letter-spacing:.02em; }
+    .p-bid { background:#e1f5ee; color:#0f6e56; }
+    .p-sent { background:#eef0f4; color:#4a4a44; }
+    .p-dec { background:#fceaea; color:#a32d2d; }
+    .p-rate { background:#faeeda; color:#854f0b; }
+    .p-int { background:#eeedfe; color:#3c3489; }
+    .p-non { color:#b4b2a9; }
+    .v2-dot { width:7px; height:7px; border-radius:50%; background:#2a78d6; display:inline-block; margin-right:.3rem; }
+    .v2-foot { display:flex; justify-content:space-between; align-items:center; padding:.6rem .2rem; color:var(--muted); font-size:.78rem; }
+    .v2-empty { text-align:center; padding:2.2rem; color:var(--muted); }
+    .v2-drawer { position:fixed; top:0; right:0; bottom:0; width:520px; max-width:94vw; background:var(--surface); border-left:1px solid var(--border); box-shadow:-8px 0 24px rgba(0,0,0,.10); transform:translateX(101%); transition:transform .16s ease; z-index:200; display:flex; flex-direction:column; }
+    .v2-drawer.show { transform:none; }
+    .v2-dh { padding:.8rem 1rem; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; gap:.6rem; }
+    .v2-db { padding:.9rem 1rem; overflow:auto; flex:1; }
+    .v2-x { margin-left:auto; background:none; border:none; font-size:1.3rem; color:var(--muted); cursor:pointer; line-height:1; }
+    .v2-fld { display:flex; gap:.6rem; padding:.3rem 0; font-size:.84rem; border-bottom:1px solid var(--border); }
+    .v2-fld .k { color:var(--muted); width:104px; flex:none; font-size:.76rem; }
+    .v2-mail { border:1px solid var(--border); border-radius:8px; padding:.5rem .65rem; margin-bottom:.45rem; font-size:.8rem; background:var(--bg); }
+    .v2-mail .top { display:flex; gap:.4rem; align-items:center; margin-bottom:.2rem; }
+    .v2-scrim { position:fixed; inset:0; background:rgba(0,0,0,.28); opacity:0; pointer-events:none; transition:opacity .16s; z-index:199; }
+    .v2-scrim.show { opacity:1; pointer-events:auto; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: 'subs' }) %>
+
+<div class="container">
+  <div class="v2-head">
+    <div>
+      <h1>Subcontractors &amp; GCs</h1>
+      <div class="meta"><%= counts.total %> on file &middot; <%= counts.contacted %> contacted &middot; press / to search</div>
+    </div>
+    <div class="right">
+      <a href="/subs" class="btn btn-ghost btn-sm">Classic view</a>
+      <a href="/subs/bids" class="btn btn-ghost btn-sm">Bids</a>
+    </div>
+  </div>
+
+  <div class="v2-kpis" id="v2kpis"></div>
+
+  <div class="v2-tool">
+    <input type="search" id="v2q" placeholder="Search company, contact, email, trade, area, license" autocomplete="off">
+    <span class="v2-chip" data-f="sub">Subs <span class="c" id="c-sub"></span></span>
+    <span class="v2-chip" data-f="gc">GCs <span class="c" id="c-gc"></span></span>
+    <span class="v2-chip" data-f="unread">Needs reply <span class="c" id="c-unread"></span></span>
+    <span class="v2-chip" data-f="noemail">No email <span class="c" id="c-noemail"></span></span>
+    <span class="v2-chip" data-f="flagged">Flagged <span class="c" id="c-flagged"></span></span>
+  </div>
+
+  <div id="v2wrap"></div>
+  <div class="v2-foot">
+    <span id="v2count">Loading...</span>
+    <button type="button" class="btn btn-ghost btn-sm" id="v2more" style="display:none">Load more</button>
+  </div>
+</div>
+
+<div class="v2-scrim" id="v2scrim" onclick="v2Close()"></div>
+<div class="v2-drawer" id="v2drawer">
+  <div class="v2-dh">
+    <div>
+      <div style="font-weight:700;font-size:1rem" id="v2dName">&mdash;</div>
+      <div class="v2-sm" id="v2dSub">&mdash;</div>
+    </div>
+    <button class="v2-x" onclick="v2Close()" aria-label="Close">&times;</button>
+  </div>
+  <div class="v2-db" id="v2dBody"></div>
+</div>
+
+<script>
+const COUNTS0 = <%- JSON.stringify(counts) %>;
+const state = { q: '', filter: 'all', sort: 'company', dir: 'asc', page: 0, rows: [], total: 0 };
+const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const money = v => { const n = Number(String(v || '').replace(/[^0-9.]/g, '')); return n ? '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 }) : ''; };
+const ago = t => { if (!t) return ''; const d = Math.floor((Date.now() - new Date(t)) / 86400000);
+  return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d < 30 ? d + 'd ago' : Math.floor(d / 30) + 'mo ago'; };
+
+const KPI = [
+  { k: 'all',       l: 'On file',     c: '#8a8a80', v: o => o.total },
+  { k: 'nocontact', l: 'No contact',  c: '#b4b2a9', v: o => o.nocontact },
+  { k: '',          l: 'Contacted',   c: '#6b7280', v: o => o.contacted },
+  { k: 'bidin',     l: 'Bid in',      c: '#1baf7a', v: o => o.bidin },
+  { k: 'unread',    l: 'Needs reply', c: '#2a78d6', v: o => o.unread },
+  { k: 'declined',  l: 'Declined',    c: '#e24b4a', v: o => o.declined }
+];
+function drawKpis(o) {
+  document.getElementById('v2kpis').innerHTML = KPI.map(function (x) {
+    const on = (x.k && x.k !== 'all' && state.filter === x.k) ? ' on' : '';
+    return '<div class="v2-kpi' + on + '" data-f="' + x.k + '">'
+      + '<div class="n">' + (x.v(o) || 0).toLocaleString() + '</div>'
+      + '<div class="l">' + x.l + '</div><div class="bar" style="background:' + x.c + '"></div></div>';
+  }).join('');
+  const map = { sub: 'subs', gc: 'gcs', unread: 'unread', noemail: 'noemail', flagged: 'flagged' };
+  Object.keys(map).forEach(function (k) {
+    const el = document.getElementById('c-' + k);
+    if (el) el.textContent = o[map[k]] || 0;
+  });
+}
+function stagePill(r) {
+  const v = (r.bid_status || '').trim();
+  if (v === 'Bid Received') return '<span class="v2-pill p-bid">BID IN</span>';
+  if (v === 'Bid Sent') return '<span class="v2-pill p-sent">SENT</span>';
+  if (v === 'Declined') return '<span class="v2-pill p-dec">DECLINED</span>';
+  if (v === 'Rate quoted') return '<span class="v2-pill p-rate">RATE</span>';
+  if (v === 'Intake') return '<span class="v2-pill p-int">INTAKE</span>';
+  return '<span class="p-non">&mdash;</span>';
+}
+const COLS = [['company','Company'],['trade','Trade'],['area','Area'],['stage','Stage'],['bid','Bid'],['','License'],['','Last activity']];
+function render() {
+  const arrow = function (k) {
+    return state.sort === k ? ' <span class="ar">' + (state.dir === 'asc' ? '&#9650;' : '&#9660;') + '</span>' : '';
+  };
+  const head = COLS.map(function (c) {
+    return '<th' + (c[0] ? ' data-s="' + c[0] + '"' : ' style="cursor:default"') + '>' + c[1] + (c[0] ? arrow(c[0]) : '') + '</th>';
+  }).join('');
+  const body = state.rows.length ? state.rows.map(function (r) {
+    return '<tr data-id="' + r.id + '">'
+      + '<td><div class="v2-co">' + esc(r.company || r.owner || '-') + (r.recent_add ? ' <span class="v2-pill p-int">NEW</span>' : '') + '</div>'
+      + (r.owner && r.owner !== r.company ? '<div class="v2-sm">' + esc(r.owner) + '</div>' : '') + '</td>'
+      + '<td>' + esc((r.type || '').split(',')[0] || '-') + '</td>'
+      + '<td class="v2-sm">' + esc((r.location || '-').slice(0, 26)) + '</td>'
+      + '<td>' + stagePill(r) + '</td>'
+      + '<td class="v2-amt v2-num">' + (money(r.bid_price) || '<span class="p-non">&mdash;</span>') + '</td>'
+      + '<td class="v2-num v2-sm">' + esc(r.license_number || '-') + '</td>'
+      + '<td class="v2-sm">' + (r.reply_unread ? '<span class="v2-dot"></span>unread reply' : (r.last_at ? ago(r.last_at) : '-')) + '</td>'
+      + '</tr>';
+  }).join('') : '<tr><td colspan="7" class="v2-empty">Nothing matches those filters.</td></tr>';
+  document.getElementById('v2wrap').innerHTML = '<table class="v2-t"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>';
+  document.getElementById('v2count').textContent = state.rows.length + ' of ' + state.total.toLocaleString() + (state.q ? ' matching' : '');
+  document.getElementById('v2more').style.display = state.rows.length < state.total ? '' : 'none';
+}
+async function load(append) {
+  const p = new URLSearchParams({ q: state.q, filter: state.filter, sort: state.sort, dir: state.dir, page: state.page, size: 30 });
+  try {
+    const res = await fetch('/subs/v2/rows?' + p);
+    const d = await res.json();
+    if (!d.ok) { document.getElementById('v2count').textContent = d.error || 'Load failed'; return; }
+    state.rows = append ? state.rows.concat(d.rows) : d.rows;
+    state.total = d.total;
+    drawKpis(d.counts);
+    render();
+  } catch (e) { document.getElementById('v2count').textContent = 'Load failed'; }
+}
+let timer = null;
+document.getElementById('v2q').addEventListener('input', function (e) {
+  clearTimeout(timer);
+  const val = e.target.value.trim();
+  timer = setTimeout(function () { state.q = val; state.page = 0; load(false); }, 220);
+});
+document.getElementById('v2more').addEventListener('click', function () { state.page++; load(true); });
+
+// One delegated handler for the whole page. The classic view ships 4,842 inline ones.
+document.addEventListener('click', function (e) {
+  const chip = e.target.closest('.v2-chip[data-f]');
+  const kpi = e.target.closest('.v2-kpi[data-f]');
+  const th = e.target.closest('th[data-s]');
+  const tr = e.target.closest('.v2-t tbody tr[data-id]');
+  if (chip || kpi) {
+    const f = (chip || kpi).dataset.f;
+    if (!f) return;
+    state.filter = (state.filter === f) ? 'all' : f;
+    document.querySelectorAll('.v2-chip[data-f]').forEach(function (c) { c.classList.toggle('on', c.dataset.f === state.filter); });
+    state.page = 0; load(false); return;
+  }
+  if (th) {
+    const k = th.dataset.s;
+    if (state.sort === k) state.dir = (state.dir === 'asc') ? 'desc' : 'asc';
+    else { state.sort = k; state.dir = (k === 'bid') ? 'desc' : 'asc'; }
+    state.page = 0; load(false); return;
+  }
+  if (tr) v2Open(tr.dataset.id);
+});
+function v2Close() {
+  document.getElementById('v2drawer').classList.remove('show');
+  document.getElementById('v2scrim').classList.remove('show');
+}
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') v2Close();
+  if (e.key === '/' && document.activeElement !== document.getElementById('v2q')) {
+    e.preventDefault(); document.getElementById('v2q').focus();
+  }
+});
+// Detail drawer: one contractor's email and bid history, fetched only on open.
+async function v2Open(id) {
+  document.getElementById('v2drawer').classList.add('show');
+  document.getElementById('v2scrim').classList.add('show');
+  document.getElementById('v2dBody').innerHTML = '<div class="v2-empty">Loading...</div>';
+  try {
+    const res = await fetch('/subs/v2/sub/' + id);
+    const d = await res.json();
+    if (!d.ok) { document.getElementById('v2dBody').innerHTML = '<div class="v2-empty">' + esc(d.error) + '</div>'; return; }
+    const s = d.sub;
+    document.getElementById('v2dName').textContent = s.company || s.owner || ('Sub #' + s.id);
+    document.getElementById('v2dSub').textContent = [(s.type || '').split(',')[0], s.location].filter(Boolean).join(' - ');
+    const fld = function (k, v) {
+      return v ? '<div class="v2-fld"><span class="k">' + k + '</span><span>' + v + '</span></div>' : '';
+    };
+    const mails = d.emails.map(function (m) {
+      return '<div class="v2-mail"><div class="top">'
+        + '<span class="v2-pill ' + (m.direction === 'in' ? 'p-bid' : 'p-sent') + '">' + (m.direction === 'in' ? 'IN' : 'OUT') + '</span>'
+        + (m.reply_kind ? '<span class="v2-pill p-int">' + esc(m.reply_kind) + '</span>' : '')
+        + '<span class="v2-sm" style="margin-left:auto">' + ago(m.created_at) + '</span></div>'
+        + '<div style="font-weight:600">' + esc((m.subject || '').slice(0, 70)) + '</div>'
+        + '<div class="v2-sm" style="margin-top:.15rem">' + esc((m.body || '').replace(/\s+/g, ' ').slice(0, 170)) + '</div></div>';
+    }).join('');
+    const bids = d.bids.map(function (b) {
+      return '<div class="v2-fld"><span class="k">' + ago(b.received_at) + '</span><span><strong>'
+        + money(b.amount) + '</strong> <span class="v2-sm">' + esc(b.filename || 'from the email body') + '</span></span></div>';
+    }).join('');
+    document.getElementById('v2dBody').innerHTML =
+      fld('Email', s.email ? '<a href="mailto:' + esc(s.email) + '">' + esc(s.email) + '</a>' : '')
+      + fld('Phone', esc(s.phone || ''))
+      + fld('Trade', esc(s.type || ''))
+      + fld('Stage', stagePill(s) + ' <span class="v2-sm">' + esc(s.status || '') + '</span>')
+      + fld('Standing bid', money(s.bid_price))
+      + fld('License', esc(s.license_number || ''))
+      + (bids ? '<div style="margin:.9rem 0 .35rem;font-weight:700;font-size:.82rem">Bids received</div>' + bids : '')
+      + (mails ? '<div style="margin:.9rem 0 .35rem;font-weight:700;font-size:.82rem">Recent email</div>' + mails
+               : '<div class="v2-sm" style="margin-top:.9rem">No email logged yet.</div>')
+      + '<div style="margin-top:1rem"><a class="btn btn-ghost btn-sm" href="/subs/profile/' + s.id + '">Open full profile</a></div>';
+  } catch (e) {
+    document.getElementById('v2dBody').innerHTML = '<div class="v2-empty">Failed to load</div>';
+  }
+}
+drawKpis(COUNTS0);
+load(false);
+</script>
+</body>
+</html>

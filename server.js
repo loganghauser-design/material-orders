@@ -5470,6 +5470,8 @@ app.get('/bid-comparison', requireAuth, (req, res) => {
 });
 // Same data as the Subs cost card. Everything is sent once and filtered in the
 // browser — clicking a county or trade must not cost a page load.
+require('./subs-v2-routes')({ app, pool, requireAuth, initDb });   // /subs/v2 — server-paged rebuild, runs alongside /subs
+
 app.get('/subs/bids', requireAuth, async (req, res) => {
   try {
     await initDb();
