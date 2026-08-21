@@ -11,19 +11,42 @@ const SORTS = {
   area:    "LOWER(COALESCE(s.location,'zzz'))",
   stage:   "CASE COALESCE(s.bid_status,'') WHEN 'Bid Received' THEN 1 WHEN 'Rate quoted' THEN 2 WHEN 'Bid Sent' THEN 3 WHEN 'Intake' THEN 4 WHEN 'Declined' THEN 5 ELSE 6 END",
   bid:     "NULLIF(REGEXP_REPLACE(COALESCE(s.bid_price,''), '[^0-9.]', '', 'g'), '')::numeric",
+  // Worst licence problem first: expired, then flagged, then unverified, then clean.
+  licence: "CASE WHEN s.license_expire IS NOT NULL AND s.license_expire < NOW() THEN 1"
+         + " WHEN COALESCE(s.license_flags,'') <> '' THEN 2"
+         + " WHEN COALESCE(TRIM(s.license_number),'') <> '' AND s.license_checked_at IS NULL THEN 3"
+         + " WHEN COALESCE(TRIM(s.license_number),'') = '' THEN 4 ELSE 5 END",
   recent:  's.id',
 };
-// filter key -> SQL predicate. Whitelisted; user input is never interpolated.
+
+// SQL fragments reused by both the filters and the counts, so a tile and the
+// filter it triggers can never disagree.
+const LIC = {
+  expired:    "s.license_expire IS NOT NULL AND s.license_expire < NOW()",
+  expiring:   "s.license_expire IS NOT NULL AND s.license_expire >= NOW() AND s.license_expire < NOW() + INTERVAL '60 days'",
+  flagged:    "COALESCE(s.license_flags,'') <> ''",
+  unverified: "COALESCE(TRIM(s.license_number),'') <> '' AND s.license_checked_at IS NULL",
+  none:       "COALESCE(TRIM(s.license_number),'') = ''",
+  verified:   's.license_checked_at IS NOT NULL',
+};
+
 const FILTERS = {
-  all:       'TRUE',
-  sub:       "COALESCE(s.category,'sub') <> 'gc'",
-  gc:        "s.category = 'gc'",
-  bidin:     "s.bid_status = 'Bid Received'",
-  unread:    's.reply_unread = true',
-  noemail:   "COALESCE(TRIM(s.email),'') = ''",
-  nocontact: "COALESCE(s.bid_status,'') = ''",
-  declined:  "s.bid_status = 'Declined'",
-  flagged:   "COALESCE(s.status,'') ~* 'reject|black'",
+  all:        'TRUE',
+  sub:        "COALESCE(s.category,'sub') <> 'gc'",
+  gc:         "s.category = 'gc'",
+  bidin:      "s.bid_status = 'Bid Received'",
+  unread:     's.reply_unread = true',
+  noemail:    "COALESCE(TRIM(s.email),'') = ''",
+  nocontact:  "COALESCE(s.bid_status,'') = ''",
+  declined:   "s.bid_status = 'Declined'",
+  flagged:    "COALESCE(s.status,'') ~* 'reject|black'",
+  licexpired: LIC.expired,
+  licexpiring: LIC.expiring,
+  licflag:    LIC.flagged,
+  licunver:   LIC.unverified,
+  licnone:    LIC.none,
+  // Anything a human should look at before this contractor is used.
+  licrisk:    '(' + LIC.expired + ' OR ' + LIC.expiring + ' OR ' + LIC.flagged + ')',
 };
 
 function buildWhere(filter, q, params) {
@@ -40,13 +63,14 @@ function buildWhere(filter, q, params) {
       + ' OR LOWER(COALESCE(s.email,\'\')) LIKE ' + i
       + ' OR LOWER(COALESCE(s.type,\'\')) LIKE ' + i
       + ' OR LOWER(COALESCE(s.location,\'\')) LIKE ' + i
-      + ' OR COALESCE(s.license_number,\'\') LIKE ' + i + ')');
+      + ' OR COALESCE(s.license_number,\'\') LIKE ' + i
+      + ' OR LOWER(COALESCE(s.license_classes,\'\')) LIKE ' + i + ')');
   }
   return parts.join(' AND ');
 }
 
 module.exports = function mountSubsV2(ctx) {
-  const { app, pool, requireAuth, initDb } = ctx;
+  const { app, pool, requireAuth, initDb, verifySubLicense } = ctx;
 
   async function counts() {
     const { rows } = await pool.query(
@@ -60,7 +84,14 @@ module.exports = function mountSubsV2(ctx) {
       + " COUNT(*) FILTER (WHERE s.category='gc')::int gcs,"
       + ' COUNT(*) FILTER (WHERE s.reply_unread)::int unread,'
       + " COUNT(*) FILTER (WHERE COALESCE(TRIM(s.email),'')='')::int noemail,"
-      + " COUNT(*) FILTER (WHERE COALESCE(s.status,'') ~* 'reject|black')::int flagged"
+      + " COUNT(*) FILTER (WHERE COALESCE(s.status,'') ~* 'reject|black')::int flagged,"
+      + ' COUNT(*) FILTER (WHERE ' + LIC.verified + ')::int licverified,'
+      + ' COUNT(*) FILTER (WHERE ' + LIC.expired + ')::int licexpired,'
+      + ' COUNT(*) FILTER (WHERE ' + LIC.expiring + ')::int licexpiring,'
+      + ' COUNT(*) FILTER (WHERE ' + LIC.flagged + ')::int licflag,'
+      + ' COUNT(*) FILTER (WHERE ' + LIC.unverified + ')::int licunver,'
+      + ' COUNT(*) FILTER (WHERE ' + LIC.none + ')::int licnone,'
+      + ' COUNT(*) FILTER (WHERE (' + LIC.expired + ' OR ' + LIC.expiring + ' OR ' + LIC.flagged + '))::int licrisk'
       + ' FROM subcontractors s');
     return rows[0];
   }
@@ -85,7 +116,9 @@ module.exports = function mountSubsV2(ctx) {
       params.push(size, page * size);
       const { rows } = await pool.query(
         'SELECT s.id, s.company, s.owner, s.email, s.phone, s.type, s.location, s.category,'
-        + ' s.status, s.bid_status, s.bid_price, s.license_number, s.reply_unread, s.recent_add,'
+        + ' s.status, s.bid_status, s.bid_price, s.reply_unread, s.recent_add,'
+        + ' s.license_number, s.licensed, s.license_status, s.license_expire, s.license_classes,'
+        + ' s.license_flags, s.license_checked_at, s.ins_expires,'
         + ' (SELECT MAX(e.created_at) FROM sub_emails e WHERE e.sub_id = s.id) AS last_at,'
         + " (SELECT COUNT(*) FROM sub_emails e WHERE e.sub_id = s.id AND e.direction='in')::int replies"
         + ' FROM subcontractors s WHERE ' + where
@@ -95,7 +128,7 @@ module.exports = function mountSubsV2(ctx) {
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
-  // One contractor's detail — fetched only when a row is opened, never up front.
+  // One contractor's detail - fetched only when a row is opened, never up front.
   app.get('/subs/v2/sub/:id', requireAuth, async (req, res) => {
     try {
       const { rows: subRows } = await pool.query('SELECT * FROM subcontractors WHERE id=$1', [req.params.id]);
@@ -107,6 +140,28 @@ module.exports = function mountSubsV2(ctx) {
       const { rows: bids } = await pool.query(
         'SELECT amount, received_at, filename FROM bids WHERE sub_id=$1 AND amount>0 ORDER BY received_at DESC LIMIT 6', [sub.id]);
       res.json({ ok: true, sub, emails, bids });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  // Re-check one licence against CSLB on demand, straight from the drawer.
+  // Reuses the same verifier the watchdog and the classic page call.
+  app.post('/subs/v2/sub/:id/verify', requireAuth, async (req, res) => {
+    try {
+      if (typeof verifySubLicense !== 'function') {
+        return res.status(500).json({ ok: false, error: 'Licence verifier unavailable.' });
+      }
+      const { rows: subRows } = await pool.query(
+        'SELECT id, company, notes, license_number FROM subcontractors WHERE id=$1', [req.params.id]);
+      const sub = subRows[0];
+      if (!sub) return res.status(404).json({ ok: false, error: 'Not found' });
+      if (!String(sub.license_number || '').replace(/\D/g, '')) {
+        return res.status(400).json({ ok: false, error: 'No licence number on file to check.' });
+      }
+      await verifySubLicense(sub);
+      const { rows: after } = await pool.query(
+        'SELECT license_number, licensed, license_status, license_expire, license_classes,'
+        + ' license_flags, license_business, license_checked_at FROM subcontractors WHERE id=$1', [sub.id]);
+      res.json({ ok: true, sub: after[0] });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 };
