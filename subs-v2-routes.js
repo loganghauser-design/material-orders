@@ -70,7 +70,7 @@ function buildWhere(filter, q, params) {
 }
 
 module.exports = function mountSubsV2(ctx) {
-  const { app, pool, requireAuth, initDb, verifySubLicense } = ctx;
+  const { app, pool, requireAuth, initDb, verifySubLicense, cslbClassByTrade } = ctx;
 
   async function counts() {
     const { rows } = await pool.query(
@@ -99,7 +99,8 @@ module.exports = function mountSubsV2(ctx) {
   app.get('/subs/v2', requireAuth, async (req, res) => {
     try {
       await initDb();
-      res.render('subs-v2', { counts: await counts(), isSuper: req.session.role === 'super' });
+      res.render('subs-v2', { counts: await counts(), isSuper: req.session.role === 'super',
+        cslbTrades: (typeof cslbClassByTrade === 'function' ? cslbClassByTrade() : cslbClassByTrade) || {} });
     } catch (err) { res.status(500).send('Error: ' + err.message); }
   });
 

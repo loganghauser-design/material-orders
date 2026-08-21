@@ -56,6 +56,16 @@
     .v2-mail .top { display:flex; gap:.4rem; align-items:center; margin-bottom:.2rem; }
     .v2-scrim { position:fixed; inset:0; background:rgba(0,0,0,.28); opacity:0; pointer-events:none; transition:opacity .16s; z-index:199; }
     .v2-scrim.show { opacity:1; pointer-events:auto; }
+    .cslb-modal { position:fixed; inset:4vh 4vw; background:var(--surface); border:1px solid var(--border); border-radius:12px; z-index:210; display:none; flex-direction:column; overflow:hidden; box-shadow:0 12px 40px rgba(0,0,0,.18); }
+    .cslb-modal.show { display:flex; }
+    .cslb-h { padding:.75rem 1rem; border-bottom:1px solid var(--border); display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
+    .cslb-b { flex:1; overflow:auto; padding:.6rem 1rem 1rem; }
+    .cslb-f { padding:.6rem 1rem; border-top:1px solid var(--border); display:flex; gap:.6rem; align-items:center; }
+    .cslb-t { width:100%; border-collapse:collapse; font-size:.8rem; }
+    .cslb-t th { position:sticky; top:0; background:var(--bg); text-align:left; font-size:.64rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:.4rem .5rem; border-bottom:1px solid var(--border); }
+    .cslb-t td { padding:.34rem .5rem; border-bottom:1px solid var(--border); }
+    .cslb-t tr.have td { opacity:.5; }
+    .cslb-sel { padding:.45rem .6rem; border:1px solid var(--border); border-radius:7px; background:var(--bg); color:var(--text); font:inherit; font-size:.84rem; }
   </style>
 </head>
 <body>
@@ -69,7 +79,7 @@
     </div>
     <div class="right">
       <a href="/subs" class="btn btn-ghost btn-sm">Classic view</a>
-      <a href="/subs/finder" class="btn btn-ghost btn-sm">Find contractors (CSLB)</a>
+      <button type="button" class="btn btn-ghost btn-sm" onclick="cslbOpen()">Look up on CSLB</button>
       <a href="/subs/bids" class="btn btn-ghost btn-sm">Bids</a>
     </div>
   </div>
@@ -96,6 +106,24 @@
   </div>
 </div>
 
+<div class="v2-scrim" id="cslbScrim" onclick="cslbClose()"></div>
+<div class="cslb-modal" id="cslbModal">
+  <div class="cslb-h">
+    <strong style="font-size:.98rem">Look up contractors on CSLB</strong>
+    <select class="cslb-sel" id="cslbTrade"></select>
+    <span id="cslbCounties" style="display:flex;gap:.3rem;flex-wrap:wrap"></span>
+    <button type="button" class="btn btn-primary btn-sm" id="cslbGo" onclick="cslbSearch()">Search</button>
+    <button class="v2-x" onclick="cslbClose()" aria-label="Close">&times;</button>
+  </div>
+  <div class="cslb-b" id="cslbBody"><div class="v2-empty">Pick a trade and at least one county, then Search.</div></div>
+  <div class="cslb-f">
+    <span class="v2-sm" id="cslbCount"></span>
+    <span style="margin-left:auto"></span>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="cslbAll(true)">Select all shown</button>
+    <button type="button" class="btn btn-ghost btn-sm" onclick="cslbAll(false)">None</button>
+    <button type="button" class="btn btn-primary btn-sm" id="cslbAddBtn" onclick="cslbAdd()" disabled>Add selected</button>
+  </div>
+</div>
 <div class="v2-scrim" id="v2scrim" onclick="v2Close()"></div>
 <div class="v2-drawer" id="v2drawer">
   <div class="v2-dh">
@@ -319,6 +347,141 @@ async function v2Open(id) {
     document.getElementById('v2dBody').innerHTML = '<div class="v2-empty">Failed to load</div>';
   }
 }
+// ── CSLB lookup: find contractors who are not in the list yet ────────────────
+// Reuses the same /subs/finder/search and /subs/finder/add the classic finder
+// page calls, so there is one CSLB code path rather than two.
+const CSLB_TRADES = <%- JSON.stringify(cslbTrades || {}) %>;
+const CSLB_COUNTIES = ['Los Angeles', 'Orange', 'Riverside', 'San Bernardino', 'San Diego', 'Ventura'];
+let cslbRows = [], cslbPick = new Set(), cslbCty = new Set();
+
+function cslbOpen() {
+  const t = document.getElementById('cslbTrade');
+  if (!t.options.length) {
+    t.innerHTML = Object.keys(CSLB_TRADES).map(function (k) {
+      return '<option value="' + esc(CSLB_TRADES[k]) + '">' + esc(k) + ' (' + esc(CSLB_TRADES[k]) + ')</option>';
+    }).join('');
+    cslbDrawCounties();
+  }
+  document.getElementById('cslbModal').classList.add('show');
+  document.getElementById('cslbScrim').classList.add('show');
+}
+function cslbClose() {
+  document.getElementById('cslbModal').classList.remove('show');
+  document.getElementById('cslbScrim').classList.remove('show');
+}
+function cslbDrawCounties() {
+  document.getElementById('cslbCounties').innerHTML = CSLB_COUNTIES.map(function (c) {
+    return '<span class="v2-chip' + (cslbCty.has(c) ? ' on' : '') + '" data-cty="' + esc(c) + '">' + esc(c) + '</span>';
+  }).join('');
+}
+async function cslbSearch() {
+  if (!cslbCty.size) {
+    document.getElementById('cslbBody').innerHTML = '<div class="v2-empty">Pick at least one county.</div>';
+    return;
+  }
+  const btn = document.getElementById('cslbGo');
+  btn.disabled = true; btn.textContent = 'Searching CSLB...';
+  document.getElementById('cslbBody').innerHTML =
+    '<div class="v2-empty">Reading the state licence board. A big county can take about 10 seconds.</div>';
+  try {
+    const res = await fetch('/subs/finder/search', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ classification: document.getElementById('cslbTrade').value, counties: Array.from(cslbCty) })
+    });
+    const d = await res.json();
+    if (!d.ok) {
+      document.getElementById('cslbBody').innerHTML = '<div class="v2-empty">' + esc(d.error || 'Search failed') + '</div>';
+      return;
+    }
+    cslbRows = d.rows || [];
+    cslbPick.clear();
+    cslbRender();
+  } catch (err) {
+    document.getElementById('cslbBody').innerHTML = '<div class="v2-empty">Search failed.</div>';
+  } finally {
+    btn.disabled = false; btn.textContent = 'Search';
+  }
+}
+function cslbRender() {
+  const CAP = 300;
+  const clear = cslbRows.filter(function (r) { return !r.inList; });
+  const shown = clear.slice(0, CAP);
+  if (!cslbRows.length) {
+    document.getElementById('cslbBody').innerHTML = '<div class="v2-empty">No contractors returned.</div>';
+    return;
+  }
+  document.getElementById('cslbBody').innerHTML =
+    '<table class="cslb-t"><thead><tr><th></th><th>Business</th><th>City</th><th>Phone</th>'
+    + '<th>Licence</th><th>Classes</th><th>Expires</th><th>Bond</th><th>Workers comp</th></tr></thead><tbody>'
+    + shown.map(function (r) {
+        return '<tr><td><input type="checkbox" class="cslb-c" value="' + esc(r.licNum) + '"'
+          + (cslbPick.has(r.licNum) ? ' checked' : '') + '></td>'
+          + '<td><strong>' + esc(r.name) + '</strong></td>'
+          + '<td>' + esc(r.city || '') + '</td>'
+          + '<td class="v2-num">' + esc(r.phone || '') + '</td>'
+          + '<td class="v2-num">' + esc(r.licNum) + '</td>'
+          + '<td class="v2-sm">' + esc((r.classes || '').slice(0, 26)) + '</td>'
+          + '<td class="v2-num v2-sm">' + esc(r.expires || '') + '</td>'
+          + '<td>' + (r.bonded ? 'yes' : '<span style="color:#b45309">no</span>') + '</td>'
+          + '<td class="v2-sm">' + (/exempt/i.test(r.wc || '') ? '<span style="color:#b45309">exempt</span>' : (r.wc ? 'insured' : '-')) + '</td></tr>';
+      }).join('')
+    + '</tbody></table>';
+  document.getElementById('cslbCount').textContent =
+    cslbRows.length.toLocaleString() + ' found, ' + clear.length.toLocaleString() + ' not in your list'
+    + (clear.length > CAP ? ' (showing first ' + CAP + ')' : '');
+  cslbSync();
+}
+function cslbAll(on) {
+  document.querySelectorAll('.cslb-c').forEach(function (c) {
+    c.checked = on;
+    if (on) cslbPick.add(c.value); else cslbPick.delete(c.value);
+  });
+  cslbSync();
+}
+function cslbSync() {
+  const b = document.getElementById('cslbAddBtn');
+  b.disabled = cslbPick.size === 0;
+  b.textContent = cslbPick.size ? 'Add ' + cslbPick.size + ' to my list' : 'Add selected';
+}
+async function cslbAdd() {
+  const items = cslbRows.filter(function (r) { return cslbPick.has(r.licNum); });
+  if (!items.length) return;
+  const sel = document.getElementById('cslbTrade');
+  const tradeName = sel.options[sel.selectedIndex].text.replace(/\s*\([^)]*\)\s*$/, '');
+  const b = document.getElementById('cslbAddBtn');
+  b.disabled = true; b.textContent = 'Adding...';
+  try {
+    const res = await fetch('/subs/finder/add', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: items, trade: tradeName })
+    });
+    const d = await res.json();
+    if (!d.ok) { document.getElementById('cslbCount').textContent = d.error || 'Add failed'; cslbSync(); return; }
+    document.getElementById('cslbCount').textContent =
+      'Added ' + d.added + (d.skipped ? ', ' + d.skipped + ' already on file' : '');
+    items.forEach(function (r) { r.inList = true; });
+    cslbPick.clear();
+    cslbRender();
+    load(false);
+  } catch (err) {
+    document.getElementById('cslbCount').textContent = 'Add failed';
+    cslbSync();
+  }
+}
+// County chips and result checkboxes, delegated like everything else here.
+document.addEventListener('click', function (e) {
+  const c = e.target.closest('[data-cty]');
+  if (!c) return;
+  const v = c.dataset.cty;
+  if (cslbCty.has(v)) cslbCty.delete(v); else cslbCty.add(v);
+  cslbDrawCounties();
+});
+document.addEventListener('change', function (e) {
+  if (!e.target.classList || !e.target.classList.contains('cslb-c')) return;
+  if (e.target.checked) cslbPick.add(e.target.value); else cslbPick.delete(e.target.value);
+  cslbSync();
+});
+
 drawKpis(COUNTS0);
 load(false);
 </script>
