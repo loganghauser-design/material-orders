@@ -7834,6 +7834,89 @@ async function maybeCaptureLicense(subId, textRaw) {
 // Mirrors checkUnreadThreads (the supplier version): for every email we sent a sub,
 // fetch its Gmail thread, store any inbound messages we haven't logged yet, and mark
 // the sub as having an unread reply if a reply arrived after they last viewed the log.
+// ── Fast inbox sweep for contractor mail ────────────────────────────────────
+// The per-sub thread walk below is O(every sub we've ever emailed) — 480+ subs at
+// 2+ Gmail calls each. That's too slow to run often, and it only sees threads WE
+// started, so a bid sent as a fresh email is invisible. This does the opposite:
+// ONE list call for recent inbound mail, then work only on messages we haven't
+// logged yet. Cheap enough to run every few minutes.
+const FREEMAIL = /^(gmail|yahoo|hotmail|outlook|aol|icloud|ymail|msn|live|comcast|sbcglobal|att|cox|verizon|me|mac|protonmail|pm)./i;
+function senderAddr(from) {
+  const m = String(from || '').match(/<([^>]+)>/);
+  return (m ? m[1] : String(from || '')).toLowerCase().trim();
+}
+async function matchSenderToSub(addr) {
+  if (!addr) return null;
+  const { rows: [exact] } = await pool.query(
+    'SELECT id, company FROM subcontractors WHERE LOWER(TRIM(email)) = $1 LIMIT 1', [addr]);
+  if (exact) return exact;
+  // Same company, different person: layth@fadoxconstruction.com when we hold
+  // info@fadoxconstruction.com. Never match on a freemail domain.
+  const domain = addr.split('@')[1] || '';
+  if (!domain || FREEMAIL.test(domain + '.')) return null;
+  const { rows: [byDomain] } = await pool.query(
+    "SELECT id, company FROM subcontractors WHERE LOWER(TRIM(email)) LIKE '%@' || $1 LIMIT 1", [domain]);
+  return byDomain || null;
+}
+async function sweepInbox(hours) {
+  const out = { scanned: 0, matched: 0, logged: 0, unmatched: [] };
+  if (!useGmail || !gmailClient) return out;
+  const h = Math.max(1, Number(hours) || 24);
+  try {
+    const { data } = await gmailClient.users.messages.list({
+      userId: 'me', maxResults: 120, q: 'newer_than:' + Math.ceil(h / 24) + 'd -from:me -in:chats -in:sent' });
+    const ids = (data.messages || []).map(m => m.id);
+    out.scanned = ids.length;
+    if (!ids.length) return out;
+    // Skip anything already in the log — one query, not one per message.
+    const { rows: seen } = await pool.query(
+      'SELECT gmail_message_id g FROM sub_emails WHERE gmail_message_id = ANY($1)', [ids]);
+    const seenSet = new Set(seen.map(r => r.g));
+    for (const id of ids) {
+      if (seenSet.has(id)) continue;
+      let msg;
+      try { ({ data: msg } = await gmailClient.users.messages.get({ userId: 'me', id, format: 'full' })); }
+      catch (e) { continue; }
+      const headers = msg.payload.headers;
+      const from = headerVal(headers, 'From');
+      const addr = senderAddr(from);
+      if (!addr || addr.includes(gmailUser)) continue;
+      const sub = await matchSenderToSub(addr);
+      if (!sub) { if (out.unmatched.length < 12) out.unmatched.push(addr); continue; }
+      out.matched++;
+      const subject = headerVal(headers, 'Subject');
+      const dateHdr = headerVal(headers, 'Date');
+      const when = isNaN(new Date(dateHdr).getTime()) ? new Date() : new Date(dateHdr);
+      const { plain, html } = extractBody(msg.payload);
+      const raw = plain ? stripQuotedPlain(plain, false) : (msg.snippet || '');
+      const text = raw.length > 2000 ? raw.slice(0, 2000) + '…' : raw;
+      const atts = (extractAttachments(msg.payload) || []).filter(a => a.filename
+        && !(a.inline && /^image//i.test(a.mimeType || '') && (a.size || 0) < 15000));
+      const { rows: [ins] } = await pool.query(
+        "INSERT INTO sub_emails (sub_id, to_email, from_email, subject, body, sent_by, direction, gmail_thread_id, gmail_message_id, created_at) VALUES ($1,$2,$3,$4,$5,'sub','in',$6,$7,$8) RETURNING id",
+        [sub.id, gmailUser, from, subject, text, msg.threadId, id, when]);
+      for (const a of atts) {
+        await pool.query(
+          'INSERT INTO sub_email_attachments (sub_email_id, filename, mime, size, gmail_message_id, gmail_attachment_id) VALUES ($1,$2,$3,$4,$5,$6)',
+          [ins.id, a.filename, a.mimeType || null, a.size || null, id, a.attachmentId]);
+      }
+      out.logged++;
+      try { await maybeIngestDirectBid(sub.id, id, atts, subject, text, when); }
+      catch (e) { console.error('sweep ingest ' + sub.company + ': ' + e.message); }
+      try { await applyReplyKind(sub.id, classifyReply(subject, text, atts.length > 0), subject, text, ins.id); }
+      catch (e) { /* best effort */ }
+      try { await maybeCaptureLicense(sub.id, (plain || '') + ' ' + subject); } catch (e) {}
+      try { await pool.query('UPDATE subcontractors SET reply_unread=true, stale_alerted_at=NULL WHERE id=$1', [sub.id]); } catch (e) {}
+    }
+  } catch (e) { console.error('sweepInbox:', e.message); }
+  if (out.logged) console.log('inbox sweep: ' + out.logged + ' new contractor message(s) from ' + out.scanned + ' scanned');
+  return out;
+}
+app.post('/subs/bids/sweep', requireAuth, async (req, res) => {
+  try { await initDb(); res.json({ ok: true, ...(await sweepInbox(Number(req.body && req.body.hours) || 48)) }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 async function checkSubReplies() {
   if (!useGmail) return;
   try {
@@ -9945,7 +10028,8 @@ function startCron() {
   // Times are UTC on Railway. 15:00 UTC ≈ 7-8am Pacific.
   cron.schedule('*/20 * * * *', checkUnreadThreads);   // every 20 min
   cron.schedule('*/20 * * * *', processDeliveryReplies); // every 20 min — parse vendor delivery-date replies → queue notice
-  cron.schedule('*/20 * * * *', checkSubReplies);      // every 20 min — pull sub replies into the log
+  cron.schedule('*/4 * * * *', () => sweepInbox(48));   // every 4 min — cheap inbox sweep: new contractor mail → log + ingest bid + classify
+  cron.schedule('17 * * * *', checkSubReplies);        // hourly — the deep per-thread walk (catches split threads); too heavy for every 20 min at 480+ subs
   cron.schedule('*/20 * * * *', ingestQuickBooksEmails); // every 20 min — QuickBooks bids from the inbox
   cron.schedule('*/20 * * * *', sweepPlatformBids);      // every 20 min — FieldGroove-style platform bids
   cron.schedule('*/20 * * * *', pollFergusonEmails);     // every 20 min — Ferguson shipment/appliance alerts
