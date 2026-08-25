@@ -5541,12 +5541,12 @@ app.get('/subs', requireAuth, async (req, res) => {
     const { rows: photos } = await pool.query('SELECT id, sub_id FROM sub_photos ORDER BY id');
     const photosBySub = {};
     photos.forEach(p => (photosBySub[p.sub_id] = photosBySub[p.sub_id] || []).push(p.id));
-    const { rows: emailRows } = await pool.query('SELECT id, sub_id, subject, body, to_email, from_email, direction, created_at, (body_html IS NOT NULL OR gmail_message_id IS NOT NULL) AS has_html FROM sub_emails ORDER BY created_at DESC');
-    const emailsBySub = {};
-    emailRows.forEach(e => (emailsBySub[e.sub_id] = emailsBySub[e.sub_id] || []).push(e));
-    const { rows: attRows } = await pool.query('SELECT id, sub_email_id, filename, mime, gmail_message_id, gmail_attachment_id FROM sub_email_attachments ORDER BY id');
-    const attByEmail = {};
-    attRows.forEach(a => (attByEmail[a.sub_email_id] = attByEmail[a.sub_email_id] || []).push(a));
+    // Only direction + per-sub counts are needed here. The full log (bodies, iframes,
+    // attachments) loads per-sub via GET /subs/:id/emlog when the ✉ log is opened —
+    // inlining all of it made this a 5MB page that froze the browser as volume grew.
+    const { rows: emailRows } = await pool.query('SELECT sub_id, direction FROM sub_emails');
+    const emailCounts = {};
+    emailRows.forEach(e => { emailCounts[e.sub_id] = (emailCounts[e.sub_id] || 0) + 1; });
     const isSuper = req.session.role === 'super';
     const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);   // admins + Bobby can edit
     const recentCount = subs.filter(s => s.recent_add).length;
@@ -5625,11 +5625,33 @@ app.get('/subs', requireAuth, async (req, res) => {
     let bidPlansLink = '';
     try { const { rows: [as] } = await pool.query('SELECT bid_plans_link FROM app_settings WHERE id=1'); bidPlansLink = (as && as.bid_plans_link) || ''; } catch (e) {}
     const [plansLinks, areaPlans] = await Promise.all([getPlansLinks(), getAreaPlans()]);
-    res.render('subs', { subs, photosBySub, emailsBySub, attByEmail, outreach, bidDocs, costComparison, bidPlansLink, plansLinks, areaPlans, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
+    res.render('subs', { subs, photosBySub, emailCounts, outreach, bidDocs, costComparison, bidPlansLink, plansLinks, areaPlans, imported: req.query.imported, added: req.query.added, intake: req.query.intake, iskip: req.query.iskip, noemail: req.query.noemail, isSuper, canEdit, recentCount, emailEnabled,
       gcSort: req.query.gcSort === 'trade' ? 'trade' : 'status', subSort: req.query.subSort === 'trade' ? 'trade' : 'status' });
   } catch (err) {
     res.status(500).send('Error: ' + err.message);
   }
+});
+
+// One sub's email history, rendered as an HTML fragment. The Subs page fetches
+// this when the ✉ log is opened instead of shipping every log inline.
+app.get('/subs/:id/emlog', requireAuth, async (req, res) => {
+  try {
+    await initDb();
+    const id = Number(req.params.id) || 0;
+    const { rows: [s] } = await pool.query('SELECT id, company, owner FROM subcontractors WHERE id=$1', [id]);
+    if (!s) return res.status(404).send('Not found');
+    const { rows: emails } = await pool.query(
+      'SELECT id, subject, body, direction, created_at, (body_html IS NOT NULL OR gmail_message_id IS NOT NULL) AS has_html FROM sub_emails WHERE sub_id=$1 ORDER BY created_at DESC', [id]);
+    const { rows: attRows } = await pool.query(
+      `SELECT a.id, a.sub_email_id, a.filename, a.mime, a.gmail_message_id, a.gmail_attachment_id
+       FROM sub_email_attachments a JOIN sub_emails e ON e.id = a.sub_email_id
+       WHERE e.sub_id=$1 ORDER BY a.id`, [id]);
+    const attByEmail = {};
+    attRows.forEach(a => (attByEmail[a.sub_email_id] = attByEmail[a.sub_email_id] || []).push(a));
+    const isSuper = req.session.role === 'super';
+    const canEdit = !isSuper || canSuperViewSubs(req.session.superEmail);
+    res.render('_emlog', { s, emails, attByEmail, canEdit });
+  } catch (err) { res.status(500).send('Error: ' + err.message); }
 });
 
 // ── Public contractor submission form (share this link with GCs / subs) ──

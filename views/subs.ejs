@@ -756,7 +756,7 @@
                     <span class="insb insb-<%= _insCls %>" title="Insurance (from <%= s.ins_note || 'emailed COI' %> — checked <%= s.ins_checked_at ? new Date(s.ins_checked_at).toLocaleDateString() : '' %>)">🛡 ins <%= _insD < 0 ? 'EXPIRED' : 'exp' %> <%= new Date(s.ins_expires).toLocaleDateString('en-US',{month:'numeric',day:'numeric',year:'2-digit'}) %></span>
                   <% } %>
                 </td>
-                <td data-label="Contact" data-email="<%= s.email || '' %>"><% if (s.owner) { %><div class="c-owner"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></div><% } %><div class="c-email"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"<%- s.email_bounced_at ? ' style="color:#b91c1c;text-decoration:line-through"' : '' %>><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% if (s.email_bounced_at && !flagged) { %><div class="bounce-flag" onclick="editEmail(<%= s.id %>, this)" title="An email to this address failed to deliver on <%= new Date(s.email_bounced_at).toLocaleDateString() %><%= s.email_bounce_note ? ' — ' + s.email_bounce_note : '' %>. Click to fix the address; saving clears this warning.">⚠ didn't deliver — fix email</div><% } %><% var _em = (typeof emailsBySub !== 'undefined' && emailsBySub[s.id]) || []; if (_em.length) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _em.length %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body"><div class="emlog-head"><strong>✉ <%= s.company || s.owner || 'Emails' %></strong><button type="button" class="emlog-close" onclick="closeEmlogAll()" title="Close">✕</button></div><% _em.forEach(function(e){ var _inb = e.direction === 'in'; %><div class="emlog-item<%= _inb ? ' inbound' : '' %>"><span class="emlog-date"><%= new Date(e.created_at).toLocaleDateString() %></span><% if (_inb) { %><span class="emlog-tag">↩ reply</span><% } %><strong><%= e.subject %></strong><% if (e.has_html) { %><a class="emlog-view" href="/subs/emails/<%= e.id %>/html" target="_blank" rel="noopener" title="Open in its own tab">🗖</a><iframe class="emlog-frame" data-src="/subs/emails/<%= e.id %>/html?embed=1" sandbox="allow-same-origin allow-popups" loading="lazy" title="<%= e.subject %>"></iframe><% } else if (e.body) { %><div class="emlog-text"><%= e.body %></div><% } %><% var _att = (typeof attByEmail !== 'undefined' && attByEmail[e.id]) || []; if (_att.length) { %><div class="emlog-atts"><% _att.forEach(function(a){ %><% var _isImg = /^image\//i.test(a.mime || '') || /\.(png|jpe?g|gif|webp|heic)$/i.test(a.filename || ''); var _aurl = '/threads/messages/' + a.gmail_message_id + '/attachment/' + a.gmail_attachment_id + '?name=' + encodeURIComponent(a.filename || 'file') + '&mime=' + encodeURIComponent(a.mime || ''); %><% if (_isImg) { %><a class="emlog-att emlog-attimg" href="<%= _aurl %>" target="_blank" rel="noopener" title="<%= a.filename || 'image' %> - click to open full size"><img src="<%= _aurl %>" alt="" loading="lazy"></a><% } else { %><a class="emlog-att" href="<%= _aurl %>" target="_blank" rel="noopener" title="Open / download attachment">&#128206; <%= a.filename || 'attachment' %></a><% } %><% }) %></div><% } %></div><% }) %><% if (canEdit) { %><div class="emlog-reply"><select class="emlog-fu" data-name="<%= s.company || s.owner || '' %>" onchange="applyFollowup(this)"><option value="">Follow-up templates...</option><option value="checkin">Quick check-in</option><option value="docs">Missing docs reminder</option><option value="deadline">Proposal deadline nudge</option><option value="final">Final follow-up</option></select><textarea class="emlog-reply-text" rows="2" placeholder="Reply to this sub…"></textarea><button type="button" class="emlog-reply-btn" onclick="sendSubReply(this, <%= s.id %>)">Send reply</button><span class="emlog-reply-hint">✓ Your email signature is added automatically</span></div><% } %></div><% } %></div><% if (s.phone) { %><div class="c-phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></div><% } %></td>
+                <td data-label="Contact" data-email="<%= s.email || '' %>"><% if (s.owner) { %><div class="c-owner"><% if (flagged && s.owner) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.owner %></span><% } else { %><%= s.owner || '' %><% } %></div><% } %><div class="c-email"><% if (s.email) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.email %></span><% } else { %><a href="mailto:<%= s.email %>"<%- s.email_bounced_at ? ' style="color:#b91c1c;text-decoration:line-through"' : '' %>><%= s.email %></a><% } %> <% } %><button type="button" class="email-edit" onclick="editEmail(<%= s.id %>, this)" title="<%= s.email ? 'Edit' : 'Add' %> email">✏️</button><% if (s.email_bounced_at && !flagged) { %><div class="bounce-flag" onclick="editEmail(<%= s.id %>, this)" title="An email to this address failed to deliver on <%= new Date(s.email_bounced_at).toLocaleDateString() %><%= s.email_bounce_note ? ' — ' + s.email_bounce_note : '' %>. Click to fix the address; saving clears this warning.">⚠ didn't deliver — fix email</div><% } %><% var _emN = (typeof emailCounts !== 'undefined' && emailCounts[s.id]) || 0; if (_emN) { %><span class="emlog-btn<%= s.reply_unread ? ' has-reply' : '' %>" onclick="openEmlog(this, <%= s.id %>)" title="Email history with this sub">✉ <%= _emN %><% if (s.reply_unread) { %> <span class="reply-dot">● reply</span><% } %></span><div class="emlog-body" data-sub="<%= s.id %>"></div><% } %></div><% if (s.phone) { %><div class="c-phone"><% if (s.phone) { %><% if (flagged) { %><span class="blurred" onclick="this.classList.toggle('show')"><%= s.phone %></span><% } else { %><a href="tel:<%= s.phone.replace(/[^0-9+]/g,'') %>"><%= s.phone %></a><% } %><% } %></div><% } %></td>
                 <td class="row-actions">
                   <div class="rowmenu">
                     <button type="button" class="rowmenu-btn" onclick="rowMenu(this)" title="Actions — edit, email, photos, delete">⋯</button>
@@ -769,14 +769,10 @@
                       <form method="POST" action="/subs/<%= s.id %>/delete" style="margin:0" onsubmit="return confirm('Delete this subcontractor?')">
                         <button type="submit" class="del">🗑 Delete</button>
                       </form>
+                      <%# Options are cloned from the #moveOpts template when the ⋯ menu opens —
+                          inlining them in all 547 rows added ~880KB to the page. %>
                       <div class="moveSel-wrap"><select class="moveSel" data-id="<%= s.id %>" onchange="changeMove(this)" title="Move to another section / group">
                     <option value="">Move…</option>
-                    <optgroup label="Outside GCs">
-                      <% moveTargets.filter(t => t.cat === 'gc').forEach(t => { %><option value="gc||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
-                    </optgroup>
-                    <optgroup label="Subcontractors">
-                      <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
-                    </optgroup>
                   </select></div>
                     </div>
                   </div>
@@ -792,6 +788,16 @@
   <% }) %>
   </div><!-- /mainPanel -->
 </div>
+
+<%# Shared "Move…" options — cloned into a row's select when its ⋯ menu opens. %>
+<template id="moveOpts">
+  <optgroup label="Outside GCs">
+    <% moveTargets.filter(t => t.cat === 'gc').forEach(t => { %><option value="gc||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
+  </optgroup>
+  <optgroup label="Subcontractors">
+    <% moveTargets.filter(t => t.cat !== 'gc').forEach(t => { %><option value="sub||<%= t.grp %>"><%= t.grp || '(no group)' %></option><% }) %>
+  </optgroup>
+</template>
 
 <!-- Email subcontractor modal -->
 <div class="modal-bk" id="emailModal">
@@ -2007,7 +2013,8 @@ function applyTemplate(sel) {
     .split('{DEADLINE}').join(formatDeadline(document.getElementById('emDeadline').value));
 }
 function openEmlog(btn, id) {
-  // Open the email history as a reading pane; emails render inline as sent (iframes).
+  // Open the email history as a reading pane. The log itself loads on demand —
+  // inlining every sub's emails put ~1,000 hidden iframes on the page and froze it.
   closeEmlogAll();
   const panel = btn.nextElementSibling;
   panel.classList.add('show');
@@ -2019,17 +2026,31 @@ function openEmlog(btn, id) {
     document.body.appendChild(bd);
   }
   bd.classList.add('show');
+  if (!panel.dataset.loaded) {
+    panel.dataset.loaded = '1';
+    panel.innerHTML = '<div class="emlog-head"><strong>✉ Loading…</strong><button type="button" class="emlog-close" onclick="closeEmlogAll()" title="Close">✕</button></div>';
+    fetch('/subs/' + id + '/emlog', { headers: { 'X-Requested-With': 'fetch' } })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(function (html) { panel.innerHTML = html; emlogFrames(panel); })
+      .catch(function () {
+        panel.removeAttribute('data-loaded');
+        panel.innerHTML = '<div class="emlog-head"><strong>Couldn\'t load the email history — close and try again.</strong><button type="button" class="emlog-close" onclick="closeEmlogAll()" title="Close">✕</button></div>';
+      });
+  } else emlogFrames(panel);
+  if (btn.classList.contains('has-reply')) {
+    btn.classList.remove('has-reply');
+    const dot = btn.querySelector('.reply-dot'); if (dot) dot.remove();
+    fetch('/subs/' + id + '/replies/seen', { method: 'POST', headers: { 'X-Requested-With': 'fetch' } }).catch(function () {});
+  }
+}
+// Wire up the iframes inside a loaded log (each renders the email as it was sent).
+function emlogFrames(panel) {
   panel.querySelectorAll('iframe.emlog-frame[data-src]').forEach(function (f) {
     f.src = f.dataset.src; f.removeAttribute('data-src');
     f.addEventListener('load', function () {
       try { f.style.height = Math.min(Math.max(f.contentDocument.body.scrollHeight + 30, 130), 1400) + 'px'; } catch (e) {}
     });
   });
-  if (btn.classList.contains('has-reply')) {
-    btn.classList.remove('has-reply');
-    const dot = btn.querySelector('.reply-dot'); if (dot) dot.remove();
-    fetch('/subs/' + id + '/replies/seen', { method: 'POST', headers: { 'X-Requested-With': 'fetch' } }).catch(function () {});
-  }
 }
 async function chaseCoi(id, btn) {
   if (!confirm('Email this sub asking for an updated insurance certificate?')) return;
@@ -2057,6 +2078,9 @@ function rowMenu(btn) {
   const wasOpen = pop.classList.contains('show');
   document.querySelectorAll('.rowmenu-pop.show').forEach(function (p) { p.classList.remove('show'); });
   if (wasOpen) return;
+  // Fill the Move… select on first open (options live once in #moveOpts, not in every row)
+  const mv = pop.querySelector('.moveSel');
+  if (mv && mv.options.length <= 1) mv.appendChild(document.getElementById('moveOpts').content.cloneNode(true));
   const r = btn.getBoundingClientRect();
   pop.style.top = Math.min(r.bottom + 4, window.innerHeight - 230) + 'px';
   pop.style.left = Math.max(8, r.right - 176) + 'px';
@@ -2515,11 +2539,8 @@ function updateRowAfterSend(id, bidStatus, subject, status) {
       const span = document.createElement('span');
       span.className = 'emlog-btn'; span.title = 'Email history with this sub'; span.textContent = '✉ 1 ';
       span.setAttribute('onclick', 'openEmlog(this, ' + id + ')');
-      const bodyDiv = document.createElement('div'); bodyDiv.className = 'emlog-body';
-      const item = document.createElement('div'); item.className = 'emlog-item';
-      const d = document.createElement('span'); d.className = 'emlog-date'; d.textContent = new Date().toLocaleDateString();
-      const st = document.createElement('strong'); st.textContent = subject || '';
-      item.appendChild(d); item.appendChild(st); bodyDiv.appendChild(item);
+      // Empty shell — openEmlog fetches the log (incl. this new email) on first open.
+      const bodyDiv = document.createElement('div'); bodyDiv.className = 'emlog-body'; bodyDiv.dataset.sub = id;
       cell.appendChild(span); cell.appendChild(bodyDiv);
     }
   }
