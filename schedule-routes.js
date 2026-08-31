@@ -331,7 +331,23 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       const { rows: vals } = await pool.query(
         'SELECT slot_key, value FROM project_selections WHERE project_id=$1', [projectId]);
       const values = {}; vals.forEach(v => { values[v.slot_key] = v.value; });
-      res.json({ ok: true, slots, values });
+      // Model-aware sections: "Bathroom N" only shows when the project's model
+      // has at least N bathrooms (M1 = 1, M2B = 2). Unknown model or unset
+      // bathroom count -> show everything rather than hide something real.
+      let visible = slots, model = null, bathrooms = null;
+      const { rows: [pj] } = await pool.query('SELECT schedule_model FROM projects WHERE id=$1', [projectId]);
+      if (pj && pj.schedule_model) {
+        model = pj.schedule_model;
+        const { rows: [tpl] } = await pool.query('SELECT bathrooms FROM schedule_templates WHERE name=$1', [model]);
+        if (tpl && Number.isInteger(tpl.bathrooms)) {
+          bathrooms = tpl.bathrooms;
+          visible = slots.filter(s => {
+            const m = String(s.section || '').match(/^bathroom\s*(\d+)/i);
+            return !m || (+m[1] <= bathrooms);
+          });
+        }
+      }
+      res.json({ ok: true, slots: visible, values, model, bathrooms });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 

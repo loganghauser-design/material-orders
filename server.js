@@ -1661,6 +1661,11 @@ async function initDb() {
       source_tab TEXT,
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
+    -- Floor-plan facts per model, used to tailor the scope panel: a "Bathroom N"
+    -- section only shows when the model has at least N bathrooms (M2B has 2,
+    -- a regular M2 has 1 plus a pantry). NULL = unknown -> show everything.
+    ALTER TABLE schedule_templates ADD COLUMN IF NOT EXISTS bathrooms INTEGER;
+    ALTER TABLE schedule_templates ADD COLUMN IF NOT EXISTS pantry BOOLEAN;
     CREATE TABLE IF NOT EXISTS schedule_template_rows (
       id SERIAL PRIMARY KEY,
       pos INTEGER NOT NULL UNIQUE,
