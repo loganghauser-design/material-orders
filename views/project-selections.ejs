@@ -7,35 +7,10 @@
   <link rel="stylesheet" href="/css/app.css?v=5">
   <style>
     .sc-wrap { max-width:820px; margin:1.4rem auto; padding:0 1rem; }
-    .sc-head { display:flex; align-items:center; gap:.8rem; margin-bottom:1rem; }
+    .sc-head { display:flex; align-items:center; gap:.8rem; margin-bottom:.8rem; }
     .sc-head h1 { margin:0; font-size:1.2rem; letter-spacing:-.01em; }
     .sc-head .meta { color:var(--muted); font-size:.8rem; }
-    .sc-head .right { margin-left:auto; display:flex; gap:.45rem; }
-    .sc-btn { border:1px solid var(--border); background:var(--bg); border-radius:8px; padding:.42rem .8rem; font:inherit; font-size:.8rem; font-weight:700; color:var(--text); cursor:pointer; }
-    .sc-btn:hover { border-color:#4f8ef7; }
-    .sc-btn.primary { background:#111; color:#fff; border-color:#111; }
-    body.editing .sc-btn.edit { background:#111; color:#fff; border-color:#111; }
     .sc-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1.1rem 1.4rem 1.3rem; }
-    .sc-sec { font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:1.15rem 0 .35rem; }
-    .sc-sec:first-child { margin-top:.2rem; }
-    .sc-row { display:grid; grid-template-columns:200px 1fr; gap:.9rem; align-items:start; padding:.3rem 0; }
-    .sc-label { color:var(--muted); font-size:.82rem; padding-top:.12rem; }
-    .sc-val { display:flex; align-items:flex-start; gap:.45rem; min-height:1.5rem; }
-    .sc-text { font-size:.88rem; color:#3b82f6; font-weight:600; white-space:pre-wrap; line-height:1.4; }
-    .sc-text.empty { color:var(--muted); font-weight:400; font-style:italic; }
-    .sc-pencil { display:none; border:none; background:none; cursor:pointer; font-size:.8rem; color:var(--muted); padding:.05rem .3rem; border-radius:5px; flex:none; }
-    .sc-pencil:hover { color:var(--text); background:var(--bg); }
-    body.editing .sc-pencil { display:inline-block; }
-    .sc-editorbox select, .sc-editorbox input, .sc-editorbox textarea { font:inherit; font-size:.84rem; border:1px solid #4f8ef7; border-radius:7px; padding:.32rem .5rem; background:var(--bg); color:var(--text); min-width:260px; max-width:100%; }
-    .sc-editorbox textarea { width:420px; max-width:100%; min-height:84px; }
-    .sc-addline { display:none; margin:.25rem 0 0; }
-    body.editing .sc-addline { display:block; }
-    .sc-addline button { border:none; background:none; color:var(--muted); font:inherit; font-size:.76rem; cursor:pointer; text-decoration:underline; padding:0; }
-    .sc-addline button:hover { color:var(--text); }
-    .sc-hint { display:none; color:var(--muted); font-size:.76rem; margin:.55rem 0 0; }
-    body.editing .sc-hint { display:block; }
-    #toast { position:fixed; bottom:16px; right:16px; background:#111; color:#fff; border-radius:8px; padding:.55rem .9rem; font-size:.8rem; opacity:0; transition:opacity .2s; pointer-events:none; z-index:50; }
-    #toast.show { opacity:1; }
   </style>
 </head>
 <body>
@@ -44,139 +19,13 @@
   <div class="sc-head">
     <h1>Scope &amp; Selections</h1>
     <span class="meta"><a href="/projects/<%= proj.id %>"><%= proj.address %></a></span>
-    <div class="right">
-      <button class="sc-btn edit" id="editBtn" onclick="toggleEdit()">✎ Edit scope</button>
-    </div>
   </div>
-  <div class="sc-card">
-    <%
-      var bySec = []; var secIdx = {};
-      slots.forEach(function (s) {
-        if (!(s.section in secIdx)) { secIdx[s.section] = bySec.length; bySec.push({ name: s.section, slots: [] }); }
-        bySec[secIdx[s.section]].slots.push(s);
-      });
-    %>
-    <% if (!slots.length) { %>
-      <p style="color:var(--muted);font-size:.85rem">No scope lines defined yet — press ✎ Edit scope, then “+ Add line”.</p>
-    <% } %>
-    <% bySec.forEach(function (sec) { %>
-      <div class="sc-sec"><%= sec.name %></div>
-      <% sec.slots.forEach(function (s) { var v = values[s.key]; %>
-      <div class="sc-row" data-key="<%= s.key %>">
-        <div class="sc-label"><%= s.label %></div>
-        <div class="sc-val">
-          <span class="sc-text <%= v ? '' : 'empty' %>"><%= v || 'Not selected' %></span>
-          <button class="sc-pencil" title="Edit <%= s.label %>" onclick="openEditor(this)">✎</button>
-          <span class="sc-editorbox"></span>
-        </div>
-      </div>
-      <% }) %>
-      <div class="sc-addline" data-section="<%= sec.name %>"><button onclick="addLine('<%= sec.name.replace(/'/g, "\'") %>')">＋ Add line to <%= sec.name %></button></div>
-    <% }) %>
-    <div class="sc-addline" data-section="__new"><button onclick="addSection()">＋ Add a new section…</button></div>
-    <p class="sc-hint">Pick from each dropdown — “＋ Add option…” inside a dropdown adds a new choice for every project. Changes save instantly.</p>
-  </div>
+  <div class="sc-card"><div id="scopeRoot"></div></div>
 </main>
-<div id="toast"></div>
+<script src="/js/scope-panel.js"></script>
 <script>
-const PID = <%= proj.id %>;
-const SLOTS = {};
-<%- 'const _SL = ' + JSON.stringify(slots) + ';' %>
-_SL.forEach(s => { SLOTS[s.key] = s; });
-let toastT;
-function toast(msg, bad) {
-  const t = document.getElementById('toast');
-  t.textContent = msg; t.style.background = bad ? '#7f1d1d' : '#111';
-  t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2400);
-}
-async function api(path, body) {
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  return r.json();
-}
-function toggleEdit() {
-  document.body.classList.toggle('editing');
-  document.getElementById('editBtn').textContent = document.body.classList.contains('editing') ? '✓ Done editing' : '✎ Edit scope';
-}
-function closeEditors() {
-  document.querySelectorAll('.sc-editorbox').forEach(b => { b.innerHTML = ''; });
-  document.querySelectorAll('.sc-text, .sc-pencil').forEach(el => { el.style.display = ''; });
-}
-function openEditor(btn) {
-  closeEditors();
-  const row = btn.closest('.sc-row');
-  const key = row.dataset.key;
-  const slot = SLOTS[key] || { input_type: 'dropdown', options: [] };
-  const cur = row.querySelector('.sc-text').classList.contains('empty') ? '' : row.querySelector('.sc-text').textContent;
-  const box = row.querySelector('.sc-editorbox');
-  row.querySelector('.sc-text').style.display = 'none';
-  btn.style.display = 'none';
-  let el;
-  if (slot.input_type === 'text') {
-    el = document.createElement('textarea');
-    el.value = cur;
-    el.addEventListener('blur', () => save(row, key, el.value));
-  } else if (slot.input_type === 'number') {
-    el = document.createElement('input');
-    el.type = 'number'; el.value = cur;
-    el.addEventListener('change', () => save(row, key, el.value));
-    el.addEventListener('blur', () => save(row, key, el.value));
-  } else {
-    el = document.createElement('select');
-    const opts = (slot.input_type === 'yesno') ? ['Yes', 'No'] : (Array.isArray(slot.options) ? slot.options.slice() : []);
-    if (cur && !opts.includes(cur)) opts.unshift(cur);
-    let html = '<option value="">— not selected —</option>';
-    opts.forEach(o => { html += '<option' + (o === cur ? ' selected' : '') + '>' + o.replace(/&/g, '&amp;').replace(/</g, '&lt;') + '</option>'; });
-    if (slot.input_type !== 'yesno') {
-      html += '<option value="__addopt">＋ Add option…</option>';
-      html += '<option value="__custom">✎ Custom (one-off for this project)…</option>';
-    }
-    el.innerHTML = html;
-    el.addEventListener('change', async () => {
-      if (el.value === '__addopt') {
-        const o = prompt('New option for ' + slot.label + ' (added to the dropdown for every project):');
-        if (o && o.trim()) {
-          const d = await api('/selections/slots/add-option', { key, option: o.trim() });
-          if (d.ok) { SLOTS[key].options = d.options; save(row, key, o.trim()); }
-          else { toast(d.error || 'Could not add option', true); openEditor(btn); }
-        } else openEditor(btn);
-        return;
-      }
-      if (el.value === '__custom') {
-        const o = prompt('Custom value for ' + slot.label + ' (this project only):', cur);
-        if (o != null) save(row, key, o.trim()); else openEditor(btn);
-        return;
-      }
-      save(row, key, el.value);
-    });
-  }
-  box.appendChild(el);
-  el.focus();
-}
-async function save(row, key, value) {
-  try {
-    const d = await api('/projects/' + PID + '/selections/set', { key, value });
-    if (!d.ok) return toast(d.error || 'Not saved', true);
-    const txt = row.querySelector('.sc-text');
-    txt.textContent = value || 'Not selected';
-    txt.classList.toggle('empty', !value);
-    closeEditors();
-    toast('Saved');
-  } catch (e) { toast('Not saved: ' + e.message, true); }
-}
-async function addLine(section) {
-  const label = prompt('Name of the new line in ' + section + ' (e.g. Garage Door):');
-  if (!label || !label.trim()) return;
-  const d = await api('/selections/slots/add', { section, label: label.trim() });
-  if (d.ok) location.reload(); else toast(d.error || 'Could not add', true);
-}
-async function addSection() {
-  const section = prompt('Name of the new section (e.g. Kitchen, Exterior):');
-  if (!section || !section.trim()) return;
-  const label = prompt('First line in ' + section.trim() + ':');
-  if (!label || !label.trim()) return;
-  const d = await api('/selections/slots/add', { section: section.trim(), label: label.trim() });
-  if (d.ok) location.reload(); else toast(d.error || 'Could not add', true);
-}
+  // Same shared component the project page embeds — this page is just a wide host.
+  ScopePanel.init(document.getElementById('scopeRoot'), <%= proj.id %>, { title: '' });
 </script>
 </body>
 </html>

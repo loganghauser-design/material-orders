@@ -321,6 +321,20 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     } catch (err) { res.status(500).send(err.message); }
   });
 
+  // Slots + this project's values as JSON — feeds the shared scope panel.
+  app.get('/projects/:id/selections.json', requireAuth, async (req, res) => {
+    try {
+      const projectId = +req.params.id;
+      if (!Number.isInteger(projectId)) return res.status(400).json({ ok: false, error: 'Bad id' });
+      const { rows: slots } = await pool.query(
+        'SELECT key, section, label, input_type, options, sort FROM selection_slots ORDER BY sort, id');
+      const { rows: vals } = await pool.query(
+        'SELECT slot_key, value FROM project_selections WHERE project_id=$1', [projectId]);
+      const values = {}; vals.forEach(v => { values[v.slot_key] = v.value; });
+      res.json({ ok: true, slots, values });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
   app.post('/projects/:id/selections/set', requireAuth, async (req, res) => {
     try {
       const projectId = +req.params.id;
