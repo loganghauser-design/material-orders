@@ -111,6 +111,11 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         if (m.name_match && String((r.cells || [])[0] || '').replace(/\n/g, ' ').trim().toLowerCase() !== String(m.name_match).trim().toLowerCase()) continue;
         if (m.require_key && !String(selVals[m.require_key] || '').toLowerCase().includes(String(m.require_value || '').toLowerCase())) continue;
         const c = cleanCells(r.cells);
+        // A row whose CODE cell says NOT IN SCOPE was excluded by the template
+        // itself (e.g. no bedroom in a studio) — mappings never resurrect it.
+        // (Supplier-level "Not in scope" is the engine's own doing and MAY be
+        // overwritten when a pick brings the item back.)
+        if (m.action === 'set' && /not in scope/i.test(String(c[2] || ''))) continue;
         if (m.action === 'exclude') {
           c[14] = 'Not in scope';
         } else if (m.action === 'set' && m.prod_code) {
