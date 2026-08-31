@@ -23,13 +23,14 @@
   <div class="page-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:.6rem">
     <h1>Master Finish Schedule <span style="color:var(--muted);font-weight:400;font-size:1rem">(<%= items.length %> items)</span></h1>
     <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-      <a class="btn btn-ghost" href="https://docs.google.com/spreadsheets/d/1wSZb3PVq1rrE3PTyraBSUHVp-tYtOHpMaeAOO2l0_40/edit" target="_blank" rel="noopener" title="Open the source Google Sheet — edits there, then sync here">📄 Open the sheet ↗</a>
-      <button type="button" class="btn btn-ghost" id="catSync" onclick="catSync(this)" title="Re-read the Buildoly Master Finish Schedule sheet (read-only)">↻ Sync from sheet</button>
+      <button type="button" class="btn btn-primary" onclick="catAdd()" title="Add a product directly to the master — no spreadsheet involved">＋ Add item</button>
+      <a class="btn btn-ghost" href="https://docs.google.com/spreadsheets/d/1wSZb3PVq1rrE3PTyraBSUHVp-tYtOHpMaeAOO2l0_40/edit" target="_blank" rel="noopener" title="The old Excel source — kept for reference only; this page is the source of truth now">📄 Legacy sheet ↗</a>
+      <button type="button" class="btn btn-ghost" id="catSync" onclick="catSync(this)" title="One-way import FROM the legacy sheet (overwrites matching prod codes here). Only use if the old sheet was edited.">⬇ Import from legacy sheet</button>
     </div>
   </div>
   <p style="color:var(--muted);font-size:.88rem;margin-bottom:1rem;max-width:760px">
-    Every item from the <strong>Master Finish Schedule</strong>: prod code → model #, stage bucket, supplier, cost.
-    Finish schedules reference these prod codes per project; Ferguson's delivery emails reference the model #s — this catalog joins them.
+    The <strong>Master Finish Schedule</strong> — stored in Buildoly, the single source of truth: prod code → model #, stage bucket, supplier, cost.
+    Put a prod code on any project's finish schedule and the row fills from here; Ferguson's delivery emails reference the model #s — this catalog joins them.
   </p>
 
   <div class="card" style="max-width:none;padding:0;overflow:hidden">
@@ -89,7 +90,27 @@ async function catSync(btn) {
     const d = await r.json();
     if (d.ok) { btn.textContent = '✓ ' + d.upserted + ' items synced'; setTimeout(function () { location.reload(); }, 900); }
     else { alert(d.error || 'Sync failed'); btn.disabled = false; btn.textContent = '↻ Sync from master sheet'; }
-  } catch (e) { alert('Sync failed'); btn.disabled = false; btn.textContent = '↻ Sync from master sheet'; }
+  } catch (e) { alert('Sync failed'); btn.disabled = false; btn.textContent = '⬇ Import from legacy sheet'; }
+}
+// Add a product straight into the master — the website is the source of truth.
+async function catAdd() {
+  const ask = (q, req) => { const v = (prompt(q) || '').trim(); if (req && !v) throw new Error('cancelled'); return v; };
+  try {
+    const prod_code = ask('Prod code (e.g. KT-CHW07B) — must be new:', true).toUpperCase();
+    const item_role = ask('Item / slot name (e.g. Cabinet Hardware):', true);
+    const product_name = ask('Product name (e.g. Square Edge Pull - Flat Black 4"):', true);
+    const brand = ask('Brand (blank if none):');
+    const model_no = ask('Model # (blank if none):');
+    const finish = ask('Finish / color (blank if none):');
+    const supplier = ask('Supplier (e.g. Ferguson, Amerfit Hardware, Ganahl):', true);
+    const category_code = ask('Category code (1a-5a, e.g. 3c):', true).toLowerCase();
+    const cost = ask('Cost, numbers only (blank if unknown):');
+    const r = await fetch('/catalog/items', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prod_code, item_role, product_name, brand, model_no, finish, supplier, category_code, cost }) });
+    const d = await r.json();
+    if (d.ok) { alert('Added ' + prod_code + ' — it is pickable everywhere now.'); location.reload(); }
+    else alert(d.error || 'Could not add');
+  } catch (e) { /* cancelled */ }
 }
 </script>
 </body>

@@ -8285,6 +8285,30 @@ app.post('/catalog/sync', requireAuth, async (req, res) => {
   try { res.json({ ok: true, ...(await syncMasterCatalog()) }); }
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
+
+// Add a product directly to the master catalog — the DB is the source of truth,
+// so new items never need to route through the legacy Excel sheet.
+app.post('/catalog/items', requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const s = (v, n) => String(v == null ? '' : v).trim().slice(0, n);
+    const prod = s(b.prod_code, 40).toUpperCase();
+    if (!/^[A-Z]{1,3}-[A-Z0-9-]+$/.test(prod)) return res.json({ ok: false, error: 'Prod code must look like KT-XX01 (letters-dash-code).' });
+    if (!s(b.product_name, 1)) return res.json({ ok: false, error: 'Product name is required.' });
+    const code = s(b.category_code, 2).toLowerCase();
+    if (!/^[1-5][a-e]$/.test(code)) return res.json({ ok: false, error: 'Category code must be 1a–5a style (e.g. 3c).' });
+    const { rows: [dup] } = await pool.query('SELECT prod_code FROM item_catalog WHERE prod_code=$1', [prod]);
+    if (dup) return res.json({ ok: false, error: prod + ' already exists — pick a new code.' });
+    const model = s(b.model_no, 120);
+    await pool.query(
+      `INSERT INTO item_catalog (prod_code, item_role, category_code, brand, product_name, model_no, model_norm, finish, qty_default, supplier, cost, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,1,$9,$10,NOW())`,
+      [prod, s(b.item_role, 120), code, s(b.brand, 120), s(b.product_name, 500), model,
+       normModel(model).slice(0, 120) || null, s(b.finish, 120), s(b.supplier, 120),
+       Number(String(b.cost || '').replace(/[^0-9.]/g, '')) || null]);
+    res.json({ ok: true, prod_code: prod });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
 // ── Per-project item checklist ──────────────────────────────────────────────────
 // Expected items = the project's finish schedule (its shopping list), resolved through
 // the catalog for buckets/models. Delivered ✓ = the model # appeared in a completed
