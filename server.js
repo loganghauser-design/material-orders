@@ -1656,6 +1656,9 @@ async function initDb() {
     -- Optional room filter: some sheets reuse BA1-* tags in every bathroom, so a
     -- mapping can be limited to rows under a room header ("Bath 1", "Bath 2").
     ALTER TABLE scope_schedule_map ADD COLUMN IF NOT EXISTS section_match TEXT;
+    -- Optional row-name filter: many rows share the "PER PLANS" tag, so a mapping
+    -- can pin itself to one row by name ("Swing Entry").
+    ALTER TABLE scope_schedule_map ADD COLUMN IF NOT EXISTS name_match TEXT;
     CREATE TABLE IF NOT EXISTS project_selections (
       project_id INTEGER NOT NULL,
       slot_key TEXT NOT NULL,

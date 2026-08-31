@@ -83,7 +83,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     const proj = await getProject(projectId);
     if (!proj || !isDbUrl(proj.finish_schedule_url)) return 0;
     const { rows: maps } = await pool.query(
-      'SELECT plan_tag, action, prod_code, section_match FROM scope_schedule_map WHERE slot_key=$1 AND LOWER(option_value)=LOWER($2)',
+      'SELECT plan_tag, action, prod_code, section_match, name_match FROM scope_schedule_map WHERE slot_key=$1 AND LOWER(option_value)=LOWER($2)',
       [slotKey, String(value || '')]);
     if (!maps.length) return 0;
     const { rows } = await pool.query(
@@ -104,6 +104,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         const tag = String((r.cells || [])[1] || '').trim().toUpperCase();
         if (!wantTag || tag !== wantTag) continue;
         if (m.section_match && !String(roomOf.get(r.pos) || '').toLowerCase().startsWith(String(m.section_match).toLowerCase())) continue;
+        if (m.name_match && String((r.cells || [])[0] || '').replace(/\n/g, ' ').trim().toLowerCase() !== String(m.name_match).trim().toLowerCase()) continue;
         const c = cleanCells(r.cells);
         if (m.action === 'exclude') {
           c[14] = 'Not in scope';
