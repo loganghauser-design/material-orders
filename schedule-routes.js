@@ -493,12 +493,8 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         add('__src-rec', 'Rec. Light', `/projects/${projectId}/rec-lighting-source`, 'source',
           [{ value: 'gc', label: 'GC Procure' }, { value: 'oncall', label: 'On Call LED' }],
           pj.rec_lighting_source === 'oncall' ? 'oncall' : 'gc');
-        // Range-hood sourcing only matters once the scope has picked a hood.
-        if (scopeVal('finishes-range-hood')) {
-          add('__src-hood', 'Range Hood', `/projects/${projectId}/range-hood-source`, 'source',
-            [{ value: 'default', label: 'Vendor' }, { value: 'buildoly', label: 'Buildoly Stock' }],
-            pj.range_hood_source === 'buildoly' ? 'buildoly' : 'default');
-        }
+        // Range hood is purely a Finishes scope choice now (microwave combo
+        // standard, Fisher & Paykel upgrade) — no sourcing row.
         add('__src-jedco', 'Jedco', `/projects/${projectId}/jedco-source`, 'source',
           [{ value: 'default', label: 'JEDCO' }, { value: 'buildoly', label: 'Buildoly Stock' }],
           pj.jedco_source === 'buildoly' ? 'buildoly' : 'default');
