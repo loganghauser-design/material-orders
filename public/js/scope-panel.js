@@ -247,6 +247,12 @@
           var d = await api('/projects/' + pid + '/selections/set', { key: key, value: value });
           if (!d.ok) return toast(d.error || 'Not saved', true);
           state.values[key] = value;
+          if (d.fixturePkg) {
+            // Kohler/Moen swap rewrites schedule SKUs — reload so every view agrees.
+            toast('Saved — fixtures → ' + value + ', reloading…');
+            setTimeout(function () { location.reload(); }, 700);
+            return;
+          }
           if (SRC_DRIVERS.indexOf(key) >= 0) await refresh(); else render();
           if (d.slidingSource) {
             // The patio-door rule just retargeted the sliding-door sourcing;

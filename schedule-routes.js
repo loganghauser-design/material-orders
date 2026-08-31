@@ -483,9 +483,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
           [{ value: 'vendor', label: 'Vendor (Ganahl)' }, { value: 'buildoly', label: 'Buildoly Stock' }],
           pj.sliding_door_source === 'buildoly' ? 'buildoly' : 'vendor',
           'Set automatically by the Patio Door pick: trifold = Buildoly Stock, sliding glass = Ganahl');
-        add('__src-fixtures', 'Fixtures', `/projects/${projectId}/fixture-package`, 'pkg',
-          [{ value: 'kohler', label: 'Kohler pkg' }, { value: 'moen', label: 'Moen pkg' }],
-          pj.fixture_package === 'moen' ? 'moen' : 'kohler', 'Swaps faucets, shower kit, sink and disposal parts to that brand');
+        // Fixtures live in the Finishes scope now (Kohler/Moen package line).
         // No laundry sourcing when the scope says there is no washer/dryer.
         if (!/^not included$/i.test(scopeVal('finishes-washer-dryer'))) {
           add('__src-laundry', 'Laundry', `/projects/${projectId}/laundry-unit`, 'unit',
@@ -529,9 +527,16 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         else if (/sliding/i.test(value)) slidingSource = 'vendor';
         if (slidingSource) await pool.query('UPDATE projects SET sliding_door_source=$1 WHERE id=$2', [slidingSource, projectId]);
       }
+      // Fixtures scope line drives the Kohler/Moen package swap directly.
+      let fixturePkg = null;
+      if (key === 'finishes-fixtures' && value) {
+        fixturePkg = /moen/i.test(value) ? 'moen' : 'kohler';
+        await pool.query('UPDATE projects SET fixture_package=$1 WHERE id=$2', [fixturePkg, projectId]);
+        await resync(projectId);
+      }
       // Push the pick into the finish schedule (Buildoly-mode projects only).
       const scheduleRows = await applyScopeMappings(projectId, key, value).catch(() => 0);
-      res.json({ ok: true, key, value, slidingSource: slidingSource || undefined, scheduleRows: scheduleRows || undefined });
+      res.json({ ok: true, key, value, slidingSource: slidingSource || undefined, scheduleRows: scheduleRows || undefined, fixturePkg: fixturePkg || undefined });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
