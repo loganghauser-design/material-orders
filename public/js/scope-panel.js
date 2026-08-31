@@ -12,8 +12,10 @@
     + '.scp.editing .scp-btn.edit { background:#111; color:#fff; border-color:#111; }'
     + '.scp .scp-link { font-size:.74rem; color:var(--muted); text-decoration:none; }'
     + '.scp .scp-link:hover { color:var(--text); }'
-    + '.scp .scp-sec { font-size:.66rem; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:.85rem 0 .25rem; }'
-    + '.scp .scp-row { display:grid; grid-template-columns:190px 1fr; gap:.8rem; align-items:start; padding:.22rem 0; }'
+    + '.scp .scp-cols { columns:3 270px; column-gap:1.7rem; }'
+    + '.scp .scp-secblock { break-inside:avoid; -webkit-column-break-inside:avoid; margin:0 0 1rem; }'
+    + '.scp .scp-sec { font-size:.66rem; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:0 0 .25rem; }'
+    + '.scp .scp-row { display:grid; grid-template-columns:145px 1fr; gap:.6rem; align-items:start; padding:.2rem 0; }'
     + '.scp .scp-label { color:var(--muted); font-size:.8rem; padding-top:.1rem; }'
     + '.scp .scp-val { display:flex; align-items:flex-start; gap:.4rem; min-height:1.35rem; }'
     + '.scp .scp-text { font-size:.85rem; color:#3b82f6; font-weight:600; white-space:pre-wrap; line-height:1.35; }'
@@ -21,8 +23,9 @@
     + '.scp .scp-pencil { display:none; border:none; background:none; cursor:pointer; font-size:.78rem; color:var(--muted); padding:.02rem .28rem; border-radius:5px; flex:none; }'
     + '.scp .scp-pencil:hover { color:var(--text); background:var(--bg); }'
     + '.scp.editing .scp-pencil { display:inline-block; }'
-    + '.scp .scp-editorbox select, .scp .scp-editorbox input, .scp .scp-editorbox textarea { font:inherit; font-size:.82rem; border:1px solid #4f8ef7; border-radius:7px; padding:.3rem .5rem; background:var(--bg); color:var(--text); min-width:240px; max-width:100%; }'
-    + '.scp .scp-editorbox textarea { width:400px; max-width:100%; min-height:80px; }'
+    + '.scp .scp-editorbox { flex:1; min-width:0; }'
+    + '.scp .scp-editorbox select, .scp .scp-editorbox input, .scp .scp-editorbox textarea { font:inherit; font-size:.82rem; border:1px solid #4f8ef7; border-radius:7px; padding:.3rem .5rem; background:var(--bg); color:var(--text); width:100%; max-width:100%; }'
+    + '.scp .scp-editorbox textarea { min-height:80px; }'
     + '.scp .scp-addline { display:none; margin:.2rem 0 0; }'
     + '.scp.editing .scp-addline { display:block; }'
     + '.scp .scp-addline button { border:none; background:none; color:var(--muted); font:inherit; font-size:.74rem; cursor:pointer; text-decoration:underline; padding:0; }'
@@ -73,13 +76,14 @@
           if (!(s.section in idx)) { idx[s.section] = secs.length; secs.push({ name: s.section, slots: [] }); }
           secs[idx[s.section]].slots.push(s);
         });
-        var h = '<div class="scp-top"><span class="scp-title">' + (opts.title === undefined ? 'Scope &amp; Selections' : esc(opts.title)) + '</span>'
+        var h = '<div class="scp-top"><span class="scp-title">' + (opts.title === undefined ? 'Project Scope of Work' : esc(opts.title)) + '</span>'
           + '<div class="scp-right">'
           + (opts.fullPageLink ? '<a class="scp-link" href="/projects/' + pid + '/selections">Full page ↗</a>' : '')
           + '<button class="scp-btn edit" data-act="toggle">' + (state.editing ? '✓ Done editing' : '✎ Edit scope') + '</button></div></div>';
         if (!state.slots.length) h += '<p style="color:var(--muted);font-size:.8rem">No scope lines defined yet — press ✎ Edit scope, then “+ Add line”.</p>';
+        h += '<div class="scp-cols">';
         secs.forEach(function (sec) {
-          h += '<div class="scp-sec">' + esc(sec.name) + '</div>';
+          h += '<div class="scp-secblock"><div class="scp-sec">' + esc(sec.name) + '</div>';
           sec.slots.forEach(function (s) {
             var v = state.values[s.key] || '';
             h += '<div class="scp-row" data-key="' + esc(s.key) + '"><div class="scp-label">' + esc(s.label) + '</div>'
@@ -87,8 +91,9 @@
               + '<button class="scp-pencil" data-act="edit" title="Edit ' + esc(s.label) + '">✎</button>'
               + '<span class="scp-editorbox"></span></div></div>';
           });
-          h += '<div class="scp-addline"><button data-act="addline" data-section="' + esc(sec.name) + '">＋ Add line to ' + esc(sec.name) + '</button></div>';
+          h += '<div class="scp-addline"><button data-act="addline" data-section="' + esc(sec.name) + '">＋ Add line to ' + esc(sec.name) + '</button></div></div>';
         });
+        h += '</div>';
         h += '<div class="scp-addline"><button data-act="addsection">＋ Add a new section…</button></div>';
         h += '<p class="scp-hint">Pick from each dropdown — “＋ Add option…” adds a choice for every project; “Custom” is one-off for this project. Saves instantly.</p>';
         root.innerHTML = h;

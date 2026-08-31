@@ -157,7 +157,6 @@
     .ck-src select{font:inherit;font-size:.75rem;font-weight:600;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.18rem .35rem;background:var(--surface)}
     .scope-panel{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:1rem 1.2rem 1.1rem;margin:.55rem 0 .85rem}
     .scope-panel .scp-sourcing{display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;border-top:1px solid var(--border);margin-top:.95rem;padding-top:.8rem}
-    #scopeBtn.open{background:#111;color:#fff;border-color:#111}
     .ck-legend{color:var(--muted);font-size:.78rem;margin:0 0 1.1rem;max-width:820px}
     .ck-bucket{background:var(--surface);border:1px solid var(--border);border-radius:13px;padding:.85rem 1.1rem;margin-bottom:.85rem;max-width:none}
     .ck-head{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin-bottom:.5rem}
@@ -372,11 +371,10 @@
   <div class="ck-toolbar">
     <button type="button" class="btn btn-primary btn-sm" onclick="openRfqDialog('','','','')" title="Send an RFQ / order email to any vendor">✉ Email a vendor</button>
     <a class="btn btn-sm" href="/projects/<%= project.id %>/schedule" title="View the finish schedule — import it into Buildoly to edit it here instead of the sheet" style="text-decoration:none">📋 Schedule<%= (project.finish_schedule_url || '').indexOf('db://') === 0 ? ' · Buildoly' : '' %></a>
-    <button type="button" class="btn btn-sm" id="scopeBtn" onclick="toggleScope()" title="Client scope &amp; selections — finishes, upgrades, bathroom picks, plus the sourcing controls">🧾 Scope ▾</button>
   </div>
-  <!-- Scope panel: client selections up top, the sourcing dropdowns at the bottom.
-       Hidden until the Scope button opens it; sits above the checklist grid. -->
-  <div id="scopePanel" class="scope-panel" hidden>
+  <!-- Project Scope of Work: always visible above the checklist grid — client
+       selections in columns up top, the sourcing dropdowns at the bottom. -->
+  <div id="scopePanel" class="scope-panel">
     <div id="scopeRoot"></div>
     <div class="scp-sourcing">
     <span class="ck-tb-label">Sourcing</span>
@@ -1219,24 +1217,11 @@ async function setFixturePackage(pkg) {
     } else showToast(data.error || 'Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }
-// Scope panel toggle — loads the shared component (public/js/scope-panel.js)
-// on first open and expands above the checklist grid.
-function toggleScope() {
-  const p = document.getElementById('scopePanel');
-  const btn = document.getElementById('scopeBtn');
-  const opening = p.hasAttribute('hidden');
-  if (opening) {
-    p.removeAttribute('hidden');
-    btn.classList.add('open'); btn.textContent = '🧾 Scope ▴';
-    if (!window.__scopeInit && window.ScopePanel) {
-      window.__scopeInit = 1;
-      ScopePanel.init(document.getElementById('scopeRoot'), PROJECT_ID, { fullPageLink: true });
-    }
-  } else {
-    p.setAttribute('hidden', '');
-    btn.classList.remove('open'); btn.textContent = '🧾 Scope ▾';
-  }
-}
+// Project Scope of Work — always on display; the shared component
+// (public/js/scope-panel.js, loaded at the bottom of the page) fills it in.
+window.addEventListener('DOMContentLoaded', function () {
+  if (window.ScopePanel) ScopePanel.init(document.getElementById('scopeRoot'), PROJECT_ID, { fullPageLink: true });
+});
 // ADU model dropdown (only present when the project reads its schedule from
 // Buildoly). Options come from /schedule-templates; switching loads that model's
 // template over the stored schedule after an explicit confirm.
