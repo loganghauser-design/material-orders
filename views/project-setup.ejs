@@ -57,62 +57,20 @@ const CUR = {
 };
 const MODEL_LABELS = { 'MS': 'Studio' };   // extend as more names are confirmed
 
+// One question: the model. Everything else — the finish schedule, every
+// standard scope pick, and all sourcing — populates automatically from it;
+// upgrades and exceptions get changed by hand on the project page afterwards.
 const STEPS = [
   {
     key: 'model', q: 'What model is this project?',
-    sub: 'Populates the finish schedule from that model\u2019s template \u2014 each model carries its own material amounts. You can change it later from the Model dropdown on the project page.',
+    sub: 'Populates the finish schedule from that model’s template and fills every scope line with its standard — you then only change the upgrades. Switch models later from the project page.',
     opts: TEMPLATES.map(t => ({
       v: t.name,
-      t: MODEL_LABELS[t.name] ? t.name + ' \u2014 ' + MODEL_LABELS[t.name] : t.name,
+      t: MODEL_LABELS[t.name] ? t.name + ' — ' + MODEL_LABELS[t.name] : t.name,
       d: t.rows + ' schedule rows',
     })),
     post: v => api('/projects/' + PID + '/schedule/load-template', { name: v, overwrite: true }),
     cur: () => CUR.model,
-  },
-  {
-    key: 'pkg', q: 'Which fixture package?',
-    sub: 'Faucets, shower kit and valve, kitchen sink, disposal parts \u2014 swapped to that brand on the materials list and the Ferguson order.',
-    opts: [ { v: 'kohler', t: 'Kohler package' }, { v: 'moen', t: 'Moen package' } ],
-    post: v => api('/projects/' + PID + '/fixture-package', { pkg: v }),
-    cur: () => CUR.pkg,
-  },
-  {
-    key: 'laundry', q: 'Laundry setup?',
-    sub: 'Combo unit replaces the separate washer and dryer with one stacked LG machine and drops the stack bracket kit.',
-    opts: [ { v: 'separate', t: 'Separate washer + dryer' }, { v: 'combo', t: 'Combo unit', d: 'LG stacked washer/dryer \u2014 LGWKE100HWA' } ],
-    post: v => api('/projects/' + PID + '/laundry-unit', { unit: v }),
-    cur: () => CUR.laundry,
-  },
-  {
-    key: 'rec', q: 'Recessed lighting?',
-    sub: 'Buildoly purchases the recessed lighting on all projects by default (via On Call LED).',
-    opts: [ { v: 'oncall', t: 'Buildoly procures', d: 'Ordered through On Call LED — standard' }, { v: 'gc', t: 'GC procures' } ],
-    post: v => api('/projects/' + PID + '/rec-lighting-source', { source: v }),
-    cur: () => CUR.rec,
-  },
-  {
-    key: 'hood', q: 'Range hood?',
-    opts: [ { v: 'default', t: 'Vendor', d: 'Ordered from the schedule vendor' }, { v: 'buildoly', t: 'Buildoly stock', d: 'Supplied from office stock' } ],
-    post: v => api('/projects/' + PID + '/range-hood-source', { source: v }),
-    cur: () => CUR.hood,
-  },
-  {
-    key: 'bifold', q: '3-panel bifold door?',
-    opts: [ { v: 'buildoly', t: 'Buildoly stock' }, { v: 'vendor', t: 'Vendor' } ],
-    post: v => api('/projects/' + PID + '/bifold-source', { source: v }),
-    cur: () => CUR.bifold,
-  },
-  {
-    key: 'sliding', q: 'Sliding glass door?',
-    opts: [ { v: 'vendor', t: 'Vendor' }, { v: 'buildoly', t: 'Buildoly stock' } ],
-    post: v => api('/projects/' + PID + '/sliding-door-source', { source: v }),
-    cur: () => CUR.sliding,
-  },
-  {
-    key: 'jedco', q: 'Jedco items?',
-    opts: [ { v: 'default', t: 'JEDCO', d: 'Ordered from JEDCO' }, { v: 'buildoly', t: 'Buildoly stock', d: 'Supplied from office stock' } ],
-    post: v => api('/projects/' + PID + '/jedco-source', { source: v }),
-    cur: () => CUR.jedco,
   },
 ];
 
@@ -127,7 +85,7 @@ function render() {
   const prog = STEPS.map((s, i) => '<i class="' + (i < step ? 'done' : i === step ? 'now' : '') + '"></i>').join('');
   if (step >= STEPS.length) {
     card.innerHTML = '<div class="sw-prog">' + prog + '</div><div class="sw-done"><div class="big">\u2705</div>'
-      + '<h2>Project is set up</h2><p>The finish schedule is populated and every sourcing choice is saved. Next: the schedule still has products marked \u201cNot yet selected\u201d \u2014 pick each one on the schedule page (typing a prod code fills in brand, model, and supplier from the catalog).</p>'
+      + '<h2>Project is set up</h2><p>The finish schedule is populated and every scope line carries its standard. Open the project to flip any line to an upgrade \u2014 the schedule follows automatically. Anything still red on the schedule needs a one-time product pick.</p>'
       + '<a class="go" href="/projects/' + PID + '/schedule?nys=1">Fill in selections</a>'
       + '<a class="alt" href="/projects/' + PID + '">Open project</a></div>';
     return;

@@ -135,6 +135,34 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     if (applied) await resync(projectId);
     return applied;
   }
+  // Seed every unset scope line with its STANDARD: the first option that is not
+  // flagged as an upgrade; yes/no lines whose "Yes" is the upgrade default to No.
+  // Optional lines, number/text lines, and picks already made are left alone —
+  // so a new project opens fully filled with standards and only upgrades need
+  // a human touch.
+  const SEED_SKIP = new Set(['finishes-deck-size']);   // no real standard defined yet
+  async function seedScopeDefaults(projectId) {
+    const { rows: slots } = await pool.query('SELECT key, input_type, options, upgrades, optional FROM selection_slots');
+    let seeded = 0;
+    for (const s of slots) {
+      if (s.optional || SEED_SKIP.has(s.key)) continue;
+      const ups = (Array.isArray(s.upgrades) ? s.upgrades : []).map(u => String(u).toLowerCase());
+      let def = null;
+      if (s.input_type === 'yesno') {
+        if (ups.includes('yes')) def = 'No';
+      } else if (s.input_type === 'dropdown') {
+        const opts = Array.isArray(s.options) ? s.options : [];
+        def = opts.find(o => String(o).trim() && !ups.includes(String(o).toLowerCase())) || null;
+      }
+      if (!def) continue;
+      const r = await pool.query(
+        `INSERT INTO project_selections (project_id, slot_key, value) VALUES ($1,$2,$3)
+         ON CONFLICT (project_id, slot_key) DO UPDATE SET value=EXCLUDED.value, updated_at=NOW()
+         WHERE COALESCE(project_selections.value,'') = ''`, [projectId, s.key, def]);
+      seeded += r.rowCount;
+    }
+    return seeded;
+  }
   // Re-apply EVERY stored selection's mappings — used right after a model
   // template is stamped so the fresh schedule inherits the picks already made.
   async function applyAllScopeMappings(projectId) {
@@ -387,7 +415,9 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         await client.query('UPDATE projects SET schedule_sheet_backup=$1, finish_schedule_url=$2, schedule_model=$3 WHERE id=$4',
           [backup || null, DB_URL(proj.id), tpl.name, proj.id]);
       });
-      // Fresh template: stamp the picks this project has already made onto it.
+      // Fresh template: fill every unset scope line with its standard, then
+      // stamp all picks (standards + any upgrades already chosen) onto it.
+      const seeded = await seedScopeDefaults(proj.id).catch(() => 0);
       const inherited = await applyAllScopeMappings(proj.id).catch(() => 0);
       res.json({ ok: true, template: tpl.name, rows: values.length, scopeRowsApplied: inherited, resynced: await resync(proj.id) });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
