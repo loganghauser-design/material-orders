@@ -1335,7 +1335,7 @@ let FIN_SCHED_LOADED = false;
 async function loadFinishSchedule(force) {
   if (FIN_SCHED_LOADED && !force) return;
   const el = document.getElementById('finSchedView');
-  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading from Google Sheet…</div>';
+  el.innerHTML = '<div style="color:var(--muted);font-size:.85rem">Loading finish schedule…</div>';
   try {
     const r = await fetch(`/projects/${PROJECT_ID}/finish-schedule`);
     const data = await r.json();
@@ -1347,6 +1347,11 @@ async function loadFinishSchedule(force) {
     data.items.forEach(it => {
       if (it.type === 'section') html += `<tr><td colspan="9" style="background:var(--bg);font-weight:700;padding:6px 7px;border-top:1px solid var(--border)">${escapeHtmlJs(it.name)}</td></tr>`;
       else if (it.type === 'subtotal') html += `<tr><td colspan="8" style="text-align:right;color:var(--muted);padding:4px 7px;font-size:.78rem">Subtotal</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.total || '')}</td></tr>`;
+      else if (/^(not yet selected|nys)$/i.test(String(it.prodCode || '').trim())) {
+        // Needs a product pick — the red state lives here on the schedule too.
+        n++;
+        html += `<tr style="border-bottom:1px solid var(--border);background:rgba(220,38,38,.08)"><td style="padding:4px 7px;color:#dc2626;font-weight:700">🔴 ${escapeHtmlJs(it.name)}</td><td colspan="7" style="padding:4px 7px;color:#dc2626">no SKU — <a href="/projects/${PROJECT_ID}/schedule?nys=1" style="color:#dc2626;font-weight:700">pick an item →</a></td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td></tr>`;
+      }
       else { n++; html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 7px">${escapeHtmlJs(it.name)}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td><td style="padding:4px 7px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.model || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.color || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.qty || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.cost || '')}</td><td style="padding:4px 7px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td></tr>`; }
     });
     html += '</tbody></table>';
@@ -2197,6 +2202,6 @@ function showToast(msg, err) {
   setTimeout(() => t.className = 'toast', 2000);
 }
 </script>
-<script src="/js/scope-panel.js?v=8"></script>
+<script src="/js/scope-panel.js?v=9"></script>
 </body>
 </html>

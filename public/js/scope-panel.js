@@ -188,6 +188,14 @@
             toast('Saved — sliding door sourcing → ' + (d.slidingSource === 'buildoly' ? 'Buildoly Stock (trifold)' : 'Vendor / Ganahl (sliding glass)'));
           } else if (d.scheduleRows) {
             toast('Saved — updated ' + d.scheduleRows + ' finish schedule row' + (d.scheduleRows === 1 ? '' : 's'));
+            // Invalidate the host page's cached schedule views so the Finish
+            // Schedule tab (and materials drill-down) refetch on next open.
+            try {
+              if (typeof FIN_SCHED_LOADED !== 'undefined') { FIN_SCHED_LOADED = false; }
+              if (typeof MAT_SCHED_LOADED !== 'undefined') { MAT_SCHED_LOADED = false; }
+              var fsv = document.getElementById('finSchedView');
+              if (fsv && typeof loadFinishSchedule === 'function' && fsv.offsetParent !== null) loadFinishSchedule(true);
+            } catch (e) {}
           } else toast('Saved');
         } catch (e) { toast('Not saved: ' + e.message, true); }
       }
