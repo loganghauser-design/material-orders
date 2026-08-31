@@ -391,6 +391,12 @@
         <option value="moen" <%= project.fixture_package==='moen'?'selected':'' %>>Moen pkg</option>
       </select>
     </label>
+    <label class="ck-src" title="Combo unit replaces the separate washer and dryer with one stacked machine on the materials list and the Ferguson order, and drops the stack bracket kit">Laundry
+      <select onchange="setLaundryUnit(this.value)">
+        <option value="separate" <%= project.laundry_unit==='combo'?'':'selected' %>>Washer + Dryer</option>
+        <option value="combo" <%= project.laundry_unit==='combo'?'selected':'' %>>Combo unit</option>
+      </select>
+    </label>
     <label class="ck-src">Rec. Light
       <select onchange="setRecSource(this.value)">
         <option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option>
@@ -1191,6 +1197,16 @@ async function setFixturePackage(pkg) {
     if (data.ok) {
       showToast(pkg === 'moen' ? 'Fixtures → Moen package' : 'Fixtures → Kohler package');
       setTimeout(function () { location.reload(); }, 900);   // re-sync pulls the new SKUs
+    } else showToast(data.error || 'Could not save', true);
+  } catch (e) { showToast('Could not save', true); }
+}
+async function setLaundryUnit(unit) {
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/laundry-unit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ unit }) });
+    const data = await r.json();
+    if (data.ok) {
+      showToast(unit === 'combo' ? 'Laundry → stacked combo unit' : 'Laundry → separate washer + dryer');
+      setTimeout(function () { location.reload(); }, 900);   // re-sync drops/restores the second machine
     } else showToast(data.error || 'Could not save', true);
   } catch (e) { showToast('Could not save', true); }
 }

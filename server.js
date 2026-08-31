@@ -588,6 +588,32 @@ function applyRowOverrides(row, opts = {}) {
       if (swap.supplier) row[14] = swap.supplier;
     }
   }
+  // 0b) Laundry combo: one stacked unit stands in for the separate washer + dryer.
+  //     The WASHER row is rewritten into the combo and the DRYER row is dropped, so
+  //     we never order two machines. The stack bracket kit goes too — nothing is
+  //     being stacked — and the three surviving accessories are renamed to what
+  //     actually gets ordered for a combo install. Runs before the row is read by
+  //     anything else so the materials list and the vendor order agree.
+  let dropRow = false;
+  if (normalizeLaundryUnit(opts.laundryUnit) === 'combo') {
+    const pc = (row[2] || '').trim();
+    const nm = (row[0] || '').replace(/\n/g, ' ').trim();
+    if (LAUNDRY_DRYER.test(pc) || /^dryer$/i.test(nm) || LAUNDRY_BRACKET.test(pc)) {
+      dropRow = true;
+    } else if (LAUNDRY_WASHER.test(pc) || /^washer$/i.test(nm)) {
+      row = row.slice();
+      row[0] = 'Combo Unit';
+      row[2] = LAUNDRY_COMBO.prodCode;
+      row[5] = LAUNDRY_COMBO.brand;
+      row[6] = LAUNDRY_COMBO.product;
+      row[7] = LAUNDRY_COMBO.model;
+      if ((row[14] || '').trim()) row[14] = LAUNDRY_COMBO.supplier;
+    } else {
+      const rn = laundryRenameFor(pc);
+      if (rn) { row = row.slice(); row[0] = rn; }
+    }
+  }
+
   const rawCat = (row[4] || '').trim();
   let supplier = normalizeSupplier((row[14] || '').trim());
   const text = ((row[0] || '') + ' ' + (row[6] || '')).toLowerCase();
@@ -636,7 +662,7 @@ function applyRowOverrides(row, opts = {}) {
     const isJedco = /jedco/i.test((row[14] || '').trim());
     location = (isHood || isJedco) ? 'office' : 'warehouse';
   }
-  return { cat, supplier, location, row };
+  return { cat, supplier, location, row, drop: dropRow };
 }
 // True when a schedule row is the range hood (single, unmistakable by name).
 function isRangeHoodRow(row) {
@@ -654,7 +680,8 @@ async function readScheduleVendors(scheduleUrl, opts = {}) {
   const vendors = {};
   for (let i = 5; i < rows.length; i++) {
     let row = rows[i];
-    const { cat, supplier, row: row2 } = applyRowOverrides(row, opts); row = row2;
+    const { cat, supplier, row: row2, drop } = applyRowOverrides(row, opts); row = row2;
+    if (drop) continue;                       // laundry combo: dryer + stack kit are absorbed
     if (!CATRE.test(cat)) continue;
     if (!supplier || SKIP.test(supplier)) continue;
     const prodCode = (row[2] || '').trim();
@@ -766,7 +793,8 @@ async function readScheduleByCategory(scheduleUrl, opts = {}) {
   let currentRoom = '';
   for (let i = 5; i < rows.length; i++) {
     let row = rows[i];
-    const { cat, supplier, row: row2 } = applyRowOverrides(row, opts); row = row2;
+    const { cat, supplier, row: row2, drop } = applyRowOverrides(row, opts); row = row2;
+    if (drop) continue;                       // laundry combo: dryer + stack kit are absorbed
     const m = cat.match(CATRE);
     if (!m) {
       const c0 = (row[0] || '').replace(/\n/g, ' ').trim();
@@ -842,7 +870,7 @@ async function computeHeldUsages(maxAgeMs = 30 * 60 * 1000) {
 }
 async function _computeHeldUsagesRaw() {
   const { rows: projects } = await pool.query(
-    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
+    "SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE finish_schedule_url IS NOT NULL AND finish_schedule_url <> '' ORDER BY address"
   );
   // Read in concurrent batches of 6 — big parallel bursts get throttled and stall.
   const fetched = []; const fails = [];
@@ -858,10 +886,11 @@ async function _computeHeldUsagesRaw() {
   for (const f of fetched) {
     if (!f) continue;
     const { proj, rows } = f;
-    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source, fixturePkg: proj.fixture_package };
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source, fixturePkg: proj.fixture_package, laundryUnit: proj.laundry_unit };
     for (let i = 5; i < rows.length; i++) {
       let row = rows[i];
-      const { cat, supplier, location, row: row2 } = applyRowOverrides(row, opts); row = row2;
+      const { cat, supplier, location, row: row2, drop } = applyRowOverrides(row, opts); row = row2;
+      if (drop) continue;                     // laundry combo: dryer + stack kit are absorbed
       if (!isHeldSupplier(supplier)) continue;
       const name = (row[0] || '').replace(/\n/g, ' ').trim() || (row[6] || '').trim();
       if (!name) continue;
@@ -889,15 +918,16 @@ async function _computeHeldUsagesRaw() {
 async function syncHeldStockForCode(projectId, code, delivered) {
   try {
     const { rows: [proj] } = await pool.query(
-      'SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [projectId]);
+      'SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE id=$1', [projectId]);
     if (!proj || !proj.finish_schedule_url) return 0;
     let rows;
     try { rows = await fetchScheduleValues(proj.finish_schedule_url); } catch (e) { return 0; }
-    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source, fixturePkg: proj.fixture_package };
+    const opts = { recSource: proj.rec_lighting_source, rangeHoodSource: proj.range_hood_source, jedcoSource: proj.jedco_source, bifoldSource: proj.bifold_source, slidingSource: proj.sliding_door_source, fixturePkg: proj.fixture_package, laundryUnit: proj.laundry_unit };
     const keys = new Set();
     for (let i = 5; i < rows.length; i++) {
       let row = rows[i];
-      const { cat, supplier, row: row2 } = applyRowOverrides(row, opts); row = row2;
+      const { cat, supplier, row: row2, drop } = applyRowOverrides(row, opts); row = row2;
+      if (drop) continue;                     // laundry combo: dryer + stack kit are absorbed
       if (!isHeldSupplier(supplier)) continue;
       const rcode = (String(cat).match(/^(1[a-e]|2[a-e]|3[a-e])\b/i) || [])[1];
       if (!rcode || rcode.toLowerCase() !== String(code).toLowerCase()) continue;
@@ -1564,6 +1594,8 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS range_hood_source VARCHAR(20);
     -- Which plumbing-fixture package this project gets: 'kohler' (default) or 'moen'.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS fixture_package VARCHAR(10);
+    -- Laundry: 'separate' (default — its own washer + dryer) or 'combo' (one stacked unit).
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS laundry_unit VARCHAR(10);
     -- Doors (1a) stock toggles: 3-panel bifold is Buildoly stock by default;
     -- the sliding glass door is vendor-supplied by default.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS bifold_source VARCHAR(20);
@@ -2497,7 +2529,7 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
   try {
     await initDb();
     const email = req.session.superEmail;
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE id=$1', [req.params.id]);
     if (!superOwnsProject(email, project)) return res.redirect('/my');
     // Already-delivered items can't be requested again
     const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
@@ -2505,7 +2537,7 @@ app.get('/my/request/:id', requireSuper, async (req, res) => {
     // Schedule items per category — so each row can "Expand" to show what's in that delivery
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package, laundryUnit: project.laundry_unit }); }
       catch (e) { byCode = {}; }
     }
     res.render('my-request', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', delivered: deliveredCodes, byCode });
@@ -2563,13 +2595,13 @@ app.get('/request-materials', requireAuth, async (req, res) => {
 });
 app.get('/request-materials/:id', requireAuth, async (req, res) => {
   try {
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/request-materials');
     const { rows: pit } = await pool.query('SELECT item_code, status FROM project_items WHERE project_id=$1', [req.params.id]);
     const deliveredCodes = pit.filter(r => ['Delivered', 'Delivered from Inv.'].includes(r.status)).map(r => r.item_code);
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package, laundryUnit: project.laundry_unit }); }
       catch (e) { byCode = {}; }
     }
     const key = sessionKey(req);
@@ -2614,12 +2646,12 @@ app.get('/my/issue/:id', requireSuper, async (req, res) => {
     await initDb();
     const email = req.session.superEmail;
     // Bobby can report on ANY project; other supers only on their assigned ones
-    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [project] } = await pool.query('SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE id=$1', [req.params.id]);
     if (!project) return res.redirect('/my');
     if (!canSuperViewAllProjects(email) && !superOwnsProject(email, project)) return res.redirect('/my');
     let byCode = {};
     if (project.finish_schedule_url) {
-      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package }); }
+      try { byCode = await readScheduleByCategory(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package, laundryUnit: project.laundry_unit }); }
       catch (e) { byCode = {}; }
     }
     res.render('my-issue', { project, STAGES, sup: findSuper(email) || { name: 'Super' }, err: req.query.err === '1', byCode });
@@ -4367,9 +4399,9 @@ ${sig ? '<br>' + sig : ''}
 // Vendors (+ their items) from this project's finish schedule, for order auto-fill
 app.get('/projects/:id/schedule-vendors', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, vendors: [], note: 'No finish schedule linked. Add one via Edit Project.' });
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package, laundryUnit: p.laundry_unit });
     res.json({ ok: true, vendors });
   } catch (err) {
     console.error('schedule-vendors:', err.message);
@@ -4418,7 +4450,7 @@ function termNormName(s) { return String(s || '').toLowerCase().replace(/[^a-z0-
 // ✉ dialog would send to /projects/:id/rfq. Shared by the keyword parser and the AI.
 async function resolveVendorEmailAction(project, codes, t, opts = {}) {
   if (!project.finish_schedule_url) return { ok: false, reply: project.address + ' has no finish schedule linked — add one via Edit Project, or use the ✉ Email a vendor dialog.' };
-  const vendors = await readScheduleVendors(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package });
+  const vendors = await readScheduleVendors(project.finish_schedule_url, { recSource: project.rec_lighting_source, rangeHoodSource: project.range_hood_source, jedcoSource: project.jedco_source, bifoldSource: project.bifold_source, slidingSource: project.sliding_door_source, fixturePkg: project.fixture_package, laundryUnit: project.laundry_unit });
   let candidates = vendors.map(v => ({ ...v, items: v.items.filter(it => codes.includes(it.code)) })).filter(v => v.items.length);
   if (!candidates.length) return { ok: false, reply: 'No schedule items found under ' + codes.join(', ') + ' for ' + project.address + '.' };
   const nameHint = opts.vendorName || opts.rawText || '';
@@ -4550,7 +4582,7 @@ const TERMINAL_READS = {
   async schedule_vendors(inp) {
     const { rows: [p] } = await pool.query('SELECT * FROM projects WHERE id=$1', [inp.project_id]);
     if (!p || !p.finish_schedule_url) return { error: 'No finish schedule linked.' };
-    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package });
+    const vendors = await readScheduleVendors(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package, laundryUnit: p.laundry_unit });
     return vendors.map(v => ({ name: v.name, categories: [...new Set(v.items.map(i => i.code))], items: v.items.length }));
   },
   async email_history(inp) {
@@ -4778,9 +4810,9 @@ app.get('/projects/:id/finish-schedule', requireAuth, async (req, res) => {
 // Schedule items grouped by material category (for the Materials tab drill-down)
 app.get('/projects/:id/schedule-by-category', requireAuth, async (req, res) => {
   try {
-    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [req.params.id]);
+    const { rows: [p] } = await pool.query('SELECT finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE id=$1', [req.params.id]);
     if (!p || !p.finish_schedule_url) return res.json({ ok: true, byCode: {}, note: 'No finish schedule linked.' });
-    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package });
+    const byCode = await readScheduleByCategory(p.finish_schedule_url, { recSource: p.rec_lighting_source, rangeHoodSource: p.range_hood_source, jedcoSource: p.jedco_source, bifoldSource: p.bifold_source, slidingSource: p.sliding_door_source, fixturePkg: p.fixture_package, laundryUnit: p.laundry_unit });
     // Attach saved delivery progress to held items (allocated qty + how many delivered)
     const { rows: hs } = await pool.query('SELECT item_key, status, delivered_qty FROM held_item_status WHERE project_id=$1', [req.params.id]);
     const hsMap = Object.fromEntries(hs.map(r => [r.item_key, r]));
@@ -4870,6 +4902,17 @@ app.post('/projects/:id/fixture-package', requireAuth, async (req, res) => {
     await pool.query('UPDATE projects SET fixture_package=$1 WHERE id=$2', [pkg, req.params.id]);
     const r = await syncProjectExpected(req.params.id).catch(e => ({ ok: false, error: e.message }));
     res.json({ ok: true, pkg, resynced: !!(r && r.ok) });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Separate washer + dryer ⇄ one stacked combo unit. Re-syncs immediately so the
+// materials list and the Ferguson order both drop the second machine right away.
+app.post('/projects/:id/laundry-unit', requireAuth, async (req, res) => {
+  try {
+    const unit = normalizeLaundryUnit(req.body && req.body.unit);
+    await pool.query('UPDATE projects SET laundry_unit=$1 WHERE id=$2', [unit, req.params.id]);
+    const r = await syncProjectExpected(req.params.id).catch(e => ({ ok: false, error: e.message }));
+    res.json({ ok: true, unit, resynced: !!(r && r.ok) });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
@@ -8172,6 +8215,59 @@ const FIXTURE_PACKAGE_SLOTS = [
 ];
 function normalizeFixturePackage(v) { return String(v || '').toLowerCase() === 'moen' ? 'moen' : 'kohler'; }
 
+// ── Laundry: separate washer + dryer, or one stacked combo unit ──────────────
+// Set per project from the Sourcing row. A combo replaces BOTH appliances with a
+// single machine, which also makes the stack bracket kit pointless. Applied in
+// applyRowOverrides (vendor orders, materials drill-down, held stock) and in
+// applyLaundryCombo (the expected-items sync) so every path agrees.
+const LAUNDRY_COMBO = {
+  prodCode: 'L-WD01W-F',
+  brand: 'LG',
+  product: 'LG CCY STACKED WSHR & DRYR WHIT ELEC',
+  model: 'LGWKE100HWA',
+  supplier: 'Ferguson',
+};
+// Washer/dryer codes vary by project (GE on some, LG on others), so match the
+// family rather than listing SKUs. The name fallbacks catch the CUSTOM/OWNER rows
+// that carry no product code.
+const LAUNDRY_WASHER = /^L-W\d/i;
+const LAUNDRY_DRYER = /^L-D\d/i;
+const LAUNDRY_BRACKET = /^L-A0[15]/i;            // GE GFA24KITN / GFA28KITN, LG LGKSTK4
+const LAUNDRY_RENAME = {                          // surviving accessories, named for a combo install
+  'L-A02': 'W/D Accessory - All Necessary Washer Components',
+  'L-A03': 'W/D Accessory - All Cords',
+  'L-A04': 'W/D Accessory - Dryer Vent Kit',
+};
+function normalizeLaundryUnit(v) { return String(v || '').toLowerCase() === 'combo' ? 'combo' : 'separate'; }
+function laundryRenameFor(code) {
+  const k = String(code || '').trim().toUpperCase().replace(/-(F|BS)$/, '');
+  return LAUNDRY_RENAME[k] || null;
+}
+// Same rewrite for the parsed-row path that feeds project_expected_items.
+function applyLaundryCombo(rows, unit, catBy) {
+  if (normalizeLaundryUnit(unit) !== 'combo') return rows;
+  const c = (catBy && catBy[LAUNDRY_COMBO.prodCode]) || {};
+  const out = [];
+  for (const r of rows) {
+    const pc = (r.prodCode || '').trim();
+    const nm = (r.name || r.product || '').trim();
+    if (LAUNDRY_DRYER.test(pc) || /^dryer$/i.test(nm) || LAUNDRY_BRACKET.test(pc)) continue;
+    if (LAUNDRY_WASHER.test(pc) || /^washer$/i.test(nm)) {
+      out.push(Object.assign({}, r, {
+        prodCode: LAUNDRY_COMBO.prodCode,
+        name: 'Combo Unit',
+        product: c.product_name || LAUNDRY_COMBO.product,
+        model: c.model_no || LAUNDRY_COMBO.model,
+        supplier: (r.supplier || '').trim() ? (c.supplier || LAUNDRY_COMBO.supplier) : r.supplier,
+      }));
+      continue;
+    }
+    const rn = laundryRenameFor(pc);
+    out.push(rn ? Object.assign({}, r, { name: rn }) : r);
+  }
+  return out;
+}
+
 // source prod_code → the catalog row it should become for the wanted package.
 // Cached: the catalog rarely changes and this is consulted per schedule row.
 let _pkgCatCache = null, _pkgCatAt = 0;
@@ -8227,11 +8323,13 @@ function applyFixturePackage(rows, pkg, catBy) {
 }
 
 async function syncProjectExpected(projectId) {
-  const { rows: [proj] } = await pool.query('SELECT id, finish_schedule_url, fixture_package FROM projects WHERE id=$1', [projectId]);
+  const { rows: [proj] } = await pool.query('SELECT id, finish_schedule_url, fixture_package, laundry_unit FROM projects WHERE id=$1', [projectId]);
   if (!proj || !proj.finish_schedule_url) return { ok: false, error: 'No finish schedule linked to this project yet.' };
   const pkg = normalizeFixturePackage(proj.fixture_package);
-  // Package is part of the key: switching Kohler↔Moen must re-sync straight away.
-  const syncKey = projectId + '|' + proj.finish_schedule_url + '|' + pkg;
+  const laundry = normalizeLaundryUnit(proj.laundry_unit);
+  // Package and laundry choice are both part of the key: switching Kohler↔Moen or
+  // separate↔combo must re-sync straight away rather than wait out the TTL.
+  const syncKey = projectId + '|' + proj.finish_schedule_url + '|' + pkg + '|' + laundry;
   const last = _expSyncAt.get(syncKey);
   if (last && (Date.now() - last) < EXP_SYNC_TTL_MS) return { ok: true, cached: true };
   const values = await fetchScheduleValues(proj.finish_schedule_url);
@@ -8242,6 +8340,7 @@ async function syncProjectExpected(projectId) {
   // Swap the fixture package before anything is stored, so the materials list and
   // whatever goes to Ferguson agree with the project's selection.
   parsed = applyFixturePackage(parsed, pkg, catBy);
+  parsed = applyLaundryCombo(parsed, laundry, catBy);
   for (const it of parsed) {
     const c = catBy[it.prodCode] || {};
     const supplier = normalizeSupplier(it.supplier || c.supplier || '');
@@ -8598,7 +8697,7 @@ const MODEL_JUNK = /refer to|per plan|see plan|^n\/?a$|^qty|tbd|^\-+$/i;
 //   (e.g. by truck) → the notice lists the bucket MINUS those (the UPS half of a split order).
 async function buildDeliveryNotice({ projectId, codes, window, toOverride, method, tracking, manifestBlob, exceptBlob }) {
   const { rows: [proj] } = await pool.query(
-    'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package FROM projects WHERE id=$1', [projectId]);
+    'SELECT id, address, full_address, super_email, finish_schedule_url, rec_lighting_source, range_hood_source, jedco_source, bifold_source, sliding_door_source, fixture_package, laundry_unit FROM projects WHERE id=$1', [projectId]);
   if (!proj) return { ok: false, reason: 'no project' };
   const sups = parseSuperEmails(proj.super_email);
   const recipients = toOverride ? [toOverride] : sups.map(s => s.email).filter(Boolean);
