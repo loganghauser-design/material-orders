@@ -233,17 +233,24 @@
           toast('Saved — ' + slot.label + ' → ' + srcLabel(slot, value));
         } catch (e) { toast('Not saved: ' + e.message, true); }
       }
+      async function refresh() {
+        try {
+          var r = await fetch('/projects/' + pid + '/selections.json');
+          var d = await r.json();
+          if (d.ok) { state.slots = d.slots; state.values = d.values; state.slots.forEach(function (s) { byKey[s.key] = s; }); render(); }
+        } catch (e) {}
+      }
+      // Scope picks that decide WHICH sourcing rows exist (doors, laundry, hood).
+      var SRC_DRIVERS = ['finishes-patio-door', 'finishes-washer-dryer', 'finishes-range-hood'];
       async function save(key, value) {
         try {
           var d = await api('/projects/' + pid + '/selections/set', { key: key, value: value });
           if (!d.ok) return toast(d.error || 'Not saved', true);
           state.values[key] = value;
-          render();
+          if (SRC_DRIVERS.indexOf(key) >= 0) await refresh(); else render();
           if (d.slidingSource) {
-            // The patio-door rule just retargeted the sliding-door sourcing —
-            // reflect it on the Sourcing row immediately.
-            if (state.values['__src-sliding'] !== undefined) state.values['__src-sliding'] = d.slidingSource;
-            render();
+            // The patio-door rule just retargeted the sliding-door sourcing;
+            // refresh() above already redrew the Sourcing column to match.
             toast('Saved — sliding door sourcing → ' + (d.slidingSource === 'buildoly' ? 'Buildoly Stock (trifold)' : 'Vendor / Ganahl (sliding glass)'));
           } else if (d.scheduleRows) {
             toast('Saved — updated ' + d.scheduleRows + ' finish schedule row' + (d.scheduleRows === 1 ? '' : 's'));

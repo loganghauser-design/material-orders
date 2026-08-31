@@ -469,28 +469,38 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
             tpls.map(t => ({ value: t.name, label: t.name })), pj.schedule_model || '',
             'ADU model — switching loads that model template over this project schedule');
         }
+        // Sourcing rows are a CONSEQUENCE of the scope: a row only appears when
+        // the scope of work actually calls for that item.
+        const scopeVal = k => String(values[k] || '').trim();
         const { rows: [doors] } = await pool.query(
           "SELECT count(*) FILTER (WHERE name ~* 'bi.?fold')::int b, count(*) FILTER (WHERE name ~* 'slid')::int s FROM project_expected_items WHERE project_id=$1", [projectId]);
-        const hasB = doors && doors.b > 0, hasS = doors && doors.s > 0, noneDetected = !hasB && !hasS;
-        if (hasB || noneDetected) add('__src-bifold', 'Bifold', `/projects/${projectId}/bifold-source`, 'source',
+        const hasB = doors && doors.b > 0;
+        const hasS = (doors && doors.s > 0) || /slid/i.test(scopeVal('finishes-patio-door'));
+        if (hasB) add('__src-bifold', 'Bifold', `/projects/${projectId}/bifold-source`, 'source',
           [{ value: 'buildoly', label: 'Buildoly Stock' }, { value: 'vendor', label: 'Vendor' }],
           pj.bifold_source === 'vendor' ? 'vendor' : 'buildoly');
-        if (hasS || noneDetected) add('__src-sliding', 'Sliding Door', `/projects/${projectId}/sliding-door-source`, 'source',
+        if (hasS) add('__src-sliding', 'Sliding Door', `/projects/${projectId}/sliding-door-source`, 'source',
           [{ value: 'vendor', label: 'Vendor (Ganahl)' }, { value: 'buildoly', label: 'Buildoly Stock' }],
           pj.sliding_door_source === 'buildoly' ? 'buildoly' : 'vendor',
           'Set automatically by the Patio Door pick: trifold = Buildoly Stock, sliding glass = Ganahl');
         add('__src-fixtures', 'Fixtures', `/projects/${projectId}/fixture-package`, 'pkg',
           [{ value: 'kohler', label: 'Kohler pkg' }, { value: 'moen', label: 'Moen pkg' }],
           pj.fixture_package === 'moen' ? 'moen' : 'kohler', 'Swaps faucets, shower kit, sink and disposal parts to that brand');
-        add('__src-laundry', 'Laundry', `/projects/${projectId}/laundry-unit`, 'unit',
-          [{ value: 'separate', label: 'Washer + Dryer' }, { value: 'combo', label: 'Combo unit' }],
-          pj.laundry_unit === 'combo' ? 'combo' : 'separate');
+        // No laundry sourcing when the scope says there is no washer/dryer.
+        if (!/^not included$/i.test(scopeVal('finishes-washer-dryer'))) {
+          add('__src-laundry', 'Laundry', `/projects/${projectId}/laundry-unit`, 'unit',
+            [{ value: 'separate', label: 'Washer + Dryer' }, { value: 'combo', label: 'Combo unit' }],
+            pj.laundry_unit === 'combo' ? 'combo' : 'separate');
+        }
         add('__src-rec', 'Rec. Light', `/projects/${projectId}/rec-lighting-source`, 'source',
           [{ value: 'gc', label: 'GC Procure' }, { value: 'oncall', label: 'On Call LED' }],
           pj.rec_lighting_source === 'oncall' ? 'oncall' : 'gc');
-        add('__src-hood', 'Range Hood', `/projects/${projectId}/range-hood-source`, 'source',
-          [{ value: 'default', label: 'Vendor' }, { value: 'buildoly', label: 'Buildoly Stock' }],
-          pj.range_hood_source === 'buildoly' ? 'buildoly' : 'default');
+        // Range-hood sourcing only matters once the scope has picked a hood.
+        if (scopeVal('finishes-range-hood')) {
+          add('__src-hood', 'Range Hood', `/projects/${projectId}/range-hood-source`, 'source',
+            [{ value: 'default', label: 'Vendor' }, { value: 'buildoly', label: 'Buildoly Stock' }],
+            pj.range_hood_source === 'buildoly' ? 'buildoly' : 'default');
+        }
         add('__src-jedco', 'Jedco', `/projects/${projectId}/jedco-source`, 'source',
           [{ value: 'default', label: 'JEDCO' }, { value: 'buildoly', label: 'Buildoly Stock' }],
           pj.jedco_source === 'buildoly' ? 'buildoly' : 'default');
