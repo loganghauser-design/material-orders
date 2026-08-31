@@ -4,22 +4,26 @@
 // routes either way. Injects its own CSS so host pages carry no styling.
 (function () {
   var CSS = ''
-    + '.scp .scp-top { display:flex; align-items:center; gap:.7rem; margin-bottom:.4rem; }'
-    + '.scp .scp-title { font-size:.95rem; font-weight:800; letter-spacing:-.01em; }'
-    + '.scp .scp-right { margin-left:auto; display:flex; gap:.4rem; align-items:center; }'
-    + '.scp .scp-btn { border:1px solid var(--border); background:var(--bg); border-radius:8px; padding:.36rem .7rem; font:inherit; font-size:.78rem; font-weight:700; color:var(--text); cursor:pointer; }'
-    + '.scp .scp-btn:hover { border-color:#4f8ef7; }'
+    + '.scp .scp-top { display:flex; align-items:center; gap:.7rem; margin-bottom:.35rem; }'
+    + '.scp .scp-title { font-size:15px; font-weight:700; color:var(--text); letter-spacing:-.01em; }'
+    + '.scp .scp-right { margin-left:auto; display:flex; gap:.35rem; align-items:center; }'
+    + '.scp .scp-btn { border:1px solid var(--border); background:var(--bg); border-radius:7px; padding:4px 10px; font:inherit; font-size:12px; font-weight:600; color:var(--muted); cursor:pointer; }'
+    + '.scp .scp-btn:hover { color:var(--text); border-color:#b9c2cc; }'
     + '.scp.editing .scp-btn.edit { background:#111; color:#fff; border-color:#111; }'
-    + '.scp .scp-link { font-size:.74rem; color:var(--muted); text-decoration:none; }'
+    + '.scp .scp-link { font-size:12px; color:var(--muted); text-decoration:none; }'
     + '.scp .scp-link:hover { color:var(--text); }'
+    + '.scp .scp-chips { display:flex; gap:.4rem; margin:0 0 .7rem; flex-wrap:wrap; }'
+    + '.scp .scp-chip { display:inline-flex; gap:.3rem; align-items:center; font-size:11.5px; font-weight:600; border-radius:6px; padding:2px 8px; }'
+    + '.scp .scp-chip.ok { color:#1a7f37; background:rgba(26,127,55,.08); border:1px solid rgba(26,127,55,.25); }'
+    + '.scp .scp-chip.warn { color:#9a6b0b; background:rgba(180,120,10,.08); border:1px solid rgba(180,120,10,.28); }'
     + '.scp .scp-cols { columns:3 270px; column-gap:1.7rem; }'
     + '.scp .scp-secblock { break-inside:avoid; -webkit-column-break-inside:avoid; margin:0 0 1rem; }'
-    + '.scp .scp-sec { font-size:.66rem; font-weight:800; text-transform:uppercase; letter-spacing:.09em; color:var(--muted); margin:0 0 .25rem; }'
-    + '.scp .scp-row { display:grid; grid-template-columns:145px 1fr; gap:.6rem; align-items:start; padding:.2rem 0; }'
-    + '.scp .scp-label { color:var(--muted); font-size:.8rem; padding-top:.1rem; }'
-    + '.scp .scp-val { display:flex; align-items:flex-start; gap:.4rem; min-height:1.35rem; }'
-    + '.scp .scp-text { font-size:.85rem; color:#3b82f6; font-weight:600; white-space:pre-wrap; line-height:1.35; }'
-    + '.scp .scp-text.empty { color:var(--muted); font-weight:400; font-style:italic; }'
+    + '.scp .scp-sec { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin:0 0 .3rem; }'
+    + '.scp .scp-row { display:grid; grid-template-columns:145px 1fr; gap:.7rem; align-items:start; padding:2px 0; }'
+    + '.scp .scp-label { color:var(--muted); font-size:12px; padding-top:2px; line-height:1.45; }'
+    + '.scp .scp-val { display:flex; align-items:flex-start; gap:.35rem; min-height:1.25rem; }'
+    + '.scp .scp-text { font-size:13px; color:#2f6fd6; font-weight:500; white-space:pre-wrap; line-height:1.45; }'
+    + '.scp .scp-text.empty { color:#b45309; font-weight:400; font-style:italic; font-size:12px; }'
     + '.scp .scp-pencil { display:none; border:none; background:none; cursor:pointer; font-size:.78rem; color:var(--muted); padding:.02rem .28rem; border-radius:5px; flex:none; }'
     + '.scp .scp-pencil:hover { color:var(--text); background:var(--bg); }'
     + '.scp.editing .scp-pencil { display:inline-block; }'
@@ -80,6 +84,11 @@
           + '<div class="scp-right">'
           + (opts.fullPageLink ? '<a class="scp-link" href="/projects/' + pid + '/selections">Full page ↗</a>' : '')
           + '<button class="scp-btn edit" data-act="toggle">' + (state.editing ? '✓ Done editing' : '✎ Edit scope') + '</button></div></div>';
+        var total = 0, filled = 0;
+        state.slots.forEach(function (s) { total++; if (String(state.values[s.key] || '').trim()) filled++; });
+        h += '<div class="scp-chips"><span class="scp-chip ok">✓ Scope · ' + filled + ' of ' + total + ' selected</span>'
+          + (total - filled > 0 ? '<span class="scp-chip warn">' + (total - filled) + ' not set</span>' : '')
+          + '</div>';
         if (!state.slots.length) h += '<p style="color:var(--muted);font-size:.8rem">No scope lines defined yet — press ✎ Edit scope, then “+ Add line”.</p>';
         h += '<div class="scp-cols">';
         secs.forEach(function (sec) {
@@ -87,7 +96,7 @@
           sec.slots.forEach(function (s) {
             var v = state.values[s.key] || '';
             h += '<div class="scp-row" data-key="' + esc(s.key) + '"><div class="scp-label">' + esc(s.label) + '</div>'
-              + '<div class="scp-val"><span class="scp-text' + (v ? '' : ' empty') + '">' + (v ? esc(v) : 'Not selected') + '</span>'
+              + '<div class="scp-val"><span class="scp-text' + (v ? '' : ' empty') + '">' + (v ? esc(v) : 'not set') + '</span>'
               + '<button class="scp-pencil" data-act="edit" title="Edit ' + esc(s.label) + '">✎</button>'
               + '<span class="scp-editorbox"></span></div></div>';
           });
