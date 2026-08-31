@@ -1639,6 +1639,12 @@ async function initDb() {
     -- Optional lines (e.g. Design Mod — only used for one-off customer changes)
     -- don't count toward scope completeness and show "optional" when empty.
     ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;
+    -- Client-choice lines (tile color, door/window color) have a standard but the
+    -- client must actively pick — they are never auto-seeded on a new project.
+    ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS client_choice BOOLEAN NOT NULL DEFAULT false;
+    -- Model-dependent standards: {"M2":"...","M3":"..."} — e.g. solar panels are
+    -- an upgrade on M1 but standard on M2/M3. Overrides the generic default.
+    ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS model_defaults JSONB;
     -- Rows on the Materials checklist that still need a product picked (their
     -- schedule row says "Not yet selected") — rendered red with a pick link.
     ALTER TABLE project_expected_items ADD COLUMN IF NOT EXISTS needs_pick BOOLEAN DEFAULT false;

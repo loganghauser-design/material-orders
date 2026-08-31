@@ -140,15 +140,19 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
   // Optional lines, number/text lines, and picks already made are left alone —
   // so a new project opens fully filled with standards and only upgrades need
   // a human touch.
-  const SEED_SKIP = new Set(['finishes-deck-size']);   // no real standard defined yet
   async function seedScopeDefaults(projectId) {
-    const { rows: slots } = await pool.query('SELECT key, input_type, options, upgrades, optional FROM selection_slots');
+    const { rows: [pj2] } = await pool.query('SELECT schedule_model FROM projects WHERE id=$1', [projectId]);
+    const model = (pj2 && pj2.schedule_model) || '';
+    const { rows: slots } = await pool.query('SELECT key, input_type, options, upgrades, optional, client_choice, model_defaults FROM selection_slots');
     let seeded = 0;
     for (const s of slots) {
-      if (s.optional || SEED_SKIP.has(s.key)) continue;
+      if (s.optional || s.client_choice) continue;
       const ups = (Array.isArray(s.upgrades) ? s.upgrades : []).map(u => String(u).toLowerCase());
       let def = null;
-      if (s.input_type === 'yesno') {
+      const md = s.model_defaults || null;
+      if (md && model && md[model] != null && String(md[model]).trim() !== '') {
+        def = String(md[model]);
+      } else if (s.input_type === 'yesno') {
         if (ups.includes('yes')) def = 'No';
       } else if (s.input_type === 'dropdown') {
         const opts = Array.isArray(s.options) ? s.options : [];
