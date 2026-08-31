@@ -327,7 +327,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       const projectId = +req.params.id;
       if (!Number.isInteger(projectId)) return res.status(400).json({ ok: false, error: 'Bad id' });
       const { rows: slots } = await pool.query(
-        'SELECT key, section, label, input_type, options, sort FROM selection_slots ORDER BY sort, id');
+        'SELECT key, section, label, input_type, options, upgrades, sort FROM selection_slots ORDER BY sort, id');
       const { rows: vals } = await pool.query(
         'SELECT slot_key, value FROM project_selections WHERE project_id=$1', [projectId]);
       const values = {}; vals.forEach(v => { values[v.slot_key] = v.value; });
@@ -356,12 +356,31 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       const key = String((req.body && req.body.key) || '').trim();
       const option = String((req.body && req.body.option) || '').trim().slice(0, 200);
       if (!key || !option) return res.status(400).json({ ok: false, error: 'Missing key or option' });
-      const { rows: [slot] } = await pool.query('SELECT options FROM selection_slots WHERE key=$1', [key]);
+      const { rows: [slot] } = await pool.query('SELECT options, upgrades FROM selection_slots WHERE key=$1', [key]);
       if (!slot) return res.status(404).json({ ok: false, error: 'No such line' });
       const opts = Array.isArray(slot.options) ? slot.options.slice() : [];
       if (!opts.some(o => String(o).toLowerCase() === option.toLowerCase())) opts.push(option);
-      await pool.query('UPDATE selection_slots SET options=$1::jsonb WHERE key=$2', [JSON.stringify(opts), key]);
-      res.json({ ok: true, options: opts });
+      let ups = Array.isArray(slot.upgrades) ? slot.upgrades.slice() : [];
+      if (req.body && req.body.upgrade && !ups.some(u => String(u).toLowerCase() === option.toLowerCase())) ups.push(option);
+      await pool.query('UPDATE selection_slots SET options=$1::jsonb, upgrades=$2::jsonb WHERE key=$3',
+        [JSON.stringify(opts), JSON.stringify(ups), key]);
+      res.json({ ok: true, options: opts, upgrades: ups });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  // Flag / unflag one of a line's options as an upgrade (global, all projects).
+  app.post('/selections/slots/toggle-upgrade', requireAuth, async (req, res) => {
+    try {
+      const key = String((req.body && req.body.key) || '').trim();
+      const option = String((req.body && req.body.option) || '').trim();
+      const upgrade = !!(req.body && req.body.upgrade);
+      if (!key || !option) return res.status(400).json({ ok: false, error: 'Missing key or option' });
+      const { rows: [slot] } = await pool.query('SELECT upgrades FROM selection_slots WHERE key=$1', [key]);
+      if (!slot) return res.status(404).json({ ok: false, error: 'No such line' });
+      let ups = (Array.isArray(slot.upgrades) ? slot.upgrades : []).filter(u => String(u).toLowerCase() !== option.toLowerCase());
+      if (upgrade) ups.push(option);
+      await pool.query('UPDATE selection_slots SET upgrades=$1::jsonb WHERE key=$2', [JSON.stringify(ups), key]);
+      res.json({ ok: true, upgrades: ups });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 

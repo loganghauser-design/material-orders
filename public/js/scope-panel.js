@@ -24,6 +24,11 @@
     + '.scp .scp-val { display:flex; align-items:flex-start; gap:.35rem; min-height:1.25rem; }'
     + '.scp .scp-text { font-size:13px; color:#2f6fd6; font-weight:500; white-space:pre-wrap; line-height:1.45; }'
     + '.scp .scp-text.empty { color:#b45309; font-weight:400; font-style:italic; font-size:12px; }'
+    + '.scp .scp-up { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:4px; border:1px solid rgba(47,111,214,.4); background:rgba(47,111,214,.1); color:#2f6fd6; font-size:11px; font-weight:800; flex:none; margin-top:1px; user-select:none; }'
+    + '.scp .scp-up.ghost { display:none; opacity:.35; }'
+    + '.scp.editing .scp-up.ghost { display:inline-flex; cursor:pointer; }'
+    + '.scp.editing .scp-up.ghost:hover { opacity:.8; }'
+    + '.scp.editing .scp-up.on { cursor:pointer; }'
     + '.scp .scp-pencil { display:none; border:none; background:none; cursor:pointer; font-size:.78rem; color:var(--muted); padding:.02rem .28rem; border-radius:5px; flex:none; }'
     + '.scp .scp-pencil:hover { color:var(--text); background:var(--bg); }'
     + '.scp.editing .scp-pencil { display:inline-block; }'
@@ -73,6 +78,10 @@
       } catch (e) { root.innerHTML = '<p style="color:#dc2626;font-size:.8rem">Could not load scope: ' + esc(e.message) + '</p>'; return; }
       var state = { slots: data.slots, values: data.values, editing: false };
       var byKey = {}; state.slots.forEach(function (s) { byKey[s.key] = s; });
+      function isUp(slot, v) {
+        var ups = Array.isArray(slot && slot.upgrades) ? slot.upgrades : [];
+        return ups.some(function (u) { return String(u).toLowerCase() === String(v).toLowerCase(); });
+      }
 
       function render() {
         var secs = []; var idx = {};
@@ -95,8 +104,12 @@
           h += '<div class="scp-secblock"><div class="scp-sec">' + esc(sec.name) + '</div>';
           sec.slots.forEach(function (s) {
             var v = state.values[s.key] || '';
+            var up = v && isUp(s, v);
             h += '<div class="scp-row" data-key="' + esc(s.key) + '"><div class="scp-label">' + esc(s.label) + '</div>'
-              + '<div class="scp-val"><span class="scp-text' + (v ? '' : ' empty') + '">' + (v ? esc(v) : 'not set') + '</span>'
+              + '<div class="scp-val">'
+              + (up ? '<span class="scp-up on" data-act="upflag" title="Upgrade (click in edit mode to unmark)">↑</span>' : '')
+              + (v && !up ? '<span class="scp-up ghost" data-act="upflag" title="Mark this pick as an upgrade">↑</span>' : '')
+              + '<span class="scp-text' + (v ? '' : ' empty') + '">' + (v ? esc(v) : 'not set') + '</span>'
               + '<button class="scp-pencil" data-act="edit" title="Edit ' + esc(s.label) + '">✎</button>'
               + '<span class="scp-editorbox"></span></div></div>';
           });
@@ -131,7 +144,9 @@
           var list = slot.input_type === 'yesno' ? ['Yes', 'No'] : (Array.isArray(slot.options) ? slot.options.slice() : []);
           if (cur && list.indexOf(cur) < 0) list.unshift(cur);
           var oh = '<option value="">— not selected —</option>';
-          list.forEach(function (o) { oh += '<option' + (o === cur ? ' selected' : '') + '>' + esc(o) + '</option>'; });
+          list.forEach(function (o) {
+            oh += '<option value="' + esc(o) + '"' + (o === cur ? ' selected' : '') + '>' + (isUp(slot, o) ? '↑ ' : '') + esc(o) + '</option>';
+          });
           if (slot.input_type !== 'yesno') {
             oh += '<option value="__addopt">＋ Add option…</option><option value="__custom">✎ Custom (this project only)…</option>';
           }
@@ -140,8 +155,9 @@
             if (el.value === '__addopt') {
               var o = prompt('New option for ' + slot.label + ' (added to the dropdown for every project):');
               if (o && o.trim()) {
-                var d = await api('/selections/slots/add-option', { key: key, option: o.trim() });
-                if (d.ok) { slot.options = d.options; save(key, o.trim()); }
+                var mkUp = confirm('Is "' + o.trim() + '" an UPGRADE option?\n\nOK = upgrade (gets the ↑ badge) · Cancel = standard');
+                var d = await api('/selections/slots/add-option', { key: key, option: o.trim(), upgrade: mkUp });
+                if (d.ok) { slot.options = d.options; if (d.upgrades) slot.upgrades = d.upgrades; save(key, o.trim()); }
                 else { toast(d.error || 'Could not add option', true); openEditor(row); }
               } else openEditor(row);
               return;
@@ -173,6 +189,19 @@
         var act = btn.dataset.act;
         if (act === 'toggle') { state.editing = !state.editing; render(); return; }
         if (act === 'edit') { openEditor(btn.closest('.scp-row')); return; }
+        if (act === 'upflag') {
+          if (!state.editing) return;                       // badge is read-only outside edit mode
+          var urow = btn.closest('.scp-row');
+          var ukey = urow.dataset.key;
+          var uslot = byKey[ukey];
+          var uval = state.values[ukey];
+          if (!uslot || !uval) return;
+          var mk = !isUp(uslot, uval);
+          var ud = await api('/selections/slots/toggle-upgrade', { key: ukey, option: uval, upgrade: mk });
+          if (ud.ok) { uslot.upgrades = ud.upgrades; render(); toast(mk ? 'Marked as upgrade ↑' : 'Unmarked — standard'); }
+          else toast(ud.error || 'Failed', true);
+          return;
+        }
         if (act === 'addline' || act === 'addsection') {
           var section = btn.dataset.section;
           if (act === 'addsection') {

@@ -1628,8 +1628,12 @@ async function initDb() {
       label TEXT NOT NULL,
       input_type TEXT NOT NULL DEFAULT 'dropdown',
       options JSONB NOT NULL DEFAULT '[]'::jsonb,
+      upgrades JSONB NOT NULL DEFAULT '[]'::jsonb,
       sort INTEGER NOT NULL DEFAULT 0
     );
+    -- Which of a line's options count as UPGRADES (list of option names). A pick
+    -- that matches shows the blue up-arrow badge on the scope panel.
+    ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS upgrades JSONB NOT NULL DEFAULT '[]'::jsonb;
     CREATE TABLE IF NOT EXISTS project_selections (
       project_id INTEGER NOT NULL,
       slot_key TEXT NOT NULL,
