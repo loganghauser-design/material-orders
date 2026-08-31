@@ -347,7 +347,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         `INSERT INTO project_selections (project_id, slot_key, value, updated_at) VALUES ($1,$2,$3,NOW())
          ON CONFLICT (project_id, slot_key) DO UPDATE SET value=$3, updated_at=NOW()`, [projectId, key, value]);
       // Patio Door drives the sliding-door sourcing: a trifold ships from
-      // Buildoly stock; a sliding glass door is always vendor-supplied (Canal).
+      // Buildoly stock; a sliding glass door is always vendor-supplied (Ganahl).
       let slidingSource = null;
       if (key === 'finishes-patio-door') {
         if (/tri-?fold/i.test(value)) slidingSource = 'buildoly';

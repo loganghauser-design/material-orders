@@ -371,7 +371,7 @@
     </label>
     <% } %>
     <% if (typeof showSliding === 'undefined' || showSliding) { %>
-    <label class="ck-src" title="Set automatically by the Patio Door selection above: trifold → Buildoly Stock, sliding glass → Vendor (Canal)">Sliding Door
+    <label class="ck-src" title="Set automatically by the Patio Door selection above: trifold → Buildoly Stock, sliding glass → Vendor (Ganahl)">Sliding Door
       <select id="slidingSel" onchange="setSlidingSource(this.value)">
         <option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Vendor</option>
         <option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
@@ -2186,6 +2186,6 @@ function showToast(msg, err) {
   setTimeout(() => t.className = 'toast', 2000);
 }
 </script>
-<script src="/js/scope-panel.js?v=5"></script>
+<script src="/js/scope-panel.js?v=6"></script>
 </body>
 </html>
