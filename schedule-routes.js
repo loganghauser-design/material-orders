@@ -495,9 +495,10 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
           pj.rec_lighting_source === 'oncall' ? 'oncall' : 'gc');
         // Range hood is purely a Finishes scope choice now (microwave combo
         // standard, Fisher & Paykel upgrade) — no sourcing row.
-        add('__src-jedco', 'Jedco', `/projects/${projectId}/jedco-source`, 'source',
-          [{ value: 'default', label: 'JEDCO' }, { value: 'buildoly', label: 'Buildoly Stock' }],
-          pj.jedco_source === 'buildoly' ? 'buildoly' : 'default');
+        add('__src-jedco', 'Vent Grills', `/projects/${projectId}/jedco-source`, 'source',
+          [{ value: 'default', label: 'Manufacturer (JEDCO)' }, { value: 'buildoly', label: 'Buildoly Stock' }],
+          pj.jedco_source === 'buildoly' ? 'buildoly' : 'default',
+          'Where the vent grills come from — ordered from JEDCO, or supplied from Buildoly office stock');
         visible = visible.concat(src);
       }
       res.json({ ok: true, slots: visible, values, model, bathrooms });
