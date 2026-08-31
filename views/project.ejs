@@ -205,7 +205,6 @@
     .tp-manage{display:block;padding:8px;font-size:.78rem;color:var(--muted);text-decoration:none;border-radius:8px}
     .tp-manage:hover{background:var(--bg);color:var(--text)}
   </style>
-  <%- include('_terminal', { termProjectId: project.id, termProjectAddr: project.address }) %>
   <div class="tabs">
     <button type="button" class="tab-btn active" data-tab="materials" onclick="showTab('materials')">Materials</button>
     <button type="button" class="tab-btn" data-tab="orders" onclick="showTab('orders')">Orders</button>
@@ -324,21 +323,6 @@
 
   </div><!-- /orders -->
   <div class="tab-panel" data-tab="materials">
-  <div class="del-emails">
-    <div class="del-emails-h"><span>✉ Delivery emails sent</span><span class="del-emails-c"><%= (typeof deliveryNotices !== 'undefined' ? deliveryNotices.length : 0) %></span></div>
-    <% if (typeof deliveryNotices !== 'undefined' && deliveryNotices.length) { %>
-      <% deliveryNotices.forEach(function(n){ var _sd = new Date(n.sentAt); %>
-        <div class="del-row">
-          <span class="del-date"><%= _sd.toLocaleDateString('en-US', { month:'short', day:'numeric' }) %></span>
-          <span class="del-items"><%= n.items %></span>
-          <span class="del-method"><%= n.method === 'ups' ? '📦 UPS' : n.method === 'fedex' ? '📦 FedEx' : '🚚 Truck' %></span>
-          <span class="del-to"><%= _siteNames || '—' %></span>
-        </div>
-      <% }) %>
-    <% } else { %>
-      <div class="del-empty">No delivery emails sent yet — they'll appear here once you approve one.</div>
-    <% } %>
-  </div>
   <% if (typeof projectRequests !== 'undefined' && projectRequests.length) { %>
   <div id="fieldRequests" class="field-requests">
     <div class="fr-title">📥 Field Requests <span class="fr-count"><%= projectRequests.length %></span></div>
@@ -387,8 +371,8 @@
     </label>
     <% } %>
     <% if (typeof showSliding === 'undefined' || showSliding) { %>
-    <label class="ck-src">Sliding Door
-      <select onchange="setSlidingSource(this.value)">
+    <label class="ck-src" title="Set automatically by the Patio Door selection above: trifold → Buildoly Stock, sliding glass → Vendor (Canal)">Sliding Door
+      <select id="slidingSel" onchange="setSlidingSource(this.value)">
         <option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Vendor</option>
         <option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
       </select>
@@ -474,6 +458,22 @@
   </div>
   <% }) %>
 
+  <!-- Delivery emails sent — moved below the grid so the Scope of Work leads the page -->
+  <div class="del-emails">
+    <div class="del-emails-h"><span>✉ Delivery emails sent</span><span class="del-emails-c"><%= (typeof deliveryNotices !== 'undefined' ? deliveryNotices.length : 0) %></span></div>
+    <% if (typeof deliveryNotices !== 'undefined' && deliveryNotices.length) { %>
+      <% deliveryNotices.forEach(function(n){ var _sd = new Date(n.sentAt); %>
+        <div class="del-row">
+          <span class="del-date"><%= _sd.toLocaleDateString('en-US', { month:'short', day:'numeric' }) %></span>
+          <span class="del-items"><%= n.items %></span>
+          <span class="del-method"><%= n.method === 'ups' ? '📦 UPS' : n.method === 'fedex' ? '📦 FedEx' : '🚚 Truck' %></span>
+          <span class="del-to"><%= _siteNames || '—' %></span>
+        </div>
+      <% }) %>
+    <% } else { %>
+      <div class="del-empty">No delivery emails sent yet — they'll appear here once you approve one.</div>
+    <% } %>
+  </div>
   </div><!-- /materials -->
 </div>
 
@@ -2186,6 +2186,6 @@ function showToast(msg, err) {
   setTimeout(() => t.className = 'toast', 2000);
 }
 </script>
-<script src="/js/scope-panel.js?v=4"></script>
+<script src="/js/scope-panel.js?v=5"></script>
 </body>
 </html>

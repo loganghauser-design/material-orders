@@ -179,7 +179,12 @@
           if (!d.ok) return toast(d.error || 'Not saved', true);
           state.values[key] = value;
           render();
-          toast('Saved');
+          if (d.slidingSource) {
+            // The patio-door rule just retargeted the sliding-door sourcing.
+            var sel = document.getElementById('slidingSel');
+            if (sel) sel.value = d.slidingSource;
+            toast('Saved — sliding door sourcing → ' + (d.slidingSource === 'buildoly' ? 'Buildoly Stock (trifold)' : 'Vendor / Canal (sliding glass)'));
+          } else toast('Saved');
         } catch (e) { toast('Not saved: ' + e.message, true); }
       }
 

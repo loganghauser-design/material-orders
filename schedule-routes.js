@@ -346,7 +346,15 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       await pool.query(
         `INSERT INTO project_selections (project_id, slot_key, value, updated_at) VALUES ($1,$2,$3,NOW())
          ON CONFLICT (project_id, slot_key) DO UPDATE SET value=$3, updated_at=NOW()`, [projectId, key, value]);
-      res.json({ ok: true, key, value });
+      // Patio Door drives the sliding-door sourcing: a trifold ships from
+      // Buildoly stock; a sliding glass door is always vendor-supplied (Canal).
+      let slidingSource = null;
+      if (key === 'finishes-patio-door') {
+        if (/tri-?fold/i.test(value)) slidingSource = 'buildoly';
+        else if (/sliding/i.test(value)) slidingSource = 'vendor';
+        if (slidingSource) await pool.query('UPDATE projects SET sliding_door_source=$1 WHERE id=$2', [slidingSource, projectId]);
+      }
+      res.json({ ok: true, key, value, slidingSource: slidingSource || undefined });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
