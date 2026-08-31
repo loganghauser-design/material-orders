@@ -1625,12 +1625,25 @@ async function initDb() {
       cells JSONB NOT NULL DEFAULT '[]'::jsonb,
       UNIQUE (project_id, pos)
     );
-    -- The one standard finish-schedule template new projects start from.
+    -- Named finish-schedule templates, one per model (MS, M1, M2, M2B, M3, M3+),
+    -- synced from the master template sheet. Rows are verbatim cell snapshots in
+    -- the same A..S layout the per-project schedules use.
+    CREATE TABLE IF NOT EXISTS schedule_templates (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE,
+      source_tab TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
     CREATE TABLE IF NOT EXISTS schedule_template_rows (
       id SERIAL PRIMARY KEY,
       pos INTEGER NOT NULL UNIQUE,
       cells JSONB NOT NULL DEFAULT '[]'::jsonb
     );
+    -- v1 shipped a single unnamed template; migrate to per-model named templates.
+    ALTER TABLE schedule_template_rows ADD COLUMN IF NOT EXISTS template_id INTEGER;
+    ALTER TABLE schedule_template_rows DROP CONSTRAINT IF EXISTS schedule_template_rows_pos_key;
+    CREATE UNIQUE INDEX IF NOT EXISTS schedule_template_rows_tpl_pos ON schedule_template_rows (template_id, pos);
+    DELETE FROM schedule_template_rows WHERE template_id IS NULL;
     -- Doors (1a) stock toggles: 3-panel bifold is Buildoly stock by default;
     -- the sliding glass door is vendor-supplied by default.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS bifold_source VARCHAR(20);
@@ -5549,7 +5562,7 @@ app.get('/bid-comparison', requireAuth, (req, res) => {
 // Same data as the Subs cost card. Everything is sent once and filtered in the
 // browser — clicking a county or trade must not cost a page load.
 require('./subs-v2-routes')({ app, pool, requireAuth, initDb, verifySubLicense, cslbClassByTrade: function () { return CSLB_CLASS_BY_TRADE; } });   // /subs/v2 — server-paged rebuild, runs alongside /subs
-require('./schedule-routes')({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync: bustExpSyncFor });   // /projects/:id/schedule — DB-stored finish schedules (opt-in per project)
+require('./schedule-routes')({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync: bustExpSyncFor, getSheetsClient: function () { return sheetsClient; } });   // /projects/:id/schedule — DB-stored finish schedules (opt-in per project)
 
 app.get('/subs/bids', requireAuth, async (req, res) => {
   try {

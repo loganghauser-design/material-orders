@@ -11,7 +11,12 @@
 //
 // Kept out of server.js for the same reason as subs-v2-routes: a bug in the new
 // surface can't destabilise the live paths.
-module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync }) {
+module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync, getSheetsClient }) {
+
+  // The master template sheet: one "Fin Sched - <MODEL>" tab per model.
+  // Summary/Order/Archive tabs are not schedules (0 item rows) and are skipped.
+  const TEMPLATE_SHEET_ID = '1Uvwx29EdQeptcE77icLtnWnpsqFKLyCbSSJvamLVZVU';
+  const TEMPLATE_TAB_IGNORE = /project summary|^fin sched$|order|archive/i;
 
   const DB_URL = id => 'db://project/' + id;
   const isDbUrl = u => /^db:\/\/project\/\d+$/.test(String(u || ''));
@@ -65,11 +70,12 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       let values = [], loadError = null;
       try { values = await fetchScheduleValues(proj.finish_schedule_url); } catch (e) { loadError = e.message; }
       const rows = (values || []).map((cells, pos) => ({ pos, cells: cells || [], kind: classify(cells, pos) }));
-      const { rows: [t] } = await pool.query('SELECT count(*)::int AS n FROM schedule_template_rows');
+      const { rows: templates } = await pool.query(
+        'SELECT t.id, t.name, count(r.id)::int AS rows FROM schedule_templates t LEFT JOIN schedule_template_rows r ON r.template_id = t.id GROUP BY t.id, t.name ORDER BY t.name');
       res.render('schedule-editor', {
         proj, dbMode, rows, loadError,
         items: itemCount(values),
-        templateRows: t.n,
+        templates,
         sheetUrl: dbMode ? (proj.schedule_sheet_backup || '') : (proj.finish_schedule_url || ''),
       });
     } catch (err) { res.status(500).send(err.message); }
@@ -183,27 +189,38 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
-  // ── Standard template: bless this project's stored schedule as THE template ─
+  // ── Save this project's stored schedule as a NAMED template ────────────────
   app.post('/projects/:id/schedule/save-as-template', requireAuth, async (req, res) => {
     try {
       const projectId = +req.params.id;
+      const name = String((req.body && req.body.name) || '').trim().slice(0, 60);
+      if (!name) return res.json({ ok: false, error: 'Template needs a name (e.g. M2, M3+).' });
       const { rows } = await pool.query('SELECT pos, cells FROM project_schedule_rows WHERE project_id=$1 ORDER BY pos', [projectId]);
       if (!rows.length) return res.json({ ok: false, error: 'This project has no stored schedule — import it first.' });
       const values = []; rows.forEach(r => { values[r.pos] = r.cells; });
       for (let i = 0; i < values.length; i++) if (!values[i]) values[i] = [];
-      if (!itemCount(values)) return res.json({ ok: false, error: 'Stored schedule has 0 items — refusing to save it as the template.' });
-      await inTx(client => replaceRows(client, 'schedule_template_rows', null, null, values));
-      res.json({ ok: true, rows: values.length, items: itemCount(values) });
+      if (!itemCount(values)) return res.json({ ok: false, error: 'Stored schedule has 0 items — refusing to save it as a template.' });
+      await inTx(async client => {
+        const { rows: [t] } = await client.query(
+          'INSERT INTO schedule_templates (name, source_tab, updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (name) DO UPDATE SET source_tab=$2, updated_at=NOW() RETURNING id',
+          [name, 'project:' + projectId]);
+        await replaceRows(client, 'schedule_template_rows', 'template_id', t.id, values);
+      });
+      res.json({ ok: true, name, rows: values.length, items: itemCount(values) });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
-  // ── Start a project from the standard template ─────────────────────────────
+  // ── Start a project from a named template ──────────────────────────────────
   app.post('/projects/:id/schedule/load-template', requireAuth, async (req, res) => {
     try {
       const proj = await getProject(+req.params.id);
       if (!proj) return res.status(404).json({ ok: false, error: 'No such project' });
-      const { rows } = await pool.query('SELECT pos, cells FROM schedule_template_rows ORDER BY pos');
-      if (!rows.length) return res.json({ ok: false, error: 'No standard template saved yet.' });
+      const templateId = parseInt((req.body && req.body.templateId), 10);
+      if (!Number.isInteger(templateId)) return res.json({ ok: false, error: 'Pick a template.' });
+      const { rows: [tpl] } = await pool.query('SELECT id, name FROM schedule_templates WHERE id=$1', [templateId]);
+      if (!tpl) return res.json({ ok: false, error: 'No such template.' });
+      const { rows } = await pool.query('SELECT pos, cells FROM schedule_template_rows WHERE template_id=$1 ORDER BY pos', [tpl.id]);
+      if (!rows.length) return res.json({ ok: false, error: 'Template "' + tpl.name + '" has no rows.' });
       const { rows: [have] } = await pool.query('SELECT count(*)::int AS n FROM project_schedule_rows WHERE project_id=$1', [proj.id]);
       if (have.n && !(req.body && req.body.overwrite)) {
         return res.json({ ok: false, error: 'This project already has a stored schedule (' + have.n + ' rows). Pass overwrite to replace it.' });
@@ -216,7 +233,40 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         await client.query('UPDATE projects SET schedule_sheet_backup=$1, finish_schedule_url=$2 WHERE id=$3',
           [backup || null, DB_URL(proj.id), proj.id]);
       });
-      res.json({ ok: true, rows: values.length, resynced: await resync(proj.id) });
+      res.json({ ok: true, template: tpl.name, rows: values.length, resynced: await resync(proj.id) });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  // ── Sync all model templates from the master template sheet ────────────────
+  // One template per "Fin Sched - <MODEL>" tab, named after the model. Re-running
+  // replaces same-named templates; each tab imports in its own transaction so one
+  // bad tab can't take the rest down. Project schedules are never touched.
+  app.post('/schedule-templates/sync', requireAuth, async (req, res) => {
+    try {
+      const sheets = getSheetsClient && getSheetsClient();
+      if (!sheets) return res.json({ ok: false, error: 'Google Sheets access is not configured on the server.' });
+      const { data: meta } = await sheets.spreadsheets.get({ spreadsheetId: TEMPLATE_SHEET_ID });
+      const results = [];
+      for (const s of meta.sheets || []) {
+        const title = String(s.properties.title || '').trim();
+        if (TEMPLATE_TAB_IGNORE.test(title)) continue;
+        const name = title.replace(/^fin\s*sched\s*-\s*/i, '').trim() || title;
+        try {
+          const { data } = await sheets.spreadsheets.values.get({
+            spreadsheetId: TEMPLATE_SHEET_ID, range: "'" + title.replace(/'/g, "''") + "'!A1:S400" });
+          const values = data.values || [];
+          const items = itemCount(values);
+          if (!items) { results.push({ name, skipped: '0 items' }); continue; }
+          await inTx(async client => {
+            const { rows: [t] } = await client.query(
+              'INSERT INTO schedule_templates (name, source_tab, updated_at) VALUES ($1,$2,NOW()) ON CONFLICT (name) DO UPDATE SET source_tab=$2, updated_at=NOW() RETURNING id',
+              [name, title]);
+            await replaceRows(client, 'schedule_template_rows', 'template_id', t.id, values);
+          });
+          results.push({ name, rows: values.length, items });
+        } catch (e) { results.push({ name, error: String(e.message || e).slice(0, 120) }); }
+      }
+      res.json({ ok: true, templates: results });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 };

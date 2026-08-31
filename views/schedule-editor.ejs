@@ -64,11 +64,17 @@
     <% } else { %>
       <button class="se-btn" onclick="act('import-from-sheet', {}, 'Re-import from the sheet? This OVERWRITES the stored copy, including any edits made here.')">⟳ Re-import from sheet</button>
       <button class="se-btn warn" onclick="act('revert-to-sheet', {}, 'Point this project back at the Google Sheet? The stored copy is kept but stops being used.')">↩ Revert to sheet</button>
-      <button class="se-btn" onclick="act('save-as-template', {}, 'Save this schedule as the STANDARD TEMPLATE new projects start from? Replaces the current template.')">★ Save as standard template</button>
+      <button class="se-btn" onclick="saveAsTemplate()">★ Save as template…</button>
     <% } %>
-    <button class="se-btn" <%= templateRows ? '' : 'disabled title="No template saved yet"' %> onclick="act('load-template', { overwrite: true }, 'Load the standard template into this project? This OVERWRITES its stored schedule.')">⤓ Load standard template</button>
+    <% if (templates.length) { %>
+      <select id="tplPick" style="border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;font:inherit;font-size:.78rem;background:var(--bg);color:var(--text)">
+        <% templates.forEach(function (t) { %><option value="<%= t.id %>"><%= t.name %> (<%= t.rows %> rows)</option><% }) %>
+      </select>
+      <button class="se-btn" onclick="loadTemplate()">⤓ Load model template</button>
+    <% } %>
+    <button class="se-btn" onclick="syncTemplates()" title="Re-imports every 'Fin Sched - MODEL' tab from the master template sheet">⟳ Sync models from master sheet</button>
     <span class="sp"></span>
-    <span class="se-meta"><%= items %> items · <%= rows.length %> rows · template: <%= templateRows ? templateRows + ' rows' : 'none saved' %></span>
+    <span class="se-meta"><%= items %> items · <%= rows.length %> rows · <%= templates.length %> model template<%= templates.length === 1 ? '' : 's' %></span>
   </div>
 
   <% if (dbMode) { %>
@@ -144,6 +150,31 @@ async function addRow() {
     const d = await post('rows/insert', { prodCode: prodCode || undefined, afterPos });
     if (d.ok) { toast('Row added'); setTimeout(() => location.reload(), 500); }
     else toast(d.error || 'Failed', true);
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+function loadTemplate() {
+  const sel = document.getElementById('tplPick');
+  if (!sel || !sel.value) return toast('No template selected', true);
+  const nm = sel.options[sel.selectedIndex].text;
+  act('load-template', { templateId: +sel.value, overwrite: true },
+    'Load ' + nm + ' into this project? This OVERWRITES its stored schedule.');
+}
+function saveAsTemplate() {
+  const name = prompt('Save this schedule as a template named (e.g. M2, M3+):', '');
+  if (!name || !name.trim()) return;
+  act('save-as-template', { name: name.trim() },
+    'Save as template "' + name.trim() + '"? A template with that name is replaced.');
+}
+async function syncTemplates() {
+  if (!confirm('Re-import all model templates (MS, M1, M2, M2B, M3, M3+) from the master Google Sheet? Same-named templates are replaced. Project schedules are not touched.')) return;
+  try {
+    const r = await fetch('/schedule-templates/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const d = await r.json();
+    if (d.ok) {
+      const bad = (d.templates || []).filter(t => t.error || t.skipped);
+      toast('Synced ' + ((d.templates || []).length - bad.length) + ' templates' + (bad.length ? ' (' + bad.length + ' skipped)' : '') + ' — reloading…');
+      setTimeout(() => location.reload(), 900);
+    } else toast(d.error || 'Failed', true);
   } catch (e) { toast('Failed: ' + e.message, true); }
 }
 function insBelow(pos) {
