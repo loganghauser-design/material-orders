@@ -117,6 +117,9 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         // overwritten when a pick brings the item back.)
         if (m.action === 'set' && /not in scope/i.test(String(c[2] || ''))) continue;
         if (m.action === 'exclude') {
+          // Out of scope reads as N/A across the row, not leftover product text.
+          c[2] = 'N/A';
+          for (const i of [5, 6, 7, 8]) { while (c.length <= i) c.push(''); c[i] = 'N/A'; }
           c[14] = 'Not in scope';
         } else if (m.action === 'set' && m.prod_code) {
           const { rows: [cat] } = await pool.query(
