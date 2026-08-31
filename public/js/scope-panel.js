@@ -16,10 +16,13 @@
     + '.scp .scp-chip { display:inline-flex; gap:.3rem; align-items:center; font-size:11.5px; font-weight:600; border-radius:6px; padding:2px 8px; }'
     + '.scp .scp-chip.ok { color:#1a7f37; background:rgba(26,127,55,.08); border:1px solid rgba(26,127,55,.25); }'
     + '.scp .scp-chip.warn { color:#9a6b0b; background:rgba(180,120,10,.08); border:1px solid rgba(180,120,10,.28); }'
-    + '.scp .scp-grid { display:grid; grid-template-columns:280px 1fr; gap:2rem; align-items:start; }'
-    + '@media (max-width:900px) { .scp .scp-grid { grid-template-columns:1fr; gap:.6rem; } }'
-    + '.scp .scp-left { border-right:1px solid var(--border); padding-right:1.4rem; }'
-    + '@media (max-width:900px) { .scp .scp-left { border-right:none; padding-right:0; } }'
+    + '.scp .scp-grid { display:grid; grid-template-columns:1fr; gap:2rem; align-items:start; }'
+    + '.scp.editing .scp-grid { grid-template-columns:280px 1fr; }'
+    + '@media (max-width:900px) { .scp.editing .scp-grid { grid-template-columns:1fr; gap:.6rem; } }'
+    /* Sourcing is an edit-mode concern: hidden while viewing, revealed by Edit scope. */
+    + '.scp .scp-left { display:none; border-right:1px solid var(--border); padding-right:1.4rem; }'
+    + '.scp.editing .scp-left { display:block; }'
+    + '@media (max-width:900px) { .scp.editing .scp-left { border-right:none; padding-right:0; } }'
     + '.scp .scp-cols { columns:2 270px; column-gap:1.7rem; }'
     + '.scp .scp-secblock { break-inside:avoid; -webkit-column-break-inside:avoid; margin:0 0 1rem; }'
     + '.scp .scp-sec { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin:0 0 .3rem; }'
@@ -121,7 +124,9 @@
         // Optional and sourcing lines sit outside the completeness math.
         var total = 0, filled = 0;
         state.slots.forEach(function (s) { if (s.optional || s.input_type === 'src') return; total++; if (String(state.values[s.key] || '').trim()) filled++; });
-        h += '<div class="scp-chips"><span class="scp-chip ok">✓ Scope · ' + filled + ' of ' + total + ' selected</span>'
+        h += '<div class="scp-chips">'
+          + (data.model ? '<span class="scp-chip" style="color:var(--muted);border:1px solid var(--border)">Model ' + esc(data.model) + '</span>' : '')
+          + '<span class="scp-chip ok">✓ Scope · ' + filled + ' of ' + total + ' selected</span>'
           + (total - filled > 0 ? '<span class="scp-chip warn">' + (total - filled) + ' not set</span>' : '')
           + '</div>';
         if (!state.slots.length) h += '<p style="color:var(--muted);font-size:.8rem">No scope lines defined yet — press ✎ Edit scope, then “+ Add line”.</p>';
