@@ -1637,6 +1637,9 @@ async function initDb() {
     -- Optional lines (e.g. Design Mod — only used for one-off customer changes)
     -- don't count toward scope completeness and show "optional" when empty.
     ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;
+    -- Rows on the Materials checklist that still need a product picked (their
+    -- schedule row says "Not yet selected") — rendered red with a pick link.
+    ALTER TABLE project_expected_items ADD COLUMN IF NOT EXISTS needs_pick BOOLEAN DEFAULT false;
     -- Scope pick -> finish-schedule effects. When a project (in Buildoly
     -- schedule mode) saves the given option, every schedule row whose plan tag
     -- (cells[1]) matches gets the action: 'set' writes prod_code and fills the
@@ -8448,16 +8451,25 @@ async function syncProjectExpected(projectId) {
   // whatever goes to Ferguson agree with the project's selection.
   parsed = applyFixturePackage(parsed, pkg, catBy);
   parsed = applyLaundryCombo(parsed, laundry, catBy);
+  const isNysCode = v => /^(not yet selected|nys)$/i.test(String(v || '').trim());
   for (const it of parsed) {
-    const c = catBy[it.prodCode] || {};
+    // A row still waiting on a product pick carries no real SKU — it flows
+    // through flagged needs_pick so the Materials tab can demand a choice
+    // instead of silently hiding the line. It stays out of vendor orders
+    // (no supplier) until a code is picked.
+    const needsPick = isNysCode(it.prodCode);
+    const rawCode = needsPick ? '' : (it.prodCode || '');
+    const c = catBy[rawCode] || {};
     const supplier = normalizeSupplier(it.supplier || c.supplier || '');
-    if (/contractor to proc|not in scope|^n\/a$/i.test(supplier) || /not in scope/i.test(it.prodCode || '')) continue;
-    const model = (it.model || c.model_no || '').trim();
-    if (!it.prodCode && !model) continue;
+    if (/contractor to proc|not in scope|^n\/a$/i.test(supplier) || /not in scope/i.test(rawCode)) continue;
+    const model = needsPick ? '' : (it.model || c.model_no || '').trim();
+    if (!rawCode && !model && !needsPick) continue;
     const catCode = canonicalCodeFromCategory(it.category) || c.category_code || null;
+    if (needsPick && !catCode) continue;   // unpicked AND uncategorized — no bucket to show it in
     rowsToInsert.push([
-      projectId, (it.prodCode || '').slice(0, 40) || null, (it.name || it.product || '').slice(0, 200), catCode,
+      projectId, rawCode.slice(0, 40) || null, (it.name || it.product || '').slice(0, 200), catCode,
       model.slice(0, 120), normModel(model).slice(0, 120) || null, parseInt(it.qty, 10) || 1, supplier.slice(0, 120),
+      needsPick,
     ]);
   }
   if (!rowsToInsert.length) return { ok: false, error: 'Schedule parsed to 0 items — kept the previous sync.' };
@@ -8466,10 +8478,10 @@ async function syncProjectExpected(projectId) {
   try {
     await client.query('BEGIN');
     await client.query('DELETE FROM project_expected_items WHERE project_id=$1', [projectId]);
-    const cols = 8;
+    const cols = 9;
     const placeholders = rowsToInsert.map((_, r) => '(' + Array.from({ length: cols }, (_, c) => '$' + (r * cols + c + 1)).join(',') + ')').join(',');
     await client.query(
-      `INSERT INTO project_expected_items (project_id, prod_code, name, category_code, model_no, model_norm, qty, supplier)
+      `INSERT INTO project_expected_items (project_id, prod_code, name, category_code, model_no, model_norm, qty, supplier, needs_pick)
        VALUES ${placeholders}`, rowsToInsert.flat());
     await client.query('COMMIT');
   } catch (e) {

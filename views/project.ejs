@@ -177,6 +177,9 @@
     .ck-name{font-weight:600}
     .ck-qty{font-size:.78rem;font-weight:800;color:#374151}
     .ck-model{font-family:monospace;font-size:.78rem;color:var(--muted);white-space:nowrap}
+    .ck-row.ck-pick{background:rgba(220,38,38,.08);border-left:3px solid #dc2626}
+    .ck-row.ck-pick .ck-name{color:#dc2626;font-weight:700}
+    .ck-pickgo{color:#dc2626;font-size:.72rem;font-weight:700;margin-left:.4rem;text-decoration:underline;white-space:nowrap}
     .ck-when{color:#3730a3;font-size:.76rem;font-weight:600;white-space:nowrap}
     .ck-sup{margin-left:auto;font-size:.76rem;color:var(--muted);white-space:nowrap}
     .ck-done{opacity:.6}
@@ -216,7 +219,9 @@
   <div class="tab-panel" data-tab="schedule">
     <div class="email-card">
       <div class="email-header">
-        <div><strong>Finish Schedule</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem">Read live from your Google Sheet — verify what the app sees.</div></div>
+        <% var _dbSched = (project.finish_schedule_url || '').indexOf('db://') === 0; %>
+        <div><strong>Finish Schedule</strong><div style="font-size:.8rem;color:var(--muted);margin-top:.2rem"><%= _dbSched ? ('Stored in Buildoly — auto-populated by the ' + (project.schedule_model ? 'model ' + project.schedule_model : 'model') + ' template and kept in sync by the Scope of Work.') : 'Read live from your Google Sheet — verify what the app sees.' %></div></div>
+        <% if (_dbSched) { %><a class="btn btn-ghost btn-sm" href="/projects/<%= project.id %>/schedule" style="text-decoration:none">✎ Edit schedule</a><% } %>
         <button class="btn btn-ghost btn-sm" onclick="loadFinishSchedule(true)">↻ Refresh</button>
       </div>
       <div id="finSchedView" style="margin-top:.5rem;overflow-x:auto"><div style="color:var(--muted);font-size:.85rem">Open this tab to load…</div></div>
@@ -446,10 +451,16 @@
       <button type="button" class="ck-email" data-code="<%= k %>" data-name="<%= CK_LABEL[k] || k %>" data-supname="<%= _sup.supplier_name || '' %>" data-supemail="<%= _sup.supplier_email || '' %>" onclick="catEmail(this)" title="Email this category's vendor">✉</button>
     </div>
     <% list.forEach(function (e) { %>
-    <div class="ck-row<%= e.delivered ? ' ck-done' : '' %>">
+    <div class="ck-row<%= e.delivered ? ' ck-done' : '' %><%= e.needs_pick ? ' ck-pick' : '' %>">
+      <% if (e.needs_pick) { %>
+      <span class="ck-check" title="No product picked for this line yet — nothing can be ordered">🔴</span>
+      <span class="ck-code">—</span>
+      <span class="ck-name"><%= e.name %> <a class="ck-pickgo" href="/projects/<%= project.id %>/schedule?nys=1" title="Open the schedule filtered to unpicked lines">no SKU — pick an item →</a></span>
+      <% } else { %>
       <span class="ck-check<%= e.manual ? ' ck-manual' : '' %>" data-key="<%= e.key %>" data-cur="<%= e.delivered ? 'd' : e.scheduled ? 's' : e.onOrder ? 'o' : '' %>" onclick="markItem(this)" title="<%= e.delivered ? 'Delivered' : e.scheduled ? ('Delivery scheduled' + (e.schedWhen ? ': ' + e.schedWhen : '')) : e.onOrder ? 'On a confirmed order — not scheduled yet' : 'Not yet seen on an order or delivery' %><%= e.manual ? ' (set by hand)' : '' %> — click to change: ⬜→📦→🚚→✅→auto"><%= e.delivered ? '✅' : e.scheduled ? '🚚' : e.onOrder ? '📦' : '⬜' %></span>
       <span class="ck-code"><%= e.prod_code || '' %></span>
       <span class="ck-name"><%= e.name %><% if (e.qty > 1) { %> <span class="ck-qty">×<%= e.qty %></span><% } %></span>
+      <% } %>
       <% if (e.model_no) { %><span class="ck-model"><%= e.model_no %></span><% } %>
       <% if (e.scheduled && e.schedWhen) { %><span class="ck-when">🗓 <%= e.schedWhen.length > 44 ? e.schedWhen.slice(0,44) + '…' : e.schedWhen %></span><% } %>
       <span class="ck-sup"><%= e.supplier || '' %></span>
