@@ -497,8 +497,9 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
             pj.laundry_unit === 'combo' ? 'combo' : 'separate');
         }
         add('__src-rec', 'Rec. Light', `/projects/${projectId}/rec-lighting-source`, 'source',
-          [{ value: 'gc', label: 'GC Procure' }, { value: 'oncall', label: 'On Call LED' }],
-          pj.rec_lighting_source === 'oncall' ? 'oncall' : 'gc');
+          [{ value: 'oncall', label: 'Buildoly Procures (On Call LED)' }, { value: 'gc', label: 'GC Procures' }],
+          pj.rec_lighting_source === 'gc' ? 'gc' : 'oncall',
+          'Buildoly purchases the recessed lighting on all projects by default');
         // Range hood is purely a Finishes scope choice now (microwave combo
         // standard, Fisher & Paykel upgrade) — no sourcing row.
         add('__src-jedco', 'Vent Grills', `/projects/${projectId}/jedco-source`, 'source',

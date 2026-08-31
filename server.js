@@ -626,8 +626,10 @@ function applyRowOverrides(row, opts = {}) {
   if (/shower door|shower glass|shower enclosure/.test(text)) code = '3e';        // Shower Doors
   if (/water heater|wtr htr|water htr|tankless/.test(text)) code = '2e';          // Water Heater
 
-  // 3) Recessed lighting supplier toggle (recessed only — never dimmer switches).
-  if (opts.recSource === 'oncall' && /contractor to proc/i.test(supplier)) {
+  // 3) Recessed lighting: Buildoly purchases it on every project (via On Call
+  //    LED) unless the project explicitly says the GC procures. Recessed only —
+  //    never dimmer switches.
+  if (opts.recSource !== 'gc' && /contractor to proc/i.test(supplier)) {
     if (!/dimmer|\bswitch\b/.test(text) && /recess|down ?light|canless|\bled\b|lighting/.test(text)) {
       code = '1e'; supplier = 'On Call LED';
     }
