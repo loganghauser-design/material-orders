@@ -304,6 +304,69 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
+  // ── Scope & selections: the sales-deck choices, per project ────────────────
+  // View mode is a clean read of each line's current pick; "Edit scope" reveals
+  // a pencil per line, and the pencil opens a dropdown of that line's options.
+  app.get('/projects/:id/selections', requireAuth, async (req, res, next) => {
+    if (!/^\d+$/.test(req.params.id)) return next();
+    try {
+      const proj = await getProject(req.params.id);
+      if (!proj) return res.status(404).send('No such project');
+      const { rows: slots } = await pool.query(
+        'SELECT key, section, label, input_type, options, sort FROM selection_slots ORDER BY sort, id');
+      const { rows: vals } = await pool.query(
+        'SELECT slot_key, value FROM project_selections WHERE project_id=$1', [proj.id]);
+      const values = {}; vals.forEach(v => { values[v.slot_key] = v.value; });
+      res.render('project-selections', { proj, slots, values });
+    } catch (err) { res.status(500).send(err.message); }
+  });
+
+  app.post('/projects/:id/selections/set', requireAuth, async (req, res) => {
+    try {
+      const projectId = +req.params.id;
+      const key = String((req.body && req.body.key) || '').trim();
+      const value = String((req.body && req.body.value) == null ? '' : req.body.value).slice(0, 2000);
+      if (!Number.isInteger(projectId) || !key) return res.status(400).json({ ok: false, error: 'Missing key' });
+      const { rows: [slot] } = await pool.query('SELECT key FROM selection_slots WHERE key=$1', [key]);
+      if (!slot) return res.status(404).json({ ok: false, error: 'No such line' });
+      await pool.query(
+        `INSERT INTO project_selections (project_id, slot_key, value, updated_at) VALUES ($1,$2,$3,NOW())
+         ON CONFLICT (project_id, slot_key) DO UPDATE SET value=$3, updated_at=NOW()`, [projectId, key, value]);
+      res.json({ ok: true, key, value });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  // Add one choice to a line's dropdown (global — every project sees it).
+  app.post('/selections/slots/add-option', requireAuth, async (req, res) => {
+    try {
+      const key = String((req.body && req.body.key) || '').trim();
+      const option = String((req.body && req.body.option) || '').trim().slice(0, 200);
+      if (!key || !option) return res.status(400).json({ ok: false, error: 'Missing key or option' });
+      const { rows: [slot] } = await pool.query('SELECT options FROM selection_slots WHERE key=$1', [key]);
+      if (!slot) return res.status(404).json({ ok: false, error: 'No such line' });
+      const opts = Array.isArray(slot.options) ? slot.options.slice() : [];
+      if (!opts.some(o => String(o).toLowerCase() === option.toLowerCase())) opts.push(option);
+      await pool.query('UPDATE selection_slots SET options=$1::jsonb WHERE key=$2', [JSON.stringify(opts), key]);
+      res.json({ ok: true, options: opts });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  // Add a whole new line to a section (starts with an empty dropdown).
+  app.post('/selections/slots/add', requireAuth, async (req, res) => {
+    try {
+      const section = String((req.body && req.body.section) || '').trim().slice(0, 60);
+      const label = String((req.body && req.body.label) || '').trim().slice(0, 80);
+      if (!section || !label) return res.status(400).json({ ok: false, error: 'Missing section or label' });
+      const key = (section + ' ' + label).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+      const { rows: [mx] } = await pool.query('SELECT COALESCE(MAX(sort),0) AS m FROM selection_slots WHERE section=$1', [section]);
+      await pool.query(
+        `INSERT INTO selection_slots (key, section, label, input_type, options, sort)
+         VALUES ($1,$2,$3,'dropdown','[]'::jsonb,$4) ON CONFLICT (key) DO NOTHING`,
+        [key, section, label, (+mx.m || 0) + 1]);
+      res.json({ ok: true, key });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
   // ── Sync all model templates from the master template sheet ────────────────
   // One template per "Fin Sched - <MODEL>" tab, named after the model. Re-running
   // replaces same-named templates; each tab imports in its own transaction so one

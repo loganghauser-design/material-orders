@@ -1617,6 +1617,26 @@ async function initDb() {
     -- Which ADU model this project is (MS = Studio, M1, M2, ...). Set when a
     -- model template is loaded; drives the Model dropdown on the project page.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS schedule_model TEXT;
+    -- Client scope & selections — the sales-deck choices shown on
+    -- /projects/:id/selections (Finishes / Upgrades / per-bathroom picks).
+    -- selection_slots defines the lines and their dropdown options (global);
+    -- project_selections holds each project's chosen value per line.
+    CREATE TABLE IF NOT EXISTS selection_slots (
+      id SERIAL PRIMARY KEY,
+      key TEXT NOT NULL UNIQUE,
+      section TEXT NOT NULL,
+      label TEXT NOT NULL,
+      input_type TEXT NOT NULL DEFAULT 'dropdown',
+      options JSONB NOT NULL DEFAULT '[]'::jsonb,
+      sort INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE IF NOT EXISTS project_selections (
+      project_id INTEGER NOT NULL,
+      slot_key TEXT NOT NULL,
+      value TEXT,
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+      PRIMARY KEY (project_id, slot_key)
+    );
     -- The schedule rows themselves, snapshotted verbatim from the sheet (cells is
     -- the raw A..S row array, headers included) so every existing consumer —
     -- vendor orders, materials, held stock, expected-items sync — reads the exact
