@@ -64,6 +64,63 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     return !!(r && r.ok);
   }
 
+  // ── Scope pick → schedule rows ─────────────────────────────────────────────
+  // Applies scope_schedule_map entries for one saved selection: rows are found
+  // by plan tag (cells[1]); 'set' writes the prod code + fills brand/product/
+  // model/finish/supplier from the catalog (like the editor), 'exclude' marks
+  // the row Not in scope. Only acts on Buildoly-mode schedules.
+  function applyCatalogToCells(c, cat) {
+    const put = (i, v) => { while (c.length <= i) c.push(''); c[i] = String(v == null ? '' : v).slice(0, 500); };
+    c[2] = cat.prod_code;
+    if (cat.category_code) put(4, cat.category_code + '.');
+    put(5, cat.brand || ''); put(6, cat.product_name || ''); put(7, cat.model_no || '');
+    if (cat.finish) put(8, cat.finish);
+    put(14, cat.supplier || '');
+    for (const i of [10, 11, 12, 13]) if (/^#N\/A$/i.test(String(c[i] || '').trim())) c[i] = '';
+    if (/^(nys|not yet selected)$/i.test(String(c[9] || '').trim()) || !String(c[9] || '').trim()) c[9] = '1';
+  }
+  async function applyScopeMappings(projectId, slotKey, value) {
+    const proj = await getProject(projectId);
+    if (!proj || !isDbUrl(proj.finish_schedule_url)) return 0;
+    const { rows: maps } = await pool.query(
+      'SELECT plan_tag, action, prod_code FROM scope_schedule_map WHERE slot_key=$1 AND LOWER(option_value)=LOWER($2)',
+      [slotKey, String(value || '')]);
+    if (!maps.length) return 0;
+    const { rows } = await pool.query(
+      'SELECT pos, cells FROM project_schedule_rows WHERE project_id=$1 ORDER BY pos', [projectId]);
+    let applied = 0;
+    for (const m of maps) {
+      const wantTag = String(m.plan_tag || '').trim().toUpperCase();
+      for (const r of rows) {
+        const tag = String((r.cells || [])[1] || '').trim().toUpperCase();
+        if (!wantTag || tag !== wantTag) continue;
+        const c = cleanCells(r.cells);
+        if (m.action === 'exclude') {
+          c[14] = 'Not in scope';
+        } else if (m.action === 'set' && m.prod_code) {
+          const { rows: [cat] } = await pool.query(
+            'SELECT prod_code, category_code, brand, product_name, model_no, finish, supplier FROM item_catalog WHERE prod_code=$1', [m.prod_code]);
+          if (!cat) continue;
+          applyCatalogToCells(c, cat);
+        } else continue;
+        await pool.query('UPDATE project_schedule_rows SET cells=$1::jsonb WHERE project_id=$2 AND pos=$3',
+          [JSON.stringify(c), projectId, r.pos]);
+        applied++;
+      }
+    }
+    if (applied) await resync(projectId);
+    return applied;
+  }
+  // Re-apply EVERY stored selection's mappings — used right after a model
+  // template is stamped so the fresh schedule inherits the picks already made.
+  async function applyAllScopeMappings(projectId) {
+    const { rows: sel } = await pool.query(
+      "SELECT slot_key, value FROM project_selections WHERE project_id=$1 AND COALESCE(value,'') <> ''", [projectId]);
+    let total = 0;
+    for (const s of sel) total += await applyScopeMappings(projectId, s.slot_key, s.value);
+    return total;
+  }
+
   // ── Editor page ────────────────────────────────────────────────────────────
   app.get('/projects/:id/schedule', requireAuth, async (req, res, next) => {
     if (!/^\d+$/.test(req.params.id)) return next();
@@ -271,7 +328,9 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         await client.query('UPDATE projects SET schedule_sheet_backup=$1, finish_schedule_url=$2, schedule_model=$3 WHERE id=$4',
           [backup || null, DB_URL(proj.id), tpl.name, proj.id]);
       });
-      res.json({ ok: true, template: tpl.name, rows: values.length, resynced: await resync(proj.id) });
+      // Fresh template: stamp the picks this project has already made onto it.
+      const inherited = await applyAllScopeMappings(proj.id).catch(() => 0);
+      res.json({ ok: true, template: tpl.name, rows: values.length, scopeRowsApplied: inherited, resynced: await resync(proj.id) });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
@@ -370,7 +429,9 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         else if (/sliding/i.test(value)) slidingSource = 'vendor';
         if (slidingSource) await pool.query('UPDATE projects SET sliding_door_source=$1 WHERE id=$2', [slidingSource, projectId]);
       }
-      res.json({ ok: true, key, value, slidingSource: slidingSource || undefined });
+      // Push the pick into the finish schedule (Buildoly-mode projects only).
+      const scheduleRows = await applyScopeMappings(projectId, key, value).catch(() => 0);
+      res.json({ ok: true, key, value, slidingSource: slidingSource || undefined, scheduleRows: scheduleRows || undefined });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 

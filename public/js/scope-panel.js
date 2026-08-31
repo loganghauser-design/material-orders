@@ -186,6 +186,8 @@
             var sel = document.getElementById('slidingSel');
             if (sel) sel.value = d.slidingSource;
             toast('Saved — sliding door sourcing → ' + (d.slidingSource === 'buildoly' ? 'Buildoly Stock (trifold)' : 'Vendor / Ganahl (sliding glass)'));
+          } else if (d.scheduleRows) {
+            toast('Saved — updated ' + d.scheduleRows + ' finish schedule row' + (d.scheduleRows === 1 ? '' : 's'));
           } else toast('Saved');
         } catch (e) { toast('Not saved: ' + e.message, true); }
       }

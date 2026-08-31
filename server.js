@@ -1637,6 +1637,19 @@ async function initDb() {
     -- Optional lines (e.g. Design Mod — only used for one-off customer changes)
     -- don't count toward scope completeness and show "optional" when empty.
     ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;
+    -- Scope pick -> finish-schedule effects. When a project (in Buildoly
+    -- schedule mode) saves the given option, every schedule row whose plan tag
+    -- (cells[1]) matches gets the action: 'set' writes prod_code and fills the
+    -- row from the catalog; 'exclude' marks it Not in scope (skipped by orders,
+    -- materials and the expected-items sync).
+    CREATE TABLE IF NOT EXISTS scope_schedule_map (
+      id SERIAL PRIMARY KEY,
+      slot_key TEXT NOT NULL,
+      option_value TEXT NOT NULL,
+      plan_tag TEXT NOT NULL,
+      action TEXT NOT NULL DEFAULT 'set',
+      prod_code TEXT
+    );
     CREATE TABLE IF NOT EXISTS project_selections (
       project_id INTEGER NOT NULL,
       slot_key TEXT NOT NULL,
