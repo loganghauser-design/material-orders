@@ -439,7 +439,9 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       // has at least N bathrooms (M1 = 1, M2B = 2). Unknown model or unset
       // bathroom count -> show everything rather than hide something real.
       let visible = slots, model = null, bathrooms = null;
-      const { rows: [pj] } = await pool.query('SELECT schedule_model FROM projects WHERE id=$1', [projectId]);
+      const { rows: [pj] } = await pool.query(
+        `SELECT schedule_model, finish_schedule_url, fixture_package, laundry_unit, rec_lighting_source,
+                range_hood_source, bifold_source, sliding_door_source, jedco_source FROM projects WHERE id=$1`, [projectId]);
       if (pj && pj.schedule_model) {
         model = pj.schedule_model;
         const { rows: [tpl] } = await pool.query('SELECT bathrooms FROM schedule_templates WHERE name=$1', [model]);
@@ -450,6 +452,49 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
             return !m || (+m[1] <= bathrooms);
           });
         }
+      }
+      // Sourcing rows — same panel, scope-style, pinned to the left column.
+      // input_type 'src' rows post to their own project routes instead of
+      // /selections/set; options carry {value,label} pairs.
+      if (pj) {
+        const src = [];
+        const add = (key, label, post, field, options, cur, title) => {
+          src.push({ key, section: 'Sourcing', label, input_type: 'src', options, post, field, title: title || '' });
+          values[key] = cur;
+        };
+        const db = isDbUrl(pj.finish_schedule_url);
+        if (db) {
+          const { rows: tpls } = await pool.query('SELECT name FROM schedule_templates ORDER BY name');
+          add('__src-model', 'Model', '/projects/' + projectId + '/schedule/load-template', 'name',
+            tpls.map(t => ({ value: t.name, label: t.name })), pj.schedule_model || '',
+            'ADU model — switching loads that model template over this project schedule');
+        }
+        const { rows: [doors] } = await pool.query(
+          "SELECT count(*) FILTER (WHERE name ~* 'bi.?fold')::int b, count(*) FILTER (WHERE name ~* 'slid')::int s FROM project_expected_items WHERE project_id=$1", [projectId]);
+        const hasB = doors && doors.b > 0, hasS = doors && doors.s > 0, noneDetected = !hasB && !hasS;
+        if (hasB || noneDetected) add('__src-bifold', 'Bifold', `/projects/${projectId}/bifold-source`, 'source',
+          [{ value: 'buildoly', label: 'Buildoly Stock' }, { value: 'vendor', label: 'Vendor' }],
+          pj.bifold_source === 'vendor' ? 'vendor' : 'buildoly');
+        if (hasS || noneDetected) add('__src-sliding', 'Sliding Door', `/projects/${projectId}/sliding-door-source`, 'source',
+          [{ value: 'vendor', label: 'Vendor (Ganahl)' }, { value: 'buildoly', label: 'Buildoly Stock' }],
+          pj.sliding_door_source === 'buildoly' ? 'buildoly' : 'vendor',
+          'Set automatically by the Patio Door pick: trifold = Buildoly Stock, sliding glass = Ganahl');
+        add('__src-fixtures', 'Fixtures', `/projects/${projectId}/fixture-package`, 'pkg',
+          [{ value: 'kohler', label: 'Kohler pkg' }, { value: 'moen', label: 'Moen pkg' }],
+          pj.fixture_package === 'moen' ? 'moen' : 'kohler', 'Swaps faucets, shower kit, sink and disposal parts to that brand');
+        add('__src-laundry', 'Laundry', `/projects/${projectId}/laundry-unit`, 'unit',
+          [{ value: 'separate', label: 'Washer + Dryer' }, { value: 'combo', label: 'Combo unit' }],
+          pj.laundry_unit === 'combo' ? 'combo' : 'separate');
+        add('__src-rec', 'Rec. Light', `/projects/${projectId}/rec-lighting-source`, 'source',
+          [{ value: 'gc', label: 'GC Procure' }, { value: 'oncall', label: 'On Call LED' }],
+          pj.rec_lighting_source === 'oncall' ? 'oncall' : 'gc');
+        add('__src-hood', 'Range Hood', `/projects/${projectId}/range-hood-source`, 'source',
+          [{ value: 'default', label: 'Vendor' }, { value: 'buildoly', label: 'Buildoly Stock' }],
+          pj.range_hood_source === 'buildoly' ? 'buildoly' : 'default');
+        add('__src-jedco', 'Jedco', `/projects/${projectId}/jedco-source`, 'source',
+          [{ value: 'default', label: 'JEDCO' }, { value: 'buildoly', label: 'Buildoly Stock' }],
+          pj.jedco_source === 'buildoly' ? 'buildoly' : 'default');
+        visible = visible.concat(src);
       }
       res.json({ ok: true, slots: visible, values, model, bathrooms });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }

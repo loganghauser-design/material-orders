@@ -16,7 +16,11 @@
     + '.scp .scp-chip { display:inline-flex; gap:.3rem; align-items:center; font-size:11.5px; font-weight:600; border-radius:6px; padding:2px 8px; }'
     + '.scp .scp-chip.ok { color:#1a7f37; background:rgba(26,127,55,.08); border:1px solid rgba(26,127,55,.25); }'
     + '.scp .scp-chip.warn { color:#9a6b0b; background:rgba(180,120,10,.08); border:1px solid rgba(180,120,10,.28); }'
-    + '.scp .scp-cols { columns:3 270px; column-gap:1.7rem; }'
+    + '.scp .scp-grid { display:grid; grid-template-columns:280px 1fr; gap:2rem; align-items:start; }'
+    + '@media (max-width:900px) { .scp .scp-grid { grid-template-columns:1fr; gap:.6rem; } }'
+    + '.scp .scp-left { border-right:1px solid var(--border); padding-right:1.4rem; }'
+    + '@media (max-width:900px) { .scp .scp-left { border-right:none; padding-right:0; } }'
+    + '.scp .scp-cols { columns:2 270px; column-gap:1.7rem; }'
     + '.scp .scp-secblock { break-inside:avoid; -webkit-column-break-inside:avoid; margin:0 0 1rem; }'
     + '.scp .scp-sec { font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.1em; color:var(--muted); margin:0 0 .3rem; }'
     + '.scp .scp-row { display:grid; grid-template-columns:145px 1fr; gap:.7rem; align-items:start; padding:2px 0; }'
@@ -84,41 +88,56 @@
         return ups.some(function (u) { return String(u).toLowerCase() === String(v).toLowerCase(); });
       }
 
+      function srcLabel(slot, v) {
+        var o = (slot.options || []).find(function (x) { return x && x.value === v; });
+        return o ? o.label : (v || '');
+      }
+      function rowHtml(s) {
+        var isSrc = s.input_type === 'src';
+        var v = state.values[s.key] || '';
+        var disp = isSrc ? srcLabel(s, v) : v;
+        var up = !isSrc && v && isUp(s, v);
+        return '<div class="scp-row" data-key="' + esc(s.key) + '"><div class="scp-label"' + (s.title ? ' title="' + esc(s.title) + '"' : '') + '>' + esc(s.label) + '</div>'
+          + '<div class="scp-val">'
+          + (up ? '<span class="scp-up on" data-act="upflag" title="Upgrade (click in edit mode to unmark)">↑</span>' : '')
+          + (!isSrc && v && !up ? '<span class="scp-up ghost" data-act="upflag" title="Mark this pick as an upgrade">↑</span>' : '')
+          + '<span class="scp-text' + (disp ? '' : (s.optional ? ' opt' : ' empty')) + '">' + (disp ? esc(disp) : (s.optional ? 'optional' : 'not set')) + '</span>'
+          + '<button class="scp-pencil" data-act="edit" title="Edit ' + esc(s.label) + '">✎</button>'
+          + '<span class="scp-editorbox"></span></div></div>';
+      }
       function render() {
         var secs = []; var idx = {};
         state.slots.forEach(function (s) {
           if (!(s.section in idx)) { idx[s.section] = secs.length; secs.push({ name: s.section, slots: [] }); }
           secs[idx[s.section]].slots.push(s);
         });
+        // Reference layout: Sourcing pinned to the LEFT, client scope on the RIGHT.
+        var left = secs.filter(function (x) { return x.name === 'Sourcing'; });
+        var right = secs.filter(function (x) { return x.name !== 'Sourcing'; });
         var h = '<div class="scp-top"><span class="scp-title">' + (opts.title === undefined ? 'Project Scope of Work' : esc(opts.title)) + '</span>'
           + '<div class="scp-right">'
           + (opts.fullPageLink ? '<a class="scp-link" href="/projects/' + pid + '/selections">Full page ↗</a>' : '')
           + '<button class="scp-btn edit" data-act="toggle">' + (state.editing ? '✓ Done editing' : '✎ Edit scope') + '</button></div></div>';
-        // Optional lines (Design Mod etc.) sit outside the completeness math.
+        // Optional and sourcing lines sit outside the completeness math.
         var total = 0, filled = 0;
-        state.slots.forEach(function (s) { if (s.optional) return; total++; if (String(state.values[s.key] || '').trim()) filled++; });
+        state.slots.forEach(function (s) { if (s.optional || s.input_type === 'src') return; total++; if (String(state.values[s.key] || '').trim()) filled++; });
         h += '<div class="scp-chips"><span class="scp-chip ok">✓ Scope · ' + filled + ' of ' + total + ' selected</span>'
           + (total - filled > 0 ? '<span class="scp-chip warn">' + (total - filled) + ' not set</span>' : '')
           + '</div>';
         if (!state.slots.length) h += '<p style="color:var(--muted);font-size:.8rem">No scope lines defined yet — press ✎ Edit scope, then “+ Add line”.</p>';
-        h += '<div class="scp-cols">';
-        secs.forEach(function (sec) {
-          h += '<div class="scp-secblock"><div class="scp-sec">' + esc(sec.name) + '</div>';
-          sec.slots.forEach(function (s) {
-            var v = state.values[s.key] || '';
-            var up = v && isUp(s, v);
-            h += '<div class="scp-row" data-key="' + esc(s.key) + '"><div class="scp-label">' + esc(s.label) + '</div>'
-              + '<div class="scp-val">'
-              + (up ? '<span class="scp-up on" data-act="upflag" title="Upgrade (click in edit mode to unmark)">↑</span>' : '')
-              + (v && !up ? '<span class="scp-up ghost" data-act="upflag" title="Mark this pick as an upgrade">↑</span>' : '')
-              + '<span class="scp-text' + (v ? '' : (s.optional ? ' opt' : ' empty')) + '">' + (v ? esc(v) : (s.optional ? 'optional' : 'not set')) + '</span>'
-              + '<button class="scp-pencil" data-act="edit" title="Edit ' + esc(s.label) + '">✎</button>'
-              + '<span class="scp-editorbox"></span></div></div>';
-          });
-          h += '<div class="scp-addline"><button data-act="addline" data-section="' + esc(sec.name) + '">＋ Add line to ' + esc(sec.name) + '</button></div></div>';
-        });
+        var secBlock = function (sec, addable) {
+          var b = '<div class="scp-secblock"><div class="scp-sec">' + esc(sec.name) + '</div>';
+          sec.slots.forEach(function (s) { b += rowHtml(s); });
+          if (addable) b += '<div class="scp-addline"><button data-act="addline" data-section="' + esc(sec.name) + '">＋ Add line to ' + esc(sec.name) + '</button></div>';
+          return b + '</div>';
+        };
+        h += '<div class="scp-grid"><div class="scp-left">';
+        left.forEach(function (sec) { h += secBlock(sec, false); });
+        h += '</div><div class="scp-main"><div class="scp-cols">';
+        right.forEach(function (sec) { h += secBlock(sec, true); });
         h += '</div>';
         h += '<div class="scp-addline"><button data-act="addsection">＋ Add a new section…</button></div>';
+        h += '</div></div>';
         h += '<p class="scp-hint">Pick from each dropdown — “＋ Add option…” adds a choice for every project; “Custom” is one-off for this project. Saves instantly.</p>';
         root.innerHTML = h;
         root.classList.toggle('editing', state.editing);
@@ -134,6 +153,18 @@
         row.querySelector('.scp-pencil').style.display = 'none';
         var box = row.querySelector('.scp-editorbox');
         var el;
+        if (slot.input_type === 'src') {
+          // Sourcing rows post to their own project routes; options are {value,label}.
+          el = document.createElement('select');
+          var sh = '<option value="">— choose —</option>';
+          (slot.options || []).forEach(function (o) {
+            sh += '<option value="' + esc(o.value) + '"' + (o.value === cur ? ' selected' : '') + '>' + esc(o.label) + '</option>';
+          });
+          el.innerHTML = sh;
+          el.addEventListener('change', function () { if (el.value) saveSrc(slot, el.value); });
+          box.appendChild(el); el.focus();
+          return;
+        }
         if (slot.input_type === 'text') {
           el = document.createElement('textarea'); el.value = cur;
           el.addEventListener('blur', function () { save(key, el.value); });
@@ -175,6 +206,33 @@
         box.appendChild(el); el.focus();
       }
 
+      async function saveSrc(slot, value) {
+        try {
+          if (slot.key === '__src-model') {
+            var curM = state.values[slot.key];
+            if (value === curM) { render(); return; }
+            if (!confirm('Switch this project to model ' + value + '? This replaces its stored finish schedule with the ' + value + ' template.')) { render(); return; }
+          }
+          var body = {}; body[slot.field] = value;
+          if (slot.key === '__src-model') body.overwrite = true;
+          var d = await api(slot.post, body);
+          if (!d.ok) { toast(d.error || 'Not saved', true); render(); return; }
+          state.values[slot.key] = value;
+          // Model / fixtures / laundry rewrite the schedule wholesale — reload the
+          // page so the grid and tabs pick it up. Lighter toggles update in place.
+          if (slot.key === '__src-model' || slot.key === '__src-fixtures' || slot.key === '__src-laundry') {
+            toast('Saved — reloading…');
+            setTimeout(function () { location.reload(); }, 700);
+            return;
+          }
+          try {
+            if (typeof FIN_SCHED_LOADED !== 'undefined') { FIN_SCHED_LOADED = false; }
+            if (typeof MAT_SCHED_LOADED !== 'undefined') { MAT_SCHED_LOADED = false; }
+          } catch (e) {}
+          render();
+          toast('Saved — ' + slot.label + ' → ' + srcLabel(slot, value));
+        } catch (e) { toast('Not saved: ' + e.message, true); }
+      }
       async function save(key, value) {
         try {
           var d = await api('/projects/' + pid + '/selections/set', { key: key, value: value });
@@ -182,9 +240,10 @@
           state.values[key] = value;
           render();
           if (d.slidingSource) {
-            // The patio-door rule just retargeted the sliding-door sourcing.
-            var sel = document.getElementById('slidingSel');
-            if (sel) sel.value = d.slidingSource;
+            // The patio-door rule just retargeted the sliding-door sourcing —
+            // reflect it on the Sourcing row immediately.
+            if (state.values['__src-sliding'] !== undefined) state.values['__src-sliding'] = d.slidingSource;
+            render();
             toast('Saved — sliding door sourcing → ' + (d.slidingSource === 'buildoly' ? 'Buildoly Stock (trifold)' : 'Vendor / Ganahl (sliding glass)'));
           } else if (d.scheduleRows) {
             toast('Saved — updated ' + d.scheduleRows + ' finish schedule row' + (d.scheduleRows === 1 ? '' : 's'));

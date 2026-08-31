@@ -365,62 +365,6 @@
        selections in columns up top, the sourcing dropdowns at the bottom. -->
   <div id="scopePanel" class="scope-panel">
     <div id="scopeRoot"></div>
-    <div class="scp-sourcing">
-    <span class="ck-tb-label">Sourcing</span>
-    <% if (typeof showBifold === 'undefined' || showBifold) { %>
-    <label class="ck-src">Bifold
-      <select onchange="setBifoldSource(this.value)">
-        <option value="buildoly" <%= project.bifold_source==='vendor'?'':'selected' %>>Buildoly Stock</option>
-        <option value="vendor" <%= project.bifold_source==='vendor'?'selected':'' %>>Vendor</option>
-      </select>
-    </label>
-    <% } %>
-    <% if (typeof showSliding === 'undefined' || showSliding) { %>
-    <label class="ck-src" title="Set automatically by the Patio Door selection above: trifold → Buildoly Stock, sliding glass → Vendor (Ganahl)">Sliding Door
-      <select id="slidingSel" onchange="setSlidingSource(this.value)">
-        <option value="vendor" <%= project.sliding_door_source==='buildoly'?'':'selected' %>>Vendor</option>
-        <option value="buildoly" <%= project.sliding_door_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
-      </select>
-    </label>
-    <% } %>
-    <label class="ck-src" title="Swaps the plumbing fixtures — faucets, shower kit &amp; valve, kitchen sink, disposal parts — to that brand's models on the materials list and the Ferguson order">Fixtures
-      <select onchange="setFixturePackage(this.value)">
-        <option value="kohler" <%= project.fixture_package==='moen'?'':'selected' %>>Kohler pkg</option>
-        <option value="moen" <%= project.fixture_package==='moen'?'selected':'' %>>Moen pkg</option>
-      </select>
-    </label>
-    <% if ((project.finish_schedule_url || '').indexOf('db://') === 0) { %>
-    <label class="ck-src" title="ADU model (MS = Studio, M1, M2, ...). Switching loads that model's finish-schedule template — each model carries its own material amounts — replacing this project's stored schedule.">Model
-      <select id="modelPick" data-current="<%= project.schedule_model || '' %>" onchange="setScheduleModel(this.value)">
-        <option value=""><%= project.schedule_model || 'pick…' %></option>
-      </select>
-    </label>
-    <% } %>
-    <label class="ck-src" title="Combo unit replaces the separate washer and dryer with one stacked machine on the materials list and the Ferguson order, and drops the stack bracket kit">Laundry
-      <select onchange="setLaundryUnit(this.value)">
-        <option value="separate" <%= project.laundry_unit==='combo'?'':'selected' %>>Washer + Dryer</option>
-        <option value="combo" <%= project.laundry_unit==='combo'?'selected':'' %>>Combo unit</option>
-      </select>
-    </label>
-    <label class="ck-src">Rec. Light
-      <select onchange="setRecSource(this.value)">
-        <option value="gc" <%= project.rec_lighting_source==='oncall'?'':'selected' %>>GC Procure</option>
-        <option value="oncall" <%= project.rec_lighting_source==='oncall'?'selected':'' %>>On Call LED</option>
-      </select>
-    </label>
-    <label class="ck-src">Range Hood
-      <select onchange="setRangeHoodSource(this.value)">
-        <option value="default" <%= project.range_hood_source==='buildoly'?'':'selected' %>>Vendor</option>
-        <option value="buildoly" <%= project.range_hood_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
-      </select>
-    </label>
-    <label class="ck-src">Jedco
-      <select onchange="setJedcoSource(this.value)">
-        <option value="default" <%= project.jedco_source==='buildoly'?'':'selected' %>>JEDCO</option>
-        <option value="buildoly" <%= project.jedco_source==='buildoly'?'selected':'' %>>Buildoly Stock</option>
-      </select>
-    </label>
-    </div>
   </div>
   <p class="ck-legend">✅ delivered &middot; 🚚 scheduled (date shown) &middot; 📦 on a confirmed order, not scheduled yet &middot; ⬜ not seen yet. Ferguson updates these automatically as orders and deliveries come in — for any other vendor, <strong>click the icon</strong> to set it by hand (⬜→📦→🚚→✅, one more click reverts to automatic). Giving a 🚚 item a real date also lists it on the <a href="/deliveries" style="color:#2563eb">Deliveries board</a> and sends a day-before confirmation.</p>
 
@@ -2233,6 +2177,6 @@ function showToast(msg, err) {
   setTimeout(() => t.className = 'toast', 2000);
 }
 </script>
-<script src="/js/scope-panel.js?v=9"></script>
+<script src="/js/scope-panel.js?v=10"></script>
 </body>
 </html>
