@@ -712,13 +712,13 @@ function parseScheduleRows(rows) {
     if (/^subtotal/i.test(A)) { out.push({ type: 'subtotal', total: (r[13] || '').trim() }); continue; }
     if (B || C) {
       out.push({
-        type: 'item', name: A, planTag: B, prodCode: C, category: (r[4] || '').trim(),
+        type: 'item', pos: i, name: A, planTag: B, prodCode: C, category: (r[4] || '').trim(),
         brand: (r[5] || '').trim(), product: (r[6] || '').trim(), model: (r[7] || '').trim(),
         color: (r[8] || '').trim(), qty: (r[9] || '').trim(), cost: (r[13] || '').trim(),
         supplier: normalizeSupplier((r[14] || '').trim()), deliveryDate: (r[16] || '').trim(),
       });
     } else if (A) {
-      out.push({ type: 'section', name: A });
+      out.push({ type: 'section', pos: i, name: A });
     }
   }
   return out;

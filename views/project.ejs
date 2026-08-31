@@ -1332,6 +1332,37 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 let FIN_SCHED_LOADED = false;
+// Inline SKU picker for a "Not yet selected" schedule row — fetches scored
+// catalog candidates, saves through the same row route as the schedule editor
+// (which catalog-fills brand/model/supplier), then re-renders the tab.
+async function fsPickItem(pos) {
+  const cell = document.getElementById('fsPick_' + pos);
+  if (!cell) return;
+  cell.innerHTML = '<span style="color:var(--muted)">loading options…</span>';
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/schedule/pick-options/${pos}`);
+    const d = await r.json();
+    if (!d.ok) { cell.innerHTML = escapeHtmlJs(d.error || 'Could not load options'); return; }
+    const sel = document.createElement('select');
+    sel.style.cssText = 'font:inherit;font-size:.8rem;border:1px solid #dc2626;border-radius:6px;padding:3px 6px;max-width:420px;background:var(--bg);color:var(--text)';
+    sel.innerHTML = '<option value="">— choose a product —</option>'
+      + d.candidates.map(c => `<option value="${escapeHtmlJs(c.code)}">${escapeHtmlJs(c.label)}</option>`).join('')
+      + '<option value="__code">⌨ type a product code…</option>';
+    sel.onchange = async () => {
+      let code = sel.value;
+      if (code === '__code') { code = (prompt('Product code (from the catalog):') || '').trim(); if (!code) return; }
+      if (!code) return;
+      cell.innerHTML = '<span style="color:var(--muted)">saving…</span>';
+      const rr = await fetch(`/projects/${PROJECT_ID}/schedule/row/${pos}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ set: { 2: code } }) });
+      const dd = await rr.json();
+      if (dd.ok) { showToast(dd.filled ? ('Picked — filled from catalog: ' + (dd.cells[6] || code)) : 'Saved ' + code); loadFinishSchedule(true); }
+      else { showToast(dd.error || 'Could not save', true); loadFinishSchedule(true); }
+    };
+    cell.innerHTML = '';
+    cell.appendChild(sel);
+    sel.focus();
+  } catch (e) { cell.innerHTML = 'Failed: ' + escapeHtmlJs(e.message); }
+}
 async function loadFinishSchedule(force) {
   if (FIN_SCHED_LOADED && !force) return;
   const el = document.getElementById('finSchedView');
@@ -1348,9 +1379,9 @@ async function loadFinishSchedule(force) {
       if (it.type === 'section') html += `<tr><td colspan="9" style="background:var(--bg);font-weight:700;padding:6px 7px;border-top:1px solid var(--border)">${escapeHtmlJs(it.name)}</td></tr>`;
       else if (it.type === 'subtotal') html += `<tr><td colspan="8" style="text-align:right;color:var(--muted);padding:4px 7px;font-size:.78rem">Subtotal</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.total || '')}</td></tr>`;
       else if (/^(not yet selected|nys)$/i.test(String(it.prodCode || '').trim())) {
-        // Needs a product pick — the red state lives here on the schedule too.
+        // Needs a product pick — pickable RIGHT HERE, no page change.
         n++;
-        html += `<tr style="border-bottom:1px solid var(--border);background:rgba(220,38,38,.08)"><td style="padding:4px 7px;color:#dc2626;font-weight:700">🔴 ${escapeHtmlJs(it.name)}</td><td colspan="7" style="padding:4px 7px;color:#dc2626">no SKU — <a href="/projects/${PROJECT_ID}/schedule?nys=1" style="color:#dc2626;font-weight:700">pick an item →</a></td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td></tr>`;
+        html += `<tr style="border-bottom:1px solid var(--border);background:rgba(220,38,38,.08)"><td style="padding:4px 7px;color:#dc2626;font-weight:700">🔴 ${escapeHtmlJs(it.name)}</td><td colspan="7" style="padding:4px 7px;color:#dc2626" id="fsPick_${it.pos}">no SKU — <button type="button" onclick="fsPickItem(${it.pos})" style="border:1px solid #dc2626;background:none;color:#dc2626;font-weight:700;font-size:.78rem;border-radius:6px;padding:2px 9px;cursor:pointer">pick an item ▾</button> <a href="/projects/${PROJECT_ID}/schedule?nys=1" title="Open the full schedule editor" style="color:#dc2626;font-size:.72rem;opacity:.7">editor ↗</a></td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td></tr>`;
       }
       else { n++; html += `<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 7px">${escapeHtmlJs(it.name)}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs(it.product || '')}</td><td style="padding:4px 7px;color:var(--muted)">${escapeHtmlJs((it.category || '').slice(0, 2))}</td><td style="padding:4px 7px">${escapeHtmlJs(it.brand || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.model || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.color || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.qty || '')}</td><td style="padding:4px 7px">${escapeHtmlJs(it.cost || '')}</td><td style="padding:4px 7px"><strong>${escapeHtmlJs(it.supplier || '')}</strong></td></tr>`; }
     });

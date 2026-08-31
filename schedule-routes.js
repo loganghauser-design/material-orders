@@ -232,6 +232,39 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
+  // ── Pick options for one unpicked row: scored catalog candidates ───────────
+  // Feeds the inline "pick an item" control on the Finish Schedule tab, so a
+  // SKU can be chosen without leaving the project page.
+  app.get('/projects/:id/schedule/pick-options/:pos', requireAuth, async (req, res) => {
+    try {
+      const projectId = +req.params.id, pos = +req.params.pos;
+      if (!Number.isInteger(projectId) || !Number.isInteger(pos)) return res.status(400).json({ ok: false, error: 'Bad ids' });
+      const { rows: [r] } = await pool.query('SELECT cells FROM project_schedule_rows WHERE project_id=$1 AND pos=$2', [projectId, pos]);
+      if (!r) return res.status(404).json({ ok: false, error: 'No such row' });
+      const name = String((r.cells || [])[0] || '').trim();
+      const tag = String((r.cells || [])[1] || '').trim();
+      const { rows: cat } = await pool.query(
+        'SELECT prod_code, item_role, brand, product_name FROM item_catalog WHERE prod_code IS NOT NULL');
+      const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+      const n = norm(name);
+      const toks = n.split(' ').filter(t => t.length > 2);
+      const scored = cat.map(k => {
+        const hay = norm((k.item_role || '') + ' ' + (k.product_name || ''));
+        let score = 0;
+        if (n.length > 3 && hay.includes(n)) score += 10;
+        toks.forEach(t => { if (hay.includes(t)) score += 2; });
+        return { k, score };
+      }).filter(x => x.score >= Math.max(4, toks.length)).sort((a, b) => b.score - a.score).slice(0, 10);
+      res.json({
+        ok: true, name, tag,
+        candidates: scored.map(x => ({
+          code: x.k.prod_code,
+          label: x.k.prod_code + ' — ' + [x.k.brand, x.k.product_name].filter(Boolean).join(' ').slice(0, 70),
+        })),
+      });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
   // ── Insert a row after `afterPos` (blank, or prefilled from the catalog) ───
   app.post('/projects/:id/schedule/rows/insert', requireAuth, async (req, res) => {
     try {
