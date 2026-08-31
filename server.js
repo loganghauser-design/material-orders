@@ -730,6 +730,20 @@ const _sheetFail = new Map();  // id -> at (negative cache for unreadable sheets
 const SHEET_TTL_MS = 5 * 60 * 1000;
 const SHEET_FAIL_TTL_MS = 5 * 60 * 1000;
 async function fetchScheduleValues(scheduleUrl) {
+  // Buildoly-stored schedule (imported via /projects/:id/schedule). Served fresh
+  // on every call — no cache layer — so editor changes are visible immediately.
+  // Everything below this branch (the Google Sheets path) is untouched: a project
+  // only reaches here when its URL was explicitly flipped to db://project/<id>.
+  const dbm = String(scheduleUrl || '').match(/^db:\/\/project\/(\d+)$/);
+  if (dbm) {
+    const { rows } = await pool.query(
+      'SELECT pos, cells FROM project_schedule_rows WHERE project_id=$1 ORDER BY pos', [+dbm[1]]);
+    if (!rows.length) throw new Error('No stored schedule for project ' + dbm[1] + ' — import it from the sheet first.');
+    const out = [];
+    for (const r of rows) out[r.pos] = r.cells;
+    for (let i = 0; i < out.length; i++) if (!out[i]) out[i] = [];
+    return out;
+  }
   const id = sheetIdFromUrl(scheduleUrl);
   if (!id) throw new Error('Invalid finish-schedule link.');
   const hit = _sheetCache.get(id);
@@ -1596,6 +1610,27 @@ async function initDb() {
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS fixture_package VARCHAR(10);
     -- Laundry: 'separate' (default — its own washer + dryer) or 'combo' (one stacked unit).
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS laundry_unit VARCHAR(10);
+    -- Finish schedules stored IN Buildoly instead of a Google Sheet. Opt-in per
+    -- project: finish_schedule_url flips to db://project/<id> and the original
+    -- sheet link is kept here so the project can revert with one click.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS schedule_sheet_backup TEXT;
+    -- The schedule rows themselves, snapshotted verbatim from the sheet (cells is
+    -- the raw A..S row array, headers included) so every existing consumer —
+    -- vendor orders, materials, held stock, expected-items sync — reads the exact
+    -- same shape it gets from Google today.
+    CREATE TABLE IF NOT EXISTS project_schedule_rows (
+      id SERIAL PRIMARY KEY,
+      project_id INTEGER NOT NULL,
+      pos INTEGER NOT NULL,
+      cells JSONB NOT NULL DEFAULT '[]'::jsonb,
+      UNIQUE (project_id, pos)
+    );
+    -- The one standard finish-schedule template new projects start from.
+    CREATE TABLE IF NOT EXISTS schedule_template_rows (
+      id SERIAL PRIMARY KEY,
+      pos INTEGER NOT NULL UNIQUE,
+      cells JSONB NOT NULL DEFAULT '[]'::jsonb
+    );
     -- Doors (1a) stock toggles: 3-panel bifold is Buildoly stock by default;
     -- the sliding glass door is vendor-supplied by default.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS bifold_source VARCHAR(20);
@@ -5514,6 +5549,7 @@ app.get('/bid-comparison', requireAuth, (req, res) => {
 // Same data as the Subs cost card. Everything is sent once and filtered in the
 // browser — clicking a county or trade must not cost a page load.
 require('./subs-v2-routes')({ app, pool, requireAuth, initDb, verifySubLicense, cslbClassByTrade: function () { return CSLB_CLASS_BY_TRADE; } });   // /subs/v2 — server-paged rebuild, runs alongside /subs
+require('./schedule-routes')({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync: bustExpSyncFor });   // /projects/:id/schedule — DB-stored finish schedules (opt-in per project)
 
 app.get('/subs/bids', requireAuth, async (req, res) => {
   try {
@@ -8192,6 +8228,13 @@ app.post('/catalog/sync', requireAuth, async (req, res) => {
 // read keeps the last good data instead of wiping the list.
 const EXP_SYNC_TTL_MS = 10 * 60 * 1000;
 const _expSyncAt = new Map();   // `${projectId}|${scheduleUrl}` -> last successful sync ms
+// Forget a project's sync timestamps so the next syncProjectExpected runs for real.
+// Used by the schedule editor: an edited row must reach project_expected_items now,
+// not whenever the 10-minute TTL happens to lapse.
+function bustExpSyncFor(projectId) {
+  const pre = String(projectId) + '|';
+  for (const k of [..._expSyncAt.keys()]) if (k.startsWith(pre)) _expSyncAt.delete(k);
+}
 // ── Plumbing fixture packages: Kohler (default) or Moen ─────────────────────
 // Taken from a real pair of projects — Silver Lantern runs Kohler, Alvarado runs
 // Moen. Written out slot by slot ON PURPOSE: the product codes look like they

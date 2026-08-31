@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Finish Schedule — <%= proj.address %></title>
+  <link rel="stylesheet" href="/css/app.css?v=5">
+  <style>
+    .se-head { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; margin-bottom:.75rem; }
+    .se-head h1 { margin:0; font-size:1.15rem; letter-spacing:-.01em; }
+    .se-head .right { margin-left:auto; display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+    .se-badge { font-size:.68rem; font-weight:800; letter-spacing:.06em; text-transform:uppercase; border-radius:6px; padding:.22rem .5rem; }
+    .se-badge.db { background:#0d3321; color:#4ade80; border:1px solid #14532d; }
+    .se-badge.sheet { background:#1e2a44; color:#93c5fd; border:1px solid #1d4ed8; }
+    .se-bar { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:.5rem .6rem; display:flex; gap:.45rem; align-items:center; flex-wrap:wrap; margin-bottom:.7rem; font-size:.8rem; }
+    .se-bar .sp { flex:1; }
+    .se-btn { border:1px solid var(--border); background:var(--bg); border-radius:7px; padding:.32rem .65rem; font-size:.78rem; font-weight:600; color:var(--text); cursor:pointer; white-space:nowrap; }
+    .se-btn:hover { border-color:#4f8ef7; }
+    .se-btn.primary { background:#111; color:#fff; border-color:#111; }
+    .se-btn.warn { color:#b45309; }
+    .se-btn:disabled { opacity:.45; cursor:default; }
+    .se-meta { color:var(--muted); font-size:.75rem; }
+    .se-err { background:#450a0a; color:#fca5a5; border:1px solid #7f1d1d; border-radius:8px; padding:.5rem .7rem; font-size:.8rem; margin-bottom:.7rem; }
+    .se-wrap { background:var(--surface); border:1px solid var(--border); border-radius:10px; overflow:auto; max-height:calc(100vh - 210px); }
+    table.se { border-collapse:collapse; width:100%; font-size:.78rem; min-width:1080px; }
+    table.se th { position:sticky; top:0; background:var(--surface); z-index:2; text-align:left; font-size:.64rem; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); padding:.45rem .5rem; border-bottom:1px solid var(--border); white-space:nowrap; }
+    table.se td { padding:.14rem .3rem; border-bottom:1px solid var(--border); vertical-align:middle; }
+    tr.se-section td { background:var(--bg); font-weight:800; font-size:.72rem; letter-spacing:.03em; padding:.4rem .55rem; }
+    tr.se-other td { color:var(--muted); font-size:.72rem; }
+    tr.se-item:hover td { background:rgba(79,142,247,.05); }
+    td.num { color:var(--muted); font-variant-numeric:tabular-nums; font-size:.68rem; width:2.4rem; text-align:right; padding-right:.45rem; }
+    .se input.cell { width:100%; border:1px solid transparent; background:transparent; color:var(--text); font:inherit; font-size:.78rem; padding:.24rem .3rem; border-radius:5px; min-width:3.5rem; }
+    .se input.cell:hover { border-color:var(--border); }
+    .se input.cell:focus { border-color:#4f8ef7; background:var(--bg); outline:none; }
+    .se input.cell.saved { border-color:#16a34a; }
+    .se input.cell.fail { border-color:#dc2626; }
+    .se input.cell[data-idx="9"] { width:3.2rem; text-align:center; }
+    .rowact { white-space:nowrap; }
+    .rowact button { border:none; background:none; cursor:pointer; font-size:.8rem; color:var(--muted); padding:.1rem .25rem; border-radius:4px; }
+    .rowact button:hover { color:var(--text); background:var(--bg); }
+    .se-note { font-size:.72rem; color:var(--muted); margin:.5rem 0 0; }
+    #toast { position:fixed; bottom:16px; right:16px; background:#111; color:#fff; border-radius:8px; padding:.55rem .9rem; font-size:.8rem; opacity:0; transition:opacity .2s; pointer-events:none; z-index:50; }
+    #toast.show { opacity:1; }
+  </style>
+</head>
+<body>
+<%- include('_nav', { active: '' }) %>
+<main class="container">
+  <div class="se-head">
+    <h1>Finish Schedule</h1>
+    <span class="se-badge <%= dbMode ? 'db' : 'sheet' %>"><%= dbMode ? 'Stored in Buildoly' : 'Reading from Google Sheet' %></span>
+    <span class="se-meta"><a href="/projects/<%= proj.id %>"><%= proj.address %></a></span>
+    <div class="right">
+      <% if (sheetUrl) { %><a class="se-btn" target="_blank" href="<%= sheetUrl %>">Open sheet ↗</a><% } %>
+    </div>
+  </div>
+
+  <% if (loadError) { %><div class="se-err">Could not load the schedule: <%= loadError %></div><% } %>
+
+  <div class="se-bar">
+    <% if (!dbMode) { %>
+      <button class="se-btn primary" onclick="act('import-from-sheet', {}, 'Import this sheet into Buildoly? The project will read from the stored copy from then on (revert any time).')">⬇ Import into Buildoly</button>
+      <span class="se-meta">Snapshots the sheet into the website. Nothing changes until you click it.</span>
+    <% } else { %>
+      <button class="se-btn" onclick="act('import-from-sheet', {}, 'Re-import from the sheet? This OVERWRITES the stored copy, including any edits made here.')">⟳ Re-import from sheet</button>
+      <button class="se-btn warn" onclick="act('revert-to-sheet', {}, 'Point this project back at the Google Sheet? The stored copy is kept but stops being used.')">↩ Revert to sheet</button>
+      <button class="se-btn" onclick="act('save-as-template', {}, 'Save this schedule as the STANDARD TEMPLATE new projects start from? Replaces the current template.')">★ Save as standard template</button>
+    <% } %>
+    <button class="se-btn" <%= templateRows ? '' : 'disabled title="No template saved yet"' %> onclick="act('load-template', { overwrite: true }, 'Load the standard template into this project? This OVERWRITES its stored schedule.')">⤓ Load standard template</button>
+    <span class="sp"></span>
+    <span class="se-meta"><%= items %> items · <%= rows.length %> rows · template: <%= templateRows ? templateRows + ' rows' : 'none saved' %></span>
+  </div>
+
+  <% if (dbMode) { %>
+  <div class="se-bar">
+    <b style="font-size:.75rem">Add item</b>
+    <input id="addCode" placeholder="prod code (e.g. L-A04-F) or leave blank" style="border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;font:inherit;font-size:.78rem;background:var(--bg);color:var(--text);width:230px">
+    <span class="se-meta">after row #</span>
+    <input id="addAfter" type="number" value="<%= rows.length ? rows.length - 1 : 5 %>" style="border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;font:inherit;font-size:.78rem;background:var(--bg);color:var(--text);width:70px">
+    <button class="se-btn" onclick="addRow()">＋ Add</button>
+    <span class="se-meta">A known prod code prefills brand / model / supplier from the catalog.</span>
+  </div>
+  <% } %>
+
+  <div class="se-wrap">
+    <table class="se">
+      <thead><tr>
+        <th>#</th><th>Name</th><th>Plan</th><th>Code</th><th>Category</th><th>Brand</th>
+        <th>Product</th><th>Model</th><th>Finish</th><th>Qty</th><th>Supplier</th><th></th>
+      </tr></thead>
+      <tbody>
+      <% var EDIT_COLS = [0,1,2,4,5,6,7,8,9,14]; %>
+      <% rows.forEach(function (r) { %>
+        <% if (r.kind === 'header') return; %>
+        <% if (r.kind === 'section') { %>
+          <tr class="se-section"><td class="num"><%= r.pos %></td><td colspan="11"><%= (r.cells[0] || '').trim() %></td></tr>
+        <% } else if (r.kind === 'other') { %>
+          <tr class="se-other"><td class="num"><%= r.pos %></td>
+            <td colspan="10"><%= (r.cells[0] || r.cells[6] || '').toString().trim() %></td>
+            <td class="rowact"><% if (dbMode) { %><button title="Delete row" onclick="delRow(<%= r.pos %>)">✕</button><% } %></td>
+          </tr>
+        <% } else { %>
+          <tr class="se-item"><td class="num"><%= r.pos %></td>
+            <% EDIT_COLS.forEach(function (ci) { %>
+              <td><input class="cell" data-pos="<%= r.pos %>" data-idx="<%= ci %>" value="<%= (r.cells[ci] == null ? '' : r.cells[ci]) %>" <%= dbMode ? '' : 'readonly' %>></td>
+            <% }) %>
+            <td class="rowact"><% if (dbMode) { %><button title="Insert row below" onclick="insBelow(<%= r.pos %>)">＋</button><button title="Delete row" onclick="delRow(<%= r.pos %>)">✕</button><% } %></td>
+          </tr>
+        <% } %>
+      <% }) %>
+      </tbody>
+    </table>
+  </div>
+  <p class="se-note">
+    <% if (dbMode) { %>Edits save when you leave a cell and flow straight through to the materials list, vendor orders, and the expected-items sync — same as the sheet did.<% } else { %>Read-only while this project reads from Google. Import into Buildoly to edit here.<% } %>
+  </p>
+</main>
+<div id="toast"></div>
+<script>
+const PID = <%= proj.id %>;
+const BASE = '/projects/' + PID + '/schedule/';
+let toastT;
+function toast(msg, bad) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.background = bad ? '#7f1d1d' : '#111';
+  t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2600);
+}
+async function post(path, body) {
+  const r = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  return r.json();
+}
+async function act(path, body, confirmMsg) {
+  if (confirmMsg && !confirm(confirmMsg)) return;
+  try {
+    const d = await post(path, body);
+    if (d.ok) { toast('Done — reloading…'); setTimeout(() => location.reload(), 700); }
+    else toast(d.error || 'Failed', true);
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+async function addRow() {
+  const prodCode = document.getElementById('addCode').value.trim();
+  const afterPos = parseInt(document.getElementById('addAfter').value, 10) || 5;
+  try {
+    const d = await post('rows/insert', { prodCode: prodCode || undefined, afterPos });
+    if (d.ok) { toast('Row added'); setTimeout(() => location.reload(), 500); }
+    else toast(d.error || 'Failed', true);
+  } catch (e) { toast('Failed: ' + e.message, true); }
+}
+function insBelow(pos) {
+  post('rows/insert', { afterPos: pos }).then(d => {
+    if (d.ok) { toast('Row added'); setTimeout(() => location.reload(), 500); }
+    else toast(d.error || 'Failed', true);
+  }).catch(e => toast('Failed: ' + e.message, true));
+}
+function delRow(pos) {
+  if (!confirm('Delete row ' + pos + '?')) return;
+  post('rows/delete', { pos }).then(d => {
+    if (d.ok) { toast('Row deleted'); setTimeout(() => location.reload(), 500); }
+    else toast(d.error || 'Failed', true);
+  }).catch(e => toast('Failed: ' + e.message, true));
+}
+// Save a cell when it changes; green flash = stored, red = rejected.
+document.addEventListener('change', async e => {
+  const el = e.target;
+  if (!el.classList || !el.classList.contains('cell') || el.readOnly) return;
+  el.classList.remove('saved', 'fail');
+  const set = {}; set[el.dataset.idx] = el.value;
+  try {
+    const d = await post('row/' + el.dataset.pos, { set });
+    el.classList.add(d.ok ? 'saved' : 'fail');
+    if (!d.ok) toast(d.error || 'Not saved', true);
+    setTimeout(() => el.classList.remove('saved'), 1400);
+  } catch (err) { el.classList.add('fail'); toast('Not saved: ' + err.message, true); }
+});
+</script>
+</body>
+</html>

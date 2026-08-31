@@ -368,6 +368,7 @@
   <!-- Sourcing controls + vendor email (project-level settings that used to live in the grid) -->
   <div class="ck-toolbar">
     <button type="button" class="btn btn-primary btn-sm" onclick="openRfqDialog('','','','')" title="Send an RFQ / order email to any vendor">✉ Email a vendor</button>
+    <a class="btn btn-sm" href="/projects/<%= project.id %>/schedule" title="View the finish schedule — import it into Buildoly to edit it here instead of the sheet" style="text-decoration:none">📋 Schedule<%= (project.finish_schedule_url || '').indexOf('db://') === 0 ? ' · Buildoly' : '' %></a>
     <span class="ck-tb-label">Sourcing</span>
     <% if (typeof showBifold === 'undefined' || showBifold) { %>
     <label class="ck-src">Bifold
