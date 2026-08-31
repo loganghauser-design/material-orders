@@ -3392,8 +3392,8 @@ app.post('/projects', requireAuth, async (req, res) => {
   const phase = PROJECT_PHASES.includes(req.body.phase) ? req.body.phase : 'Pre-Construction';
   if (!address) return res.render('project-form', { project: req.body, error: 'Address is required.', PROJECT_STATUSES, PROJECT_PHASES });
   const { rows: [p] } = await pool.query(
-    `INSERT INTO projects (address, version, phase, overall_status, notes, client_name, client_email, full_address, finish_schedule_url, laundry_unit)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'combo') RETURNING id`,
+    `INSERT INTO projects (address, version, phase, overall_status, notes, client_name, client_email, full_address, finish_schedule_url, laundry_unit, fixture_package)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'combo','moen') RETURNING id`,
     [address, version||null, phase, statusForPhase(phase, null), notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null]
   );
   await ensureProjectItems(p.id);

@@ -422,6 +422,16 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       // Fresh template: fill every unset scope line with its standard, then
       // stamp all picks (standards + any upgrades already chosen) onto it.
       const seeded = await seedScopeDefaults(proj.id).catch(() => 0);
+      // Keep the fixture package column in step with the (possibly just-seeded)
+      // Fixtures pick so the Kohler/Moen SKU swap applies from day one.
+      try {
+        const { rows: [fx] } = await pool.query(
+          "SELECT value FROM project_selections WHERE project_id=$1 AND slot_key='finishes-fixtures'", [proj.id]);
+        if (fx && fx.value) {
+          await pool.query('UPDATE projects SET fixture_package=$1 WHERE id=$2',
+            [/moen/i.test(fx.value) ? 'moen' : 'kohler', proj.id]);
+        }
+      } catch (e) {}
       const inherited = await applyAllScopeMappings(proj.id).catch(() => 0);
       res.json({ ok: true, template: tpl.name, rows: values.length, scopeRowsApplied: inherited, resynced: await resync(proj.id) });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
