@@ -1653,6 +1653,9 @@ async function initDb() {
       action TEXT NOT NULL DEFAULT 'set',
       prod_code TEXT
     );
+    -- Optional room filter: some sheets reuse BA1-* tags in every bathroom, so a
+    -- mapping can be limited to rows under a room header ("Bath 1", "Bath 2").
+    ALTER TABLE scope_schedule_map ADD COLUMN IF NOT EXISTS section_match TEXT;
     CREATE TABLE IF NOT EXISTS project_selections (
       project_id INTEGER NOT NULL,
       slot_key TEXT NOT NULL,

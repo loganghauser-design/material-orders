@@ -83,17 +83,27 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     const proj = await getProject(projectId);
     if (!proj || !isDbUrl(proj.finish_schedule_url)) return 0;
     const { rows: maps } = await pool.query(
-      'SELECT plan_tag, action, prod_code FROM scope_schedule_map WHERE slot_key=$1 AND LOWER(option_value)=LOWER($2)',
+      'SELECT plan_tag, action, prod_code, section_match FROM scope_schedule_map WHERE slot_key=$1 AND LOWER(option_value)=LOWER($2)',
       [slotKey, String(value || '')]);
     if (!maps.length) return 0;
     const { rows } = await pool.query(
       'SELECT pos, cells FROM project_schedule_rows WHERE project_id=$1 ORDER BY pos', [projectId]);
+    // Track which room header each row sits under ("Bath 2 - BA") so a mapping
+    // can target one bathroom even when the sheet reuses BA1-* tags in both.
+    let curRoom = '';
+    const roomOf = new Map();
+    for (const r of rows) {
+      const a = String((r.cells || [])[0] || '').replace(/\n/g, ' ').trim();
+      if (r.pos >= HEADER_ROWS && a && ROOMRE.test(a) && !String((r.cells || [])[2] || '').trim() && !String((r.cells || [])[4] || '').trim()) curRoom = a;
+      roomOf.set(r.pos, curRoom);
+    }
     let applied = 0;
     for (const m of maps) {
       const wantTag = String(m.plan_tag || '').trim().toUpperCase();
       for (const r of rows) {
         const tag = String((r.cells || [])[1] || '').trim().toUpperCase();
         if (!wantTag || tag !== wantTag) continue;
+        if (m.section_match && !String(roomOf.get(r.pos) || '').toLowerCase().startsWith(String(m.section_match).toLowerCase())) continue;
         const c = cleanCells(r.cells);
         if (m.action === 'exclude') {
           c[14] = 'Not in scope';
@@ -136,7 +146,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       // Catalog feeds the prod-code picker: choosing a code fills brand/model/
       // supplier the way the sheet's lookup formulas used to.
       const { rows: catalog } = await pool.query(
-        'SELECT prod_code, product_name FROM item_catalog WHERE prod_code IS NOT NULL ORDER BY prod_code LIMIT 1000');
+        "SELECT prod_code, product_name || CASE WHEN COALESCE(finish,'') <> '' THEN ' · ' || finish ELSE '' END AS product_name FROM item_catalog WHERE prod_code IS NOT NULL ORDER BY prod_code LIMIT 1000");
       res.render('schedule-editor', {
         proj, dbMode, rows, loadError,
         items: itemCount(values),
@@ -244,7 +254,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       const name = String((r.cells || [])[0] || '').trim();
       const tag = String((r.cells || [])[1] || '').trim();
       const { rows: cat } = await pool.query(
-        'SELECT prod_code, item_role, brand, product_name FROM item_catalog WHERE prod_code IS NOT NULL');
+        'SELECT prod_code, item_role, brand, product_name, finish FROM item_catalog WHERE prod_code IS NOT NULL');
       const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
       const n = norm(name);
       const toks = n.split(' ').filter(t => t.length > 2);
@@ -259,7 +269,9 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         ok: true, name, tag,
         candidates: scored.map(x => ({
           code: x.k.prod_code,
-          label: x.k.prod_code + ' — ' + [x.k.brand, x.k.product_name].filter(Boolean).join(' ').slice(0, 70),
+          // Finish/color rides along so same-product color variants are tellable apart.
+          label: x.k.prod_code + ' — ' + [x.k.brand, x.k.product_name].filter(Boolean).join(' ').slice(0, 60)
+            + (x.k.finish ? ' · ' + String(x.k.finish).slice(0, 24) : ''),
         })),
       });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
