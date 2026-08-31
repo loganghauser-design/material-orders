@@ -32,6 +32,10 @@
     .se input.cell { width:100%; border:1px solid transparent; background:transparent; color:var(--text); font:inherit; font-size:.78rem; padding:.24rem .3rem; border-radius:5px; min-width:3.5rem; }
     .se input.cell:hover { border-color:var(--border); }
     .se input.cell:focus { border-color:#4f8ef7; background:var(--bg); outline:none; }
+    /* In Buildoly mode every cell must LOOK editable, not just be editable. */
+    body.editable .se input.cell { border-color:var(--border); background:var(--bg); }
+    body.editable .se input.cell:hover { border-color:#4f8ef7; }
+    body.editable .se input.cell:focus { border-color:#4f8ef7; box-shadow:0 0 0 2px rgba(79,142,247,.18); }
     .se input.cell.saved { border-color:#16a34a; }
     .se input.cell.fail { border-color:#dc2626; }
     .se input.cell[data-idx="9"] { width:3.2rem; text-align:center; }
@@ -49,7 +53,7 @@
     #toast.show { opacity:1; }
   </style>
 </head>
-<body>
+<body class="<%= dbMode ? 'editable' : '' %>">
 <%- include('_nav', { active: '' }) %>
 <main class="container">
   <div class="se-head">
@@ -95,6 +99,7 @@
       <button class="se-btn primary" onclick="act('import-from-sheet', {}, 'Import this sheet into Buildoly? The project will read from the stored copy from then on (revert any time).')">⬇ Import into Buildoly</button>
       <span class="se-meta">Snapshots the sheet into the website. Nothing changes until you click it.</span>
     <% } else { %>
+      <span class="se-meta" style="font-weight:700;color:var(--text)">✎ Click any cell to edit — it saves when you click away.</span>
       <button class="se-btn" onclick="act('import-from-sheet', {}, 'Re-import from the sheet? This OVERWRITES the stored copy, including any edits made here.')">⟳ Re-import from sheet</button>
       <button class="se-btn warn" onclick="act('revert-to-sheet', {}, 'Point this project back at the Google Sheet? The stored copy is kept but stops being used.')">↩ Revert to sheet</button>
       <button class="se-btn" onclick="saveAsTemplate()">★ Save as template…</button>
