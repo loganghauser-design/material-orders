@@ -327,7 +327,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       const projectId = +req.params.id;
       if (!Number.isInteger(projectId)) return res.status(400).json({ ok: false, error: 'Bad id' });
       const { rows: slots } = await pool.query(
-        'SELECT key, section, label, input_type, options, upgrades, sort FROM selection_slots ORDER BY sort, id');
+        'SELECT key, section, label, input_type, options, upgrades, optional, sort FROM selection_slots ORDER BY sort, id');
       const { rows: vals } = await pool.query(
         'SELECT slot_key, value FROM project_selections WHERE project_id=$1', [projectId]);
       const values = {}; vals.forEach(v => { values[v.slot_key] = v.value; });

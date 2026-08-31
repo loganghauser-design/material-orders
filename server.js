@@ -1634,6 +1634,9 @@ async function initDb() {
     -- Which of a line's options count as UPGRADES (list of option names). A pick
     -- that matches shows the blue up-arrow badge on the scope panel.
     ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS upgrades JSONB NOT NULL DEFAULT '[]'::jsonb;
+    -- Optional lines (e.g. Design Mod — only used for one-off customer changes)
+    -- don't count toward scope completeness and show "optional" when empty.
+    ALTER TABLE selection_slots ADD COLUMN IF NOT EXISTS optional BOOLEAN NOT NULL DEFAULT false;
     CREATE TABLE IF NOT EXISTS project_selections (
       project_id INTEGER NOT NULL,
       slot_key TEXT NOT NULL,
