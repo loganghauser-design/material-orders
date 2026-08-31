@@ -1614,6 +1614,9 @@ async function initDb() {
     -- project: finish_schedule_url flips to db://project/<id> and the original
     -- sheet link is kept here so the project can revert with one click.
     ALTER TABLE projects ADD COLUMN IF NOT EXISTS schedule_sheet_backup TEXT;
+    -- Which ADU model this project is (MS = Studio, M1, M2, ...). Set when a
+    -- model template is loaded; drives the Model dropdown on the project page.
+    ALTER TABLE projects ADD COLUMN IF NOT EXISTS schedule_model TEXT;
     -- The schedule rows themselves, snapshotted verbatim from the sheet (cells is
     -- the raw A..S row array, headers included) so every existing consumer —
     -- vendor orders, materials, held stock, expected-items sync — reads the exact
@@ -3326,7 +3329,10 @@ app.post('/projects', requireAuth, async (req, res) => {
     [address, version||null, phase, statusForPhase(phase, null), notes||null, client_name||null, client_email||null, full_address||null, finish_schedule_url||null]
   );
   await ensureProjectItems(p.id);
-  res.redirect(`/projects/${p.id}`);
+  // New projects go through the setup wizard first: pick the ADU model (which
+  // populates the finish schedule from that model's template), then answer the
+  // sourcing questions step by step. Existing projects are not affected.
+  res.redirect(`/projects/${p.id}/setup`);
 });
 
 // ── Project detail ────────────────────────────────────────────────────────────

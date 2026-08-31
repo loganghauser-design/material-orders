@@ -392,6 +392,13 @@
         <option value="moen" <%= project.fixture_package==='moen'?'selected':'' %>>Moen pkg</option>
       </select>
     </label>
+    <% if ((project.finish_schedule_url || '').indexOf('db://') === 0) { %>
+    <label class="ck-src" title="ADU model (MS = Studio, M1, M2, ...). Switching loads that model's finish-schedule template — each model carries its own material amounts — replacing this project's stored schedule.">Model
+      <select id="modelPick" data-current="<%= project.schedule_model || '' %>" onchange="setScheduleModel(this.value)">
+        <option value=""><%= project.schedule_model || 'pick…' %></option>
+      </select>
+    </label>
+    <% } %>
     <label class="ck-src" title="Combo unit replaces the separate washer and dryer with one stacked machine on the materials list and the Ferguson order, and drops the stack bracket kit">Laundry
       <select onchange="setLaundryUnit(this.value)">
         <option value="separate" <%= project.laundry_unit==='combo'?'':'selected' %>>Washer + Dryer</option>
@@ -1200,6 +1207,38 @@ async function setFixturePackage(pkg) {
       setTimeout(function () { location.reload(); }, 900);   // re-sync pulls the new SKUs
     } else showToast(data.error || 'Could not save', true);
   } catch (e) { showToast('Could not save', true); }
+}
+// ADU model dropdown (only present when the project reads its schedule from
+// Buildoly). Options come from /schedule-templates; switching loads that model's
+// template over the stored schedule after an explicit confirm.
+const MODEL_LABELS = { 'MS': 'Studio' };   // extend as Logan confirms names
+async function fillModelOptions() {
+  const sel = document.getElementById('modelPick');
+  if (!sel) return;
+  try {
+    const r = await fetch('/schedule-templates');
+    const d = await r.json();
+    if (!d.ok) return;
+    const cur = sel.dataset.current;
+    sel.innerHTML = '<option value="">pick…</option>' + d.templates.map(t => {
+      const label = MODEL_LABELS[t.name] ? t.name + ' — ' + MODEL_LABELS[t.name] : t.name;
+      return '<option value="' + t.name + '"' + (t.name === cur ? ' selected' : '') + '>' + label + '</option>';
+    }).join('');
+  } catch (e) {}
+}
+fillModelOptions();
+async function setScheduleModel(name) {
+  const sel = document.getElementById('modelPick');
+  if (!name || name === sel.dataset.current) return;
+  if (!confirm('Switch this project to model ' + name + '? This replaces its stored finish schedule with the ' + name + ' template (any schedule edits made here are lost).')) { fillModelOptions(); return; }
+  try {
+    const r = await fetch(`/projects/${PROJECT_ID}/schedule/load-template`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, overwrite: true }) });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('Model → ' + name + ' (' + d.rows + ' rows)');
+      setTimeout(function () { location.reload(); }, 900);
+    } else { showToast(d.error || 'Could not switch', true); fillModelOptions(); }
+  } catch (e) { showToast('Could not switch', true); }
 }
 async function setLaundryUnit(unit) {
   try {

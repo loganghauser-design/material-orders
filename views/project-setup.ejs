@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project Setup — <%= proj.address %></title>
+  <link rel="stylesheet" href="/css/app.css?v=5">
+  <style>
+    .sw-wrap { max-width:640px; margin:2.2rem auto; padding:0 1rem; }
+    .sw-card { background:var(--surface); border:1px solid var(--border); border-radius:14px; padding:1.6rem 1.7rem; }
+    .sw-prog { display:flex; gap:5px; margin-bottom:1.2rem; }
+    .sw-prog i { flex:1; height:4px; border-radius:2px; background:var(--border); }
+    .sw-prog i.done { background:#16a34a; }
+    .sw-prog i.now { background:#4f8ef7; }
+    .sw-step { font-size:.68rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); font-weight:800; margin-bottom:.35rem; }
+    .sw-q { font-size:1.22rem; font-weight:700; letter-spacing:-.01em; margin:0 0 .35rem; }
+    .sw-sub { font-size:.82rem; color:var(--muted); margin:0 0 1.1rem; line-height:1.45; }
+    .sw-opts { display:grid; gap:.55rem; }
+    .sw-opt { display:flex; align-items:center; gap:.7rem; text-align:left; border:1px solid var(--border); background:var(--bg); border-radius:10px; padding:.8rem .95rem; font:inherit; color:var(--text); cursor:pointer; }
+    .sw-opt:hover { border-color:#4f8ef7; }
+    .sw-opt.cur { border-color:#16a34a; box-shadow:inset 0 0 0 1px #16a34a; }
+    .sw-opt .t { font-weight:700; font-size:.92rem; }
+    .sw-opt .d { font-size:.75rem; color:var(--muted); margin-top:1px; }
+    .sw-opt .mark { margin-left:auto; font-size:.68rem; font-weight:800; color:#16a34a; white-space:nowrap; }
+    .sw-foot { display:flex; align-items:center; margin-top:1.15rem; }
+    .sw-skip { border:none; background:none; color:var(--muted); font:inherit; font-size:.8rem; cursor:pointer; text-decoration:underline; }
+    .sw-skip:hover { color:var(--text); }
+    .sw-back { border:none; background:none; color:var(--muted); font:inherit; font-size:.8rem; cursor:pointer; margin-right:auto; }
+    .sw-done { text-align:center; padding:1.4rem 0 .6rem; }
+    .sw-done .big { font-size:2.2rem; }
+    .sw-done h2 { margin:.45rem 0 .3rem; font-size:1.25rem; }
+    .sw-done p { color:var(--muted); font-size:.85rem; margin:0 0 1.2rem; }
+    .sw-done a { display:inline-block; border-radius:9px; padding:.6rem 1.1rem; font-weight:700; font-size:.88rem; text-decoration:none; margin:0 .3rem; }
+    .sw-done a.go { background:#111; color:#fff; }
+    .sw-done a.alt { border:1px solid var(--border); color:var(--text); }
+    .sw-addr { text-align:center; color:var(--muted); font-size:.8rem; margin-bottom:.9rem; }
+    .sw-saving { opacity:.55; pointer-events:none; }
+  </style>
+</head>
+<body>
+<div class="sw-wrap">
+  <div class="sw-addr">Setting up <b><%= proj.address %></b></div>
+  <div class="sw-card" id="card"></div>
+</div>
+<script>
+const PID = <%= proj.id %>;
+const TEMPLATES = <%- JSON.stringify(templates) %>;
+const CUR = {
+  model: <%- JSON.stringify(proj.schedule_model || '') %>,
+  pkg: <%- JSON.stringify(proj.fixture_package || 'kohler') %>,
+  laundry: <%- JSON.stringify(proj.laundry_unit || 'separate') %>,
+  rec: <%- JSON.stringify(proj.rec_lighting_source === 'oncall' ? 'oncall' : 'gc') %>,
+  hood: <%- JSON.stringify(proj.range_hood_source === 'buildoly' ? 'buildoly' : 'default') %>,
+  bifold: <%- JSON.stringify(proj.bifold_source === 'vendor' ? 'vendor' : 'buildoly') %>,
+  sliding: <%- JSON.stringify(proj.sliding_door_source === 'buildoly' ? 'buildoly' : 'vendor') %>,
+  jedco: <%- JSON.stringify(proj.jedco_source === 'buildoly' ? 'buildoly' : 'default') %>,
+};
+const MODEL_LABELS = { 'MS': 'Studio' };   // extend as more names are confirmed
+
+const STEPS = [
+  {
+    key: 'model', q: 'What model is this project?',
+    sub: 'Populates the finish schedule from that model\u2019s template \u2014 each model carries its own material amounts. You can change it later from the Model dropdown on the project page.',
+    opts: TEMPLATES.map(t => ({
+      v: t.name,
+      t: MODEL_LABELS[t.name] ? t.name + ' \u2014 ' + MODEL_LABELS[t.name] : t.name,
+      d: t.rows + ' schedule rows',
+    })),
+    post: v => api('/projects/' + PID + '/schedule/load-template', { name: v, overwrite: true }),
+    cur: () => CUR.model,
+  },
+  {
+    key: 'pkg', q: 'Which fixture package?',
+    sub: 'Faucets, shower kit and valve, kitchen sink, disposal parts \u2014 swapped to that brand on the materials list and the Ferguson order.',
+    opts: [ { v: 'kohler', t: 'Kohler package' }, { v: 'moen', t: 'Moen package' } ],
+    post: v => api('/projects/' + PID + '/fixture-package', { pkg: v }),
+    cur: () => CUR.pkg,
+  },
+  {
+    key: 'laundry', q: 'Laundry setup?',
+    sub: 'Combo unit replaces the separate washer and dryer with one stacked LG machine and drops the stack bracket kit.',
+    opts: [ { v: 'separate', t: 'Separate washer + dryer' }, { v: 'combo', t: 'Combo unit', d: 'LG stacked washer/dryer \u2014 LGWKE100HWA' } ],
+    post: v => api('/projects/' + PID + '/laundry-unit', { unit: v }),
+    cur: () => CUR.laundry,
+  },
+  {
+    key: 'rec', q: 'Recessed lighting?',
+    sub: 'Who supplies the recessed / canless LED lighting.',
+    opts: [ { v: 'gc', t: 'GC procures' }, { v: 'oncall', t: 'On Call LED' } ],
+    post: v => api('/projects/' + PID + '/rec-lighting-source', { source: v }),
+    cur: () => CUR.rec,
+  },
+  {
+    key: 'hood', q: 'Range hood?',
+    opts: [ { v: 'default', t: 'Vendor', d: 'Ordered from the schedule vendor' }, { v: 'buildoly', t: 'Buildoly stock', d: 'Supplied from office stock' } ],
+    post: v => api('/projects/' + PID + '/range-hood-source', { source: v }),
+    cur: () => CUR.hood,
+  },
+  {
+    key: 'bifold', q: '3-panel bifold door?',
+    opts: [ { v: 'buildoly', t: 'Buildoly stock' }, { v: 'vendor', t: 'Vendor' } ],
+    post: v => api('/projects/' + PID + '/bifold-source', { source: v }),
+    cur: () => CUR.bifold,
+  },
+  {
+    key: 'sliding', q: 'Sliding glass door?',
+    opts: [ { v: 'vendor', t: 'Vendor' }, { v: 'buildoly', t: 'Buildoly stock' } ],
+    post: v => api('/projects/' + PID + '/sliding-door-source', { source: v }),
+    cur: () => CUR.sliding,
+  },
+  {
+    key: 'jedco', q: 'Jedco items?',
+    opts: [ { v: 'default', t: 'JEDCO', d: 'Ordered from JEDCO' }, { v: 'buildoly', t: 'Buildoly stock', d: 'Supplied from office stock' } ],
+    post: v => api('/projects/' + PID + '/jedco-source', { source: v }),
+    cur: () => CUR.jedco,
+  },
+];
+
+let step = 0;
+async function api(path, body) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return r.json();
+}
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function render() {
+  const card = document.getElementById('card');
+  const prog = STEPS.map((s, i) => '<i class="' + (i < step ? 'done' : i === step ? 'now' : '') + '"></i>').join('');
+  if (step >= STEPS.length) {
+    card.innerHTML = '<div class="sw-prog">' + prog + '</div><div class="sw-done"><div class="big">\u2705</div>'
+      + '<h2>Project is set up</h2><p>The finish schedule is populated and every sourcing choice is saved. Change any of them later from the dropdowns on the project page.</p>'
+      + '<a class="go" href="/projects/' + PID + '">Open project</a>'
+      + '<a class="alt" href="/projects/' + PID + '/schedule">Open schedule</a></div>';
+    return;
+  }
+  const s = STEPS[step];
+  const cur = s.cur();
+  card.innerHTML = '<div class="sw-prog">' + prog + '</div>'
+    + '<div class="sw-step">Step ' + (step + 1) + ' of ' + STEPS.length + '</div>'
+    + '<h1 class="sw-q">' + esc(s.q) + '</h1>'
+    + (s.sub ? '<p class="sw-sub">' + esc(s.sub) + '</p>' : '')
+    + '<div class="sw-opts">' + (s.opts.length ? s.opts.map((o, oi) =>
+        '<button class="sw-opt' + (o.v === cur && cur ? ' cur' : '') + '" data-oi="' + oi + '">'
+        + '<span><span class="t">' + esc(o.t) + '</span>' + (o.d ? '<div class="d">' + esc(o.d) + '</div>' : '') + '</span>'
+        + (o.v === cur && cur ? '<span class="mark">CURRENT</span>' : '') + '</button>').join('')
+      : '<p class="sw-sub">No model templates found \u2014 sync them from the master sheet on the Schedule page first.</p>')
+    + '</div>'
+    + '<div class="sw-foot">'
+    + (step > 0 ? '<button class="sw-back" id="swBack">\u2190 Back</button>' : '<span style="margin-right:auto"></span>')
+    + '<button class="sw-skip" id="swSkip">' + (cur ? 'Keep current \u2192' : 'Skip \u2192') + '</button>'
+    + '</div>';
+  card.querySelectorAll('.sw-opt').forEach(btn => btn.addEventListener('click', () => pick(s.opts[+btn.dataset.oi].v)));
+  const back = document.getElementById('swBack');
+  if (back) back.addEventListener('click', () => { step--; render(); });
+  document.getElementById('swSkip').addEventListener('click', () => { step++; render(); });
+}
+async function pick(v) {
+  const s = STEPS[step];
+  const card = document.getElementById('card');
+  card.classList.add('sw-saving');
+  try {
+    const d = await s.post(v);
+    card.classList.remove('sw-saving');
+    if (d && d.ok) { CUR[s.key] = v; step++; render(); }
+    else alert((d && d.error) || 'Could not save that \u2014 try again.');
+  } catch (e) { card.classList.remove('sw-saving'); alert('Could not save: ' + e.message); }
+}
+render();
+</script>
+</body>
+</html>

@@ -49,6 +49,7 @@
   <div class="se-head">
     <h1>Finish Schedule</h1>
     <span class="se-badge <%= dbMode ? 'db' : 'sheet' %>"><%= dbMode ? 'Stored in Buildoly' : 'Reading from Google Sheet' %></span>
+    <% if (proj.schedule_model) { %><span class="se-badge db" title="ADU model — switch it from the Model dropdown on the project page">Model <%= proj.schedule_model %></span><% } %>
     <span class="se-meta"><a href="/projects/<%= proj.id %>"><%= proj.address %></a></span>
     <div class="right">
       <% if (sheetUrl) { %><a class="se-btn" target="_blank" href="<%= sheetUrl %>">Open sheet ↗</a><% } %>

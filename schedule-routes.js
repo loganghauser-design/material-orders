@@ -36,7 +36,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
 
   async function getProject(id) {
     const { rows: [p] } = await pool.query(
-      'SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, schedule_sheet_backup FROM projects WHERE id=$1', [id]);
+      'SELECT id, COALESCE(full_address, address) AS address, finish_schedule_url, schedule_sheet_backup, schedule_model FROM projects WHERE id=$1', [id]);
     return p || null;
   }
   // Wholesale replace of a project's stored rows, inside the caller's transaction.
@@ -215,9 +215,13 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     try {
       const proj = await getProject(+req.params.id);
       if (!proj) return res.status(404).json({ ok: false, error: 'No such project' });
+      // Accept either a template id (editor picker) or a name (project-page Model dropdown).
       const templateId = parseInt((req.body && req.body.templateId), 10);
-      if (!Number.isInteger(templateId)) return res.json({ ok: false, error: 'Pick a template.' });
-      const { rows: [tpl] } = await pool.query('SELECT id, name FROM schedule_templates WHERE id=$1', [templateId]);
+      const byName = String((req.body && req.body.name) || '').trim();
+      let tpl;
+      if (Number.isInteger(templateId)) ({ rows: [tpl] } = await pool.query('SELECT id, name FROM schedule_templates WHERE id=$1', [templateId]));
+      else if (byName) ({ rows: [tpl] } = await pool.query('SELECT id, name FROM schedule_templates WHERE name=$1', [byName]));
+      else return res.json({ ok: false, error: 'Pick a template.' });
       if (!tpl) return res.json({ ok: false, error: 'No such template.' });
       const { rows } = await pool.query('SELECT pos, cells FROM schedule_template_rows WHERE template_id=$1 ORDER BY pos', [tpl.id]);
       if (!rows.length) return res.json({ ok: false, error: 'Template "' + tpl.name + '" has no rows.' });
@@ -230,10 +234,39 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       await inTx(async client => {
         await replaceRows(client, 'project_schedule_rows', 'project_id', proj.id, values);
         const backup = isDbUrl(proj.finish_schedule_url) ? proj.schedule_sheet_backup : proj.finish_schedule_url;
-        await client.query('UPDATE projects SET schedule_sheet_backup=$1, finish_schedule_url=$2 WHERE id=$3',
-          [backup || null, DB_URL(proj.id), proj.id]);
+        await client.query('UPDATE projects SET schedule_sheet_backup=$1, finish_schedule_url=$2, schedule_model=$3 WHERE id=$4',
+          [backup || null, DB_URL(proj.id), tpl.name, proj.id]);
       });
       res.json({ ok: true, template: tpl.name, rows: values.length, resynced: await resync(proj.id) });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  // ── Setup wizard: new projects land here after creation ────────────────────
+  // Step 1 asks the ADU model and populates the schedule from that model's
+  // template; the following steps walk the sourcing choices one at a time.
+  // Every answer posts to the same routes the project-page dropdowns use, so
+  // the wizard can be re-run or abandoned at any point with no special state.
+  app.get('/projects/:id/setup', requireAuth, async (req, res, next) => {
+    if (!/^\d+$/.test(req.params.id)) return next();
+    try {
+      const { rows: [proj] } = await pool.query(
+        `SELECT id, COALESCE(full_address, address) AS address, schedule_model, finish_schedule_url,
+                fixture_package, laundry_unit, rec_lighting_source, range_hood_source,
+                bifold_source, sliding_door_source, jedco_source
+         FROM projects WHERE id=$1`, [req.params.id]);
+      if (!proj) return res.status(404).send('No such project');
+      const { rows: templates } = await pool.query(
+        'SELECT t.id, t.name, count(r.id)::int AS rows FROM schedule_templates t LEFT JOIN schedule_template_rows r ON r.template_id = t.id GROUP BY t.id, t.name ORDER BY t.name');
+      res.render('project-setup', { proj, templates });
+    } catch (err) { res.status(500).send(err.message); }
+  });
+
+  // ── Template list as JSON — feeds the Model dropdown on the project page ───
+  app.get('/schedule-templates', requireAuth, async (req, res) => {
+    try {
+      const { rows } = await pool.query(
+        'SELECT t.id, t.name, count(r.id)::int AS rows FROM schedule_templates t LEFT JOIN schedule_template_rows r ON r.template_id = t.id GROUP BY t.id, t.name ORDER BY t.name');
+      res.json({ ok: true, templates: rows });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
