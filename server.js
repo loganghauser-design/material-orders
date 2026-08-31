@@ -5568,7 +5568,7 @@ app.get('/bid-comparison', requireAuth, (req, res) => {
 // Same data as the Subs cost card. Everything is sent once and filtered in the
 // browser — clicking a county or trade must not cost a page load.
 require('./subs-v2-routes')({ app, pool, requireAuth, initDb, verifySubLicense, cslbClassByTrade: function () { return CSLB_CLASS_BY_TRADE; } });   // /subs/v2 — server-paged rebuild, runs alongside /subs
-require('./schedule-routes')({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync: bustExpSyncFor, getSheetsClient: function () { return sheetsClient; } });   // /projects/:id/schedule — DB-stored finish schedules (opt-in per project)
+require('./schedule-routes')({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync: bustExpSyncFor, getSheetsClient: function () { return sheetsClient; }, codeNames: CODE_NAME });   // /projects/:id/schedule — DB-stored finish schedules (opt-in per project)
 
 app.get('/subs/bids', requireAuth, async (req, res) => {
   try {

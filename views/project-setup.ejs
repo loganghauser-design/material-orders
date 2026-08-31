@@ -127,9 +127,9 @@ function render() {
   const prog = STEPS.map((s, i) => '<i class="' + (i < step ? 'done' : i === step ? 'now' : '') + '"></i>').join('');
   if (step >= STEPS.length) {
     card.innerHTML = '<div class="sw-prog">' + prog + '</div><div class="sw-done"><div class="big">\u2705</div>'
-      + '<h2>Project is set up</h2><p>The finish schedule is populated and every sourcing choice is saved. Change any of them later from the dropdowns on the project page.</p>'
-      + '<a class="go" href="/projects/' + PID + '">Open project</a>'
-      + '<a class="alt" href="/projects/' + PID + '/schedule">Open schedule</a></div>';
+      + '<h2>Project is set up</h2><p>The finish schedule is populated and every sourcing choice is saved. Next: the schedule still has products marked \u201cNot yet selected\u201d \u2014 pick each one on the schedule page (typing a prod code fills in brand, model, and supplier from the catalog).</p>'
+      + '<a class="go" href="/projects/' + PID + '/schedule?nys=1">Fill in selections</a>'
+      + '<a class="alt" href="/projects/' + PID + '">Open project</a></div>';
     return;
   }
   const s = STEPS[step];

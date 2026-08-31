@@ -35,6 +35,12 @@
     .se input.cell.saved { border-color:#16a34a; }
     .se input.cell.fail { border-color:#dc2626; }
     .se input.cell[data-idx="9"] { width:3.2rem; text-align:center; }
+    .se input.cell.sect { font-weight:800; font-size:.72rem; letter-spacing:.03em; }
+    tr.nys input.cell[data-idx="2"] { border-color:#d97706; background:rgba(217,119,6,.08); }
+    tr.uncat input.cell[data-idx="4"] { border-color:#d97706; }
+    body.f-nys tr.se-item:not(.nys) { display:none; }
+    body.f-uncat tr.se-item:not(.uncat) { display:none; }
+    .se-btn.on { background:#111; color:#fff; border-color:#111; }
     .rowact { white-space:nowrap; }
     .rowact button { border:none; background:none; cursor:pointer; font-size:.8rem; color:var(--muted); padding:.1rem .25rem; border-radius:4px; }
     .rowact button:hover { color:var(--text); background:var(--bg); }
@@ -58,6 +64,32 @@
 
   <% if (loadError) { %><div class="se-err">Could not load the schedule: <%= loadError %></div><% } %>
 
+  <%
+    // Rows still waiting on a choice: NYS = product not picked (code column says
+    // "Not yet selected"); uncat = no usable category yet (blank or dead #N/A).
+    var isNys = function (c) { return /^(not yet selected|nys)$/i.test(String((c || [])[2] || '').trim()); };
+    var isUncat = function (c) {
+      var cat = String((c || [])[4] || '').trim();
+      var any = ((c || [])[0] || '') || ((c || [])[2] || '');
+      return !!any && (!cat || /^#N\/A$/i.test(cat));
+    };
+    var nysCount = 0, uncatCount = 0;
+    rows.forEach(function (r) {
+      if (r.kind !== 'item' && r.kind !== 'other') return;
+      if (isNys(r.cells)) nysCount++;
+      if (isUncat(r.cells)) uncatCount++;
+    });
+    var layoutRow = rows.find(function (r) { return r.pos === 3 && ((r.cells[0] || '') + (r.cells[1] || '')).trim(); }) || null;
+  %>
+
+  <% if (dbMode && layoutRow) { %>
+  <div class="se-bar">
+    <b style="font-size:.75rem"><%= (layoutRow.cells[0] || 'Layout').toString().trim() %><%= (layoutRow.cells[1] || '').toString().trim() ? ' · ' + layoutRow.cells[1].toString().trim() : '' %></b>
+    <input class="cell" data-pos="3" data-idx="2" value="<%= (layoutRow.cells[2] == null ? '' : layoutRow.cells[2]) %>" style="border:1px solid var(--border);border-radius:6px;padding:.3rem .5rem;font:inherit;font-size:.78rem;background:var(--bg);color:var(--text);width:260px">
+    <span class="se-meta">Per-project choice — saves like any other cell.</span>
+  </div>
+  <% } %>
+
   <div class="se-bar">
     <% if (!dbMode) { %>
       <button class="se-btn primary" onclick="act('import-from-sheet', {}, 'Import this sheet into Buildoly? The project will read from the stored copy from then on (revert any time).')">⬇ Import into Buildoly</button>
@@ -73,8 +105,10 @@
       </select>
       <button class="se-btn" onclick="loadTemplate()">⤓ Load model template</button>
     <% } %>
-    <button class="se-btn" onclick="syncTemplates()" title="Re-imports every 'Fin Sched - MODEL' tab from the master template sheet">⟳ Sync models from master sheet</button>
+    <button class="se-btn" onclick="syncTemplates()" title="Re-imports every 'Fin Sched - MODEL' tab from the master template sheet. Manual only — nothing reads the sheet on its own.">⟳ Sync models from master sheet</button>
     <span class="sp"></span>
+    <button class="se-btn" id="chipNys" onclick="setFilter('nys')" title="Rows where the product has not been picked yet">◔ Unselected (<%= nysCount %>)</button>
+    <button class="se-btn" id="chipUncat" onclick="setFilter('uncat')" title="Rows with no usable category yet">▢ Uncategorized (<%= uncatCount %>)</button>
     <span class="se-meta"><%= items %> items · <%= rows.length %> rows · <%= templates.length %> model template<%= templates.length === 1 ? '' : 's' %></span>
   </div>
 
@@ -100,16 +134,15 @@
       <% rows.forEach(function (r) { %>
         <% if (r.kind === 'header') return; %>
         <% if (r.kind === 'section') { %>
-          <tr class="se-section"><td class="num"><%= r.pos %></td><td colspan="11"><%= (r.cells[0] || '').trim() %></td></tr>
-        <% } else if (r.kind === 'other') { %>
-          <tr class="se-other"><td class="num"><%= r.pos %></td>
-            <td colspan="10"><%= (r.cells[0] || r.cells[6] || '').toString().trim() %></td>
-            <td class="rowact"><% if (dbMode) { %><button title="Delete row" onclick="delRow(<%= r.pos %>)">✕</button><% } %></td>
+          <tr class="se-section"><td class="num"><%= r.pos %></td>
+            <td colspan="10"><input class="cell sect" data-pos="<%= r.pos %>" data-idx="0" value="<%= (r.cells[0] == null ? '' : r.cells[0]) %>" <%= dbMode ? '' : 'readonly' %>></td>
+            <td class="rowact"><% if (dbMode) { %><button title="Insert row below" onclick="insBelow(<%= r.pos %>)">＋</button><button title="Delete row" onclick="delRow(<%= r.pos %>)">✕</button><% } %></td>
           </tr>
         <% } else { %>
-          <tr class="se-item"><td class="num"><%= r.pos %></td>
+          <% var ny = isNys(r.cells); var uc = isUncat(r.cells); %>
+          <tr class="se-item<%= ny ? ' nys' : '' %><%= uc ? ' uncat' : '' %>" data-pos="<%= r.pos %>"><td class="num"><%= r.pos %></td>
             <% EDIT_COLS.forEach(function (ci) { %>
-              <td><input class="cell" data-pos="<%= r.pos %>" data-idx="<%= ci %>" value="<%= (r.cells[ci] == null ? '' : r.cells[ci]) %>" <%= dbMode ? '' : 'readonly' %>></td>
+              <td><input class="cell" data-pos="<%= r.pos %>" data-idx="<%= ci %>" value="<%= (r.cells[ci] == null ? '' : r.cells[ci]) %>" <%= dbMode ? '' : 'readonly' %><%= ci === 2 ? ' list="catCodes" placeholder="pick a code…"' : '' %><%= ci === 4 ? ' list="catNames"' : '' %>></td>
             <% }) %>
             <td class="rowact"><% if (dbMode) { %><button title="Insert row below" onclick="insBelow(<%= r.pos %>)">＋</button><button title="Delete row" onclick="delRow(<%= r.pos %>)">✕</button><% } %></td>
           </tr>
@@ -121,6 +154,12 @@
   <p class="se-note">
     <% if (dbMode) { %>Edits save when you leave a cell and flow straight through to the materials list, vendor orders, and the expected-items sync — same as the sheet did.<% } else { %>Read-only while this project reads from Google. Import into Buildoly to edit here.<% } %>
   </p>
+  <datalist id="catCodes">
+    <% catalog.forEach(function (c) { %><option value="<%= c.prod_code %>"><%= c.product_name || '' %></option><% }) %>
+  </datalist>
+  <datalist id="catNames">
+    <% categories.forEach(function (c) { %><option value="<%= c %>"></option><% }) %>
+  </datalist>
 </main>
 <div id="toast"></div>
 <script>
@@ -191,7 +230,23 @@ function delRow(pos) {
     else toast(d.error || 'Failed', true);
   }).catch(e => toast('Failed: ' + e.message, true));
 }
-// Save a cell when it changes; green flash = stored, red = rejected.
+// Save a cell when it changes; green flash = stored, red = rejected. Picking a
+// prod code makes the server fill brand/product/model/supplier from the catalog
+// (the sheet's old lookup formulas) — the whole row refreshes from the response.
+const NYSRE = /^(not yet selected|nys)$/i;
+function refreshRow(pos, cells) {
+  const tr = document.querySelector('tr[data-pos="' + pos + '"]');
+  if (!tr) return;
+  tr.querySelectorAll('input.cell').forEach(inp => {
+    const v = cells[+inp.dataset.idx];
+    if (document.activeElement !== inp) inp.value = (v == null ? '' : v);
+  });
+  const nys = NYSRE.test(String(cells[2] || '').trim());
+  const cat = String(cells[4] || '').trim();
+  const uncat = (!cat || /^#N\/A$/i.test(cat)) && ((cells[0] || '') || (cells[2] || ''));
+  tr.classList.toggle('nys', !!nys);
+  tr.classList.toggle('uncat', !!uncat);
+}
 document.addEventListener('change', async e => {
   const el = e.target;
   if (!el.classList || !el.classList.contains('cell') || el.readOnly) return;
@@ -201,9 +256,24 @@ document.addEventListener('change', async e => {
     const d = await post('row/' + el.dataset.pos, { set });
     el.classList.add(d.ok ? 'saved' : 'fail');
     if (!d.ok) toast(d.error || 'Not saved', true);
+    else {
+      if (d.cells) refreshRow(el.dataset.pos, d.cells);
+      if (d.filled) toast('Filled from catalog: ' + (d.cells[6] || d.cells[2]));
+    }
     setTimeout(() => el.classList.remove('saved'), 1400);
   } catch (err) { el.classList.add('fail'); toast('Not saved: ' + err.message, true); }
 });
+// Filter chips: show only the rows still waiting on a product / a category.
+let filter = '';
+function setFilter(kind) {
+  filter = (filter === kind) ? '' : kind;
+  document.body.classList.toggle('f-nys', filter === 'nys');
+  document.body.classList.toggle('f-uncat', filter === 'uncat');
+  const cn = document.getElementById('chipNys'), cu = document.getElementById('chipUncat');
+  if (cn) cn.classList.toggle('on', filter === 'nys');
+  if (cu) cu.classList.toggle('on', filter === 'uncat');
+}
+<% if (nysOnly) { %>setFilter('nys');<% } %>
 </script>
 </body>
 </html>

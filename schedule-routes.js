@@ -11,7 +11,11 @@
 //
 // Kept out of server.js for the same reason as subs-v2-routes: a bug in the new
 // surface can't destabilise the live paths.
-module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync, getSheetsClient }) {
+module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncProjectExpected, bustExpSync, getSheetsClient, codeNames }) {
+
+  // Canonical category labels ("1a. Doors" ... "3e. Shower Doors") for the
+  // category picker on uncategorized rows.
+  const CATEGORY_LABELS = Object.keys(codeNames || {}).sort().map(c => c + '. ' + codeNames[c]);
 
   // The master template sheet: one "Fin Sched - <MODEL>" tab per model.
   // Summary/Order/Archive tabs are not schedules (0 item rows) and are skipped.
@@ -72,10 +76,16 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       const rows = (values || []).map((cells, pos) => ({ pos, cells: cells || [], kind: classify(cells, pos) }));
       const { rows: templates } = await pool.query(
         'SELECT t.id, t.name, count(r.id)::int AS rows FROM schedule_templates t LEFT JOIN schedule_template_rows r ON r.template_id = t.id GROUP BY t.id, t.name ORDER BY t.name');
+      // Catalog feeds the prod-code picker: choosing a code fills brand/model/
+      // supplier the way the sheet's lookup formulas used to.
+      const { rows: catalog } = await pool.query(
+        'SELECT prod_code, product_name FROM item_catalog WHERE prod_code IS NOT NULL ORDER BY prod_code LIMIT 1000');
       res.render('schedule-editor', {
         proj, dbMode, rows, loadError,
         items: itemCount(values),
-        templates,
+        templates, catalog,
+        categories: CATEGORY_LABELS,
+        nysOnly: req.query.nys === '1',
         sheetUrl: dbMode ? (proj.schedule_sheet_backup || '') : (proj.finish_schedule_url || ''),
       });
     } catch (err) { res.status(500).send(err.message); }
@@ -121,23 +131,47 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       const proj = await getProject(projectId);
       if (!proj) return res.status(404).json({ ok: false, error: 'No such project' });
       if (!isDbUrl(proj.finish_schedule_url)) return res.json({ ok: false, error: 'Project is reading from the sheet — import it into Buildoly first.' });
-      if (pos < HEADER_ROWS) return res.json({ ok: false, error: 'Header rows are locked.' });
+      // Rows 0-2 and 4 are the sheet's title/labels; row 3 is the layout /
+      // build-type selection and IS a per-project choice, so it stays editable.
+      if (pos < HEADER_ROWS && pos !== 3) return res.json({ ok: false, error: 'Header rows are locked.' });
       const set = (req.body && req.body.set) || {};
       const idxs = Object.keys(set).map(Number);
       if (!idxs.length || idxs.some(i => !Number.isInteger(i) || i < 0 || i > 18)) {
         return res.status(400).json({ ok: false, error: 'set must map column indexes 0–18 to values' });
       }
-      const cells = await inTx(async client => {
+      const out = await inTx(async client => {
         const { rows: [r] } = await client.query(
           'SELECT cells FROM project_schedule_rows WHERE project_id=$1 AND pos=$2 FOR UPDATE', [projectId, pos]);
         if (!r) throw new Error('No such row');
         const c = cleanCells(r.cells);
         for (const i of idxs) { while (c.length <= i) c.push(''); c[i] = String(set[i] == null ? '' : set[i]).slice(0, 500); }
+        // Prod code changed → fill the row from the catalog, replacing the sheet's
+        // old lookup formulas: category, brand, product, model, finish, supplier.
+        // A code the catalog doesn't know leaves the other columns alone (custom item).
+        let filled = false;
+        if (idxs.includes(2)) {
+          const code = String(c[2] || '').trim();
+          if (code && !/^(not yet selected|nys)$/i.test(code)) {
+            const { rows: [cat] } = await client.query(
+              'SELECT prod_code, category_code, brand, product_name, model_no, finish, supplier FROM item_catalog WHERE prod_code=$1', [code]);
+            if (cat) {
+              const put = (i, v) => { while (c.length <= i) c.push(''); c[i] = String(v == null ? '' : v).slice(0, 500); };
+              c[2] = cat.prod_code;
+              if (cat.category_code) put(4, cat.category_code + '.');
+              put(5, cat.brand || ''); put(6, cat.product_name || ''); put(7, cat.model_no || '');
+              if (cat.finish) put(8, cat.finish);
+              put(14, cat.supplier || '');
+              for (const i of [10, 11, 12, 13]) if (/^#N\/A$/i.test(String(c[i] || '').trim())) c[i] = '';
+              if (/^(nys|not yet selected)$/i.test(String(c[9] || '').trim()) || !String(c[9] || '').trim()) c[9] = '1';
+              filled = true;
+            }
+          }
+        }
         await client.query('UPDATE project_schedule_rows SET cells=$1::jsonb WHERE project_id=$2 AND pos=$3',
           [JSON.stringify(c), projectId, pos]);
-        return c;
+        return { cells: c, filled };
       });
-      res.json({ ok: true, cells, resynced: await resync(projectId) });
+      res.json({ ok: true, cells: out.cells, filled: out.filled, resynced: await resync(projectId) });
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
