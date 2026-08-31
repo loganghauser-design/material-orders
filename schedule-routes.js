@@ -83,9 +83,13 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     const proj = await getProject(projectId);
     if (!proj || !isDbUrl(proj.finish_schedule_url)) return 0;
     const { rows: maps } = await pool.query(
-      'SELECT plan_tag, action, prod_code, section_match, name_match FROM scope_schedule_map WHERE slot_key=$1 AND LOWER(option_value)=LOWER($2)',
+      'SELECT plan_tag, action, prod_code, section_match, name_match, require_key, require_value FROM scope_schedule_map WHERE slot_key=$1 AND LOWER(option_value)=LOWER($2)',
       [slotKey, String(value || '')]);
     if (!maps.length) return 0;
+    // Cross-selection conditions need the project's other picks.
+    const { rows: selRows } = await pool.query('SELECT slot_key, value FROM project_selections WHERE project_id=$1', [projectId]);
+    const selVals = {}; selRows.forEach(s => { selVals[s.slot_key] = s.value; });
+    selVals[slotKey] = value;   // the pick being saved wins over the stored copy
     const { rows } = await pool.query(
       'SELECT pos, cells FROM project_schedule_rows WHERE project_id=$1 ORDER BY pos', [projectId]);
     // Track which room header each row sits under ("Bath 2 - BA") so a mapping
@@ -105,6 +109,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
         if (!wantTag || tag !== wantTag) continue;
         if (m.section_match && !String(roomOf.get(r.pos) || '').toLowerCase().startsWith(String(m.section_match).toLowerCase())) continue;
         if (m.name_match && String((r.cells || [])[0] || '').replace(/\n/g, ' ').trim().toLowerCase() !== String(m.name_match).trim().toLowerCase()) continue;
+        if (m.require_key && !String(selVals[m.require_key] || '').toLowerCase().includes(String(m.require_value || '').toLowerCase())) continue;
         const c = cleanCells(r.cells);
         if (m.action === 'exclude') {
           c[14] = 'Not in scope';
@@ -521,7 +526,7 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
       // Buildoly stock; a sliding glass door is always vendor-supplied (Ganahl).
       let slidingSource = null;
       if (key === 'finishes-patio-door') {
-        if (/tri-?fold/i.test(value)) slidingSource = 'buildoly';
+        if (/(tri|bi)-?fold|3.?panel/i.test(value)) slidingSource = 'buildoly';
         else if (/sliding/i.test(value)) slidingSource = 'vendor';
         if (slidingSource) await pool.query('UPDATE projects SET sliding_door_source=$1 WHERE id=$2', [slidingSource, projectId]);
       }

@@ -52,7 +52,9 @@
           <tr data-s="<%= [it.prod_code, it.item_role, it.brand, it.product_name, it.model_no, it.supplier, it.category_code, it.section, it.subsection].filter(Boolean).join(' ').toLowerCase() %>">
             <td class="cat-code"><%= it.prod_code %></td>
             <td><span class="cat-bucket"><%= it.category_code %></span></td>
-            <td><strong><%= it.item_role %></strong><div style="color:var(--muted);font-size:.76rem"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
+            <td><strong class="cat-name" data-code="<%= it.prod_code %>"><%= it.item_role %></strong>
+              <button type="button" class="cat-pencil" onclick="catRename('<%= it.prod_code %>', this)" title="Rename this item">✎</button>
+              <div style="color:var(--muted);font-size:.76rem" class="cat-prodname" data-code="<%= it.prod_code %>"><%= [it.brand, it.product_name].filter(Boolean).join(' — ').slice(0, 90) %></div></td>
             <td class="cat-model"><%= it.model_no || '—' %></td>
             <td style="font-size:.78rem;color:var(--muted)"><%= it.finish || '' %></td>
             <td style="font-size:.8rem"><%= it.supplier || '—' %></td>
@@ -66,7 +68,31 @@
   </div>
 </div>
 
+<style>
+  .cat-pencil{border:none;background:none;cursor:pointer;font-size:.72rem;color:var(--muted);padding:1px 4px;border-radius:4px;opacity:0;transition:opacity .12s}
+  tr:hover .cat-pencil{opacity:1}
+  .cat-pencil:hover{color:var(--text);background:var(--bg)}
+</style>
 <script>
+// Rename an item in the master — item name and/or product description.
+async function catRename(code, btn) {
+  const row = btn.closest('td');
+  const nameEl = row.querySelector('.cat-name');
+  const prodEl = row.querySelector('.cat-prodname');
+  const newName = prompt('Item name for ' + code + ':', nameEl.textContent.trim());
+  if (newName === null) return;
+  const newProd = prompt('Product description (blank = keep current):', '');
+  try {
+    const body = { prod_code: code };
+    if (newName.trim()) body.item_role = newName.trim();
+    if (newProd && newProd.trim()) body.product_name = newProd.trim();
+    const r = await fetch('/catalog/items/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const d = await r.json();
+    if (!d.ok) return alert(d.error || 'Could not save');
+    if (body.item_role) nameEl.textContent = body.item_role;
+    if (body.product_name && prodEl) prodEl.textContent = body.product_name;
+  } catch (e) { alert('Could not save: ' + e.message); }
+}
 function catFilter() {
   const q = document.getElementById('catSearch').value.toLowerCase().trim();
   document.querySelectorAll('tr[data-s]').forEach(function (r) { r.style.display = !q || r.dataset.s.includes(q) ? '' : 'none'; });

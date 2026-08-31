@@ -1659,6 +1659,12 @@ async function initDb() {
     -- Optional row-name filter: many rows share the "PER PLANS" tag, so a mapping
     -- can pin itself to one row by name ("Swing Entry").
     ALTER TABLE scope_schedule_map ADD COLUMN IF NOT EXISTS name_match TEXT;
+    -- Optional cross-selection condition: the mapping only applies when ANOTHER
+    -- scope pick matches (substring, ci). Lets door type x color resolve jointly:
+    -- Doors Windows "Black" sets the bi-fold black SKU only when the patio-door
+    -- pick says fold, the slider black SKU only when it says sliding.
+    ALTER TABLE scope_schedule_map ADD COLUMN IF NOT EXISTS require_key TEXT;
+    ALTER TABLE scope_schedule_map ADD COLUMN IF NOT EXISTS require_value TEXT;
     CREATE TABLE IF NOT EXISTS project_selections (
       project_id INTEGER NOT NULL,
       slot_key TEXT NOT NULL,
@@ -8290,6 +8296,22 @@ async function syncMasterCatalog() {
 app.post('/catalog/sync', requireAuth, async (req, res) => {
   try { res.json({ ok: true, ...(await syncMasterCatalog()) }); }
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// Rename / retitle a master item in place (names only — codes are immutable).
+app.post('/catalog/items/update', requireAuth, async (req, res) => {
+  try {
+    const b = req.body || {};
+    const prod = String(b.prod_code || '').trim().toUpperCase();
+    if (!prod) return res.status(400).json({ ok: false, error: 'Missing prod code' });
+    const sets = [], vals = [prod];
+    if (b.item_role != null && String(b.item_role).trim()) { vals.push(String(b.item_role).trim().slice(0, 120)); sets.push('item_role=$' + vals.length); }
+    if (b.product_name != null && String(b.product_name).trim()) { vals.push(String(b.product_name).trim().slice(0, 500)); sets.push('product_name=$' + vals.length); }
+    if (!sets.length) return res.json({ ok: false, error: 'Nothing to change' });
+    const r = await pool.query('UPDATE item_catalog SET ' + sets.join(', ') + ', updated_at=NOW() WHERE prod_code=$1', vals);
+    if (!r.rowCount) return res.status(404).json({ ok: false, error: 'No item with code ' + prod });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 // Add a product directly to the master catalog — the DB is the source of truth,
