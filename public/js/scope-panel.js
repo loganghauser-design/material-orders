@@ -31,6 +31,8 @@
     + '.scp .scp-val { display:flex; align-items:flex-start; gap:.35rem; min-height:1.25rem; }'
     + '.scp .scp-text { font-size:13px; color:#2f6fd6; font-weight:500; white-space:pre-wrap; line-height:1.45; }'
     + '.scp .scp-text.empty { color:#b45309; font-weight:400; font-style:italic; font-size:12px; }'
+    /* "Match primary home (…)" picks read in orange, mirroring Buildoly Ops. */
+    + '.scp .scp-text.match { color:#ea580c; }'
     + '.scp .scp-text.opt { color:var(--muted); font-weight:400; font-style:italic; font-size:12px; opacity:.75; }'
     + '.scp .scp-up { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; border-radius:4px; border:1px solid rgba(47,111,214,.4); background:rgba(47,111,214,.1); color:#2f6fd6; font-size:11px; font-weight:800; flex:none; margin-top:1px; user-select:none; }'
     + '.scp .scp-up.ghost { display:none; opacity:.35; }'
@@ -100,11 +102,12 @@
         var v = state.values[s.key] || '';
         var disp = isSrc ? srcLabel(s, v) : v;
         var up = !isSrc && v && isUp(s, v);
+        var mph = !!disp && /match primary home/i.test(String(disp));
         return '<div class="scp-row" data-key="' + esc(s.key) + '"><div class="scp-label"' + (s.title ? ' title="' + esc(s.title) + '"' : '') + '>' + esc(s.label) + '</div>'
           + '<div class="scp-val">'
           + (up ? '<span class="scp-up on" data-act="upflag" title="Upgrade (click in edit mode to unmark)">↑</span>' : '')
           + (!isSrc && v && !up ? '<span class="scp-up ghost" data-act="upflag" title="Mark this pick as an upgrade">↑</span>' : '')
-          + '<span class="scp-text' + (disp ? '' : (s.optional ? ' opt' : ' empty')) + '">' + (disp ? esc(disp) : (s.optional ? 'optional' : 'not set')) + '</span>'
+          + '<span class="scp-text' + (disp ? (mph ? ' match' : '') : (s.optional ? ' opt' : ' empty')) + '">' + (disp ? esc(disp) : (s.optional ? 'optional' : 'not set')) + '</span>'
           + '<button class="scp-pencil" data-act="edit" title="Edit ' + esc(s.label) + '">✎</button>'
           + '<span class="scp-editorbox"></span></div></div>';
       }
