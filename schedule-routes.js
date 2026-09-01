@@ -646,6 +646,132 @@ module.exports = function ({ app, pool, requireAuth, fetchScheduleValues, syncPr
     } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
   });
 
+  // ── Model Templates home: list + direct editing of each template ───────────
+  // Templates are the baseline every new project inherits; editing one here
+  // changes what FUTURE model stamps deliver. Projects already stamped are
+  // never touched.
+  app.get('/templates', requireAuth, async (req, res) => {
+    try {
+      const { rows: templates } = await pool.query(`
+        SELECT t.id, t.name, t.bathrooms, t.pantry, t.updated_at,
+               count(r.id)::int AS rows,
+               count(r.id) FILTER (WHERE (r.cells->>4) ~* '^[1-5][a-e]')::int AS items,
+               count(r.id) FILTER (WHERE TRIM(r.cells->>2) ~* '^(not yet selected|nys)$')::int AS reds
+        FROM schedule_templates t LEFT JOIN schedule_template_rows r ON r.template_id = t.id
+        GROUP BY t.id ORDER BY t.name`);
+      res.render('templates', { templates });
+    } catch (err) { res.status(500).send(err.message); }
+  });
+
+  app.post('/templates/:id/meta', requireAuth, async (req, res) => {
+    try {
+      const b = req.body || {};
+      const baths = b.bathrooms === '' || b.bathrooms == null ? null : parseInt(b.bathrooms, 10);
+      if (baths != null && (!Number.isInteger(baths) || baths < 0 || baths > 9)) return res.json({ ok: false, error: 'Bathrooms must be 0-9 or blank' });
+      await pool.query('UPDATE schedule_templates SET bathrooms=$1, pantry=$2, updated_at=NOW() WHERE id=$3',
+        [baths, b.pantry === true || b.pantry === 'true', +req.params.id]);
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  // The same schedule editor, pointed at a template's rows.
+  app.get('/templates/:id/edit', requireAuth, async (req, res, next) => {
+    if (!/^\d+$/.test(req.params.id)) return next();
+    try {
+      const { rows: [tpl] } = await pool.query('SELECT id, name FROM schedule_templates WHERE id=$1', [req.params.id]);
+      if (!tpl) return res.status(404).send('No such template');
+      const { rows: trows } = await pool.query('SELECT pos, cells FROM schedule_template_rows WHERE template_id=$1 ORDER BY pos', [tpl.id]);
+      const values = [];
+      trows.forEach(r => { values[r.pos] = r.cells; });
+      for (let i = 0; i < values.length; i++) if (!values[i]) values[i] = [];
+      const rows = values.map((cells, pos) => ({ pos, cells: cells || [], kind: classify(cells, pos) }));
+      const { rows: catalog } = await pool.query(
+        "SELECT prod_code, product_name || CASE WHEN COALESCE(finish,'') <> '' THEN ' · ' || finish ELSE '' END AS product_name FROM item_catalog WHERE prod_code IS NOT NULL ORDER BY prod_code LIMIT 1000");
+      res.render('schedule-editor', {
+        proj: { id: tpl.id, address: 'Model ' + tpl.name + ' template' },
+        dbMode: true, rows, loadError: null,
+        items: itemCount(values),
+        templates: [], catalog, categories: CATEGORY_LABELS,
+        nysOnly: req.query.nys === '1', sheetUrl: '',
+        tplMode: true, basePath: '/templates/' + tpl.id + '/schedule',
+      });
+    } catch (err) { res.status(500).send(err.message); }
+  });
+
+  // Row operations on a template — mirrors the project routes, no resync needed
+  // (templates only shape future stamps).
+  app.post('/templates/:id/schedule/row/:pos', requireAuth, async (req, res) => {
+    try {
+      const tplId = +req.params.id, pos = +req.params.pos;
+      if (!Number.isInteger(tplId) || !Number.isInteger(pos)) return res.status(400).json({ ok: false, error: 'Bad ids' });
+      if (pos < HEADER_ROWS && pos !== 3) return res.json({ ok: false, error: 'Header rows are locked.' });
+      const set = (req.body && req.body.set) || {};
+      const idxs = Object.keys(set).map(Number);
+      if (!idxs.length || idxs.some(i => !Number.isInteger(i) || i < 0 || i > 18)) {
+        return res.status(400).json({ ok: false, error: 'set must map column indexes 0–18 to values' });
+      }
+      const out = await inTx(async client => {
+        const { rows: [r] } = await client.query('SELECT cells FROM schedule_template_rows WHERE template_id=$1 AND pos=$2 FOR UPDATE', [tplId, pos]);
+        if (!r) throw new Error('No such row');
+        const c = cleanCells(r.cells);
+        for (const i of idxs) { while (c.length <= i) c.push(''); c[i] = String(set[i] == null ? '' : set[i]).slice(0, 500); }
+        let filled = false;
+        if (idxs.includes(2)) {
+          const code = String(c[2] || '').trim();
+          if (code && !/^(not yet selected|nys)$/i.test(code)) {
+            const { rows: [cat] } = await client.query(
+              'SELECT prod_code, category_code, brand, product_name, model_no, finish, supplier FROM item_catalog WHERE prod_code=$1', [code]);
+            if (cat) { applyCatalogToCells(c, cat); filled = true; }
+          }
+        }
+        await client.query('UPDATE schedule_template_rows SET cells=$1::jsonb WHERE template_id=$2 AND pos=$3', [JSON.stringify(c), tplId, pos]);
+        await client.query('UPDATE schedule_templates SET updated_at=NOW() WHERE id=$1', [tplId]);
+        return { cells: c, filled };
+      });
+      res.json({ ok: true, cells: out.cells, filled: out.filled });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  app.post('/templates/:id/schedule/rows/insert', requireAuth, async (req, res) => {
+    try {
+      const tplId = +req.params.id;
+      const afterPos = Math.max(HEADER_ROWS - 1, parseInt((req.body && req.body.afterPos), 10) || 0);
+      let cells = cleanCells((req.body && req.body.cells) || []);
+      const prodCode = String((req.body && req.body.prodCode) || '').trim();
+      if (prodCode) {
+        const { rows: [c] } = await pool.query(
+          'SELECT prod_code, category_code, brand, product_name, model_no, finish, supplier FROM item_catalog WHERE prod_code=$1', [prodCode]);
+        if (!c) return res.json({ ok: false, error: 'No catalog item with code ' + prodCode });
+        cells = cleanCells([c.product_name, '', c.prod_code, '', (c.category_code || '') + '.', c.brand, c.product_name, c.model_no, c.finish, '1', '', '', '', '', c.supplier]);
+      }
+      const pos = await inTx(async client => {
+        await client.query('UPDATE schedule_template_rows SET pos = -(pos + 1) WHERE template_id=$1 AND pos > $2', [tplId, afterPos]);
+        await client.query('UPDATE schedule_template_rows SET pos = -pos WHERE template_id=$1 AND pos < 0', [tplId]);
+        const p = afterPos + 1;
+        await client.query('INSERT INTO schedule_template_rows (template_id, pos, cells) VALUES ($1,$2,$3::jsonb)', [tplId, p, JSON.stringify(cells)]);
+        await client.query('UPDATE schedule_templates SET updated_at=NOW() WHERE id=$1', [tplId]);
+        return p;
+      });
+      res.json({ ok: true, pos });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
+  app.post('/templates/:id/schedule/rows/delete', requireAuth, async (req, res) => {
+    try {
+      const tplId = +req.params.id;
+      const pos = parseInt((req.body && req.body.pos), 10);
+      if (!Number.isInteger(pos) || pos < HEADER_ROWS) return res.json({ ok: false, error: 'Header rows are locked.' });
+      await inTx(async client => {
+        const del = await client.query('DELETE FROM schedule_template_rows WHERE template_id=$1 AND pos=$2', [tplId, pos]);
+        if (!del.rowCount) throw new Error('No such row');
+        await client.query('UPDATE schedule_template_rows SET pos = -(pos - 1) WHERE template_id=$1 AND pos > $2', [tplId, pos]);
+        await client.query('UPDATE schedule_template_rows SET pos = -pos WHERE template_id=$1 AND pos < 0', [tplId]);
+        await client.query('UPDATE schedule_templates SET updated_at=NOW() WHERE id=$1', [tplId]);
+      });
+      res.json({ ok: true });
+    } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+  });
+
   // ── Sync all model templates from the master template sheet ────────────────
   // One template per "Fin Sched - <MODEL>" tab, named after the model. Re-running
   // replaces same-named templates; each tab imports in its own transaction so one

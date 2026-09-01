@@ -55,14 +55,23 @@
 </head>
 <body class="<%= dbMode ? 'editable' : '' %>">
 <%- include('_nav', { active: '' }) %>
+<%
+  var TPL = typeof tplMode !== 'undefined' && tplMode;
+  var BASEP = typeof basePath !== 'undefined' ? basePath : ('/projects/' + proj.id + '/schedule');
+%>
 <main class="container">
   <div class="se-head">
-    <h1>Finish Schedule</h1>
-    <span class="se-badge <%= dbMode ? 'db' : 'sheet' %>"><%= dbMode ? 'Stored in Buildoly' : 'Reading from Google Sheet' %></span>
-    <% if (proj.schedule_model) { %><span class="se-badge db" title="ADU model — switch it from the Model dropdown on the project page">Model <%= proj.schedule_model %></span><% } %>
-    <span class="se-meta"><a href="/projects/<%= proj.id %>"><%= proj.address %></a></span>
+    <h1><%= TPL ? 'Model Template' : 'Finish Schedule' %></h1>
+    <% if (TPL) { %>
+      <span class="se-badge db" title="This is the baseline every NEW project of this model inherits. Projects already created are not changed.">Edits shape future projects</span>
+      <span class="se-meta"><a href="/templates"><%= proj.address %></a></span>
+    <% } else { %>
+      <span class="se-badge <%= dbMode ? 'db' : 'sheet' %>"><%= dbMode ? 'Stored in Buildoly' : 'Reading from Google Sheet' %></span>
+      <% if (proj.schedule_model) { %><span class="se-badge db" title="ADU model — switch it from the Model dropdown on the project page">Model <%= proj.schedule_model %></span><% } %>
+      <span class="se-meta"><a href="/projects/<%= proj.id %>"><%= proj.address %></a></span>
+    <% } %>
     <div class="right">
-      <% if (sheetUrl) { %><a class="se-btn" target="_blank" href="<%= sheetUrl %>">Open sheet ↗</a><% } %>
+      <% if (!TPL && sheetUrl) { %><a class="se-btn" target="_blank" href="<%= sheetUrl %>">Open sheet ↗</a><% } %>
     </div>
   </div>
 
@@ -95,7 +104,9 @@
   <% } %>
 
   <div class="se-bar">
-    <% if (!dbMode) { %>
+    <% if (TPL) { %>
+      <span class="se-meta" style="font-weight:700;color:var(--text)">✎ Click any cell to edit — saves instantly, and every future project of this model inherits it.</span>
+    <% } else if (!dbMode) { %>
       <button class="se-btn primary" onclick="act('import-from-sheet', {}, 'Import this sheet into Buildoly? The project will read from the stored copy from then on (revert any time).')">⬇ Import into Buildoly</button>
       <span class="se-meta">Snapshots the sheet into the website. Nothing changes until you click it.</span>
     <% } else { %>
@@ -104,13 +115,13 @@
       <button class="se-btn warn" onclick="act('revert-to-sheet', {}, 'Point this project back at the Google Sheet? The stored copy is kept but stops being used.')">↩ Revert to sheet</button>
       <button class="se-btn" onclick="saveAsTemplate()">★ Save as template…</button>
     <% } %>
-    <% if (templates.length) { %>
+    <% if (!TPL && templates.length) { %>
       <select id="tplPick" style="border:1px solid var(--border);border-radius:6px;padding:.3rem .4rem;font:inherit;font-size:.78rem;background:var(--bg);color:var(--text)">
         <% templates.forEach(function (t) { %><option value="<%= t.id %>"><%= t.name %> (<%= t.rows %> rows)</option><% }) %>
       </select>
       <button class="se-btn" onclick="loadTemplate()">⤓ Load model template</button>
     <% } %>
-    <button class="se-btn" onclick="syncTemplates()" title="Re-imports every 'Fin Sched - MODEL' tab from the master template sheet. Manual only — nothing reads the sheet on its own.">⟳ Sync models from master sheet</button>
+    <% if (!TPL) { %><button class="se-btn" onclick="syncTemplates()" title="Re-imports every 'Fin Sched - MODEL' tab from the master template sheet. Manual only — nothing reads the sheet on its own.">⟳ Sync models from master sheet</button><% } %>
     <span class="sp"></span>
     <button class="se-btn" id="chipNys" onclick="setFilter('nys')" title="Rows where the product has not been picked yet">◔ Unselected (<%= nysCount %>)</button>
     <button class="se-btn" id="chipUncat" onclick="setFilter('uncat')" title="Rows with no usable category yet">▢ Uncategorized (<%= uncatCount %>)</button>
@@ -169,7 +180,7 @@
 <div id="toast"></div>
 <script>
 const PID = <%= proj.id %>;
-const BASE = '/projects/' + PID + '/schedule/';
+const BASE = '<%= BASEP %>/';
 let toastT;
 function toast(msg, bad) {
   const t = document.getElementById('toast');
