@@ -9503,27 +9503,23 @@ async function personalizeWarrantyDoc(buf, info) {
   try {
     const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
     const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
-    const ref = doc.getPage(0).getSize();
-    const page = doc.insertPage(1, [ref.width, ref.height]);
+    const page = doc.getPage(0);                 // stamp the cover itself, in the open band
+    const { height } = page.getSize();
     const helv = await doc.embedFont(StandardFonts.Helvetica);
     const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-    const ink = rgb(0.13, 0.14, 0.16), mut = rgb(0.45, 0.47, 0.5);
-    const center = (txt, font, size, y) => {
-      const w = font.widthOfTextAtSize(txt, size);
-      page.drawText(txt, { x: (ref.width - w) / 2, y, size, font, color: font === bold ? ink : mut });
-    };
-    const midY = ref.height * 0.62;
-    const sp = t => t.toUpperCase().split('').join(' '); // spaced caps like the cover
-    center(sp('Buildoly · Homeowner Documentation'), helv, 9, midY + 96);
-    center('This manual was prepared for', helv, 12, midY + 52);
-    center(String(info.name || 'Homeowner'), bold, 26, midY + 14);
-    if (info.address) center(String(info.address), helv, 13, midY - 16);
-    page.drawLine({ start: { x: ref.width * 0.3, y: midY - 48 }, end: { x: ref.width * 0.7, y: midY - 48 }, thickness: 0.7, color: mut });
-    center('Warranty start — date of final inspection', helv, 10.5, midY - 78);
-    center(String(info.start || ''), bold, 15, midY - 100);
-    center('One-year coverage runs through', helv, 10.5, midY - 132);
-    center(String(info.end || ''), bold, 15, midY - 154);
-    center(sp('1-Year Limited Warranty · CSLB License #1134744'), helv, 8, 46);
+    const ink = rgb(0.13, 0.14, 0.16);           // near-black like the cover title
+    const slate = rgb(0.53, 0.58, 0.63);         // muted labels like "HOMEOWNER DOCUMENTATION"
+    const x0 = 72;                               // matches the cover's body-text left margin
+    const sp = t => t.toUpperCase().split('').join(' ');
+    const at = (txt, font, size, y, color) => page.drawText(String(txt), { x: x0, y, size, font, color });
+    // The cover's open band runs y≈80..222 (below the intro, above the footer).
+    at(sp('Prepared for'), helv, 8, 196, slate);
+    at(info.name || 'Homeowner', bold, 18, 172, ink);
+    if (info.address) at(info.address, helv, 10.5, 153, rgb(0.32, 0.34, 0.37));
+    page.drawLine({ start: { x: x0, y: 139 }, end: { x: x0 + 150, y: 139 }, thickness: 0.6, color: slate });
+    at(sp('Warranty start · final inspection'), helv, 8, 121, slate);
+    at(info.start || '', bold, 12, 103, ink);
+    at('One-year coverage through ' + (info.end || ''), helv, 9, 84, slate);
     return Buffer.from(await doc.save());
   } catch (e) { console.error('personalizeWarrantyDoc:', e.message); return buf; }
 }
