@@ -66,7 +66,7 @@
       </datalist>
       <input id="wwName" type="text" placeholder="Client name(s)" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:180px">
       <input id="wwEmail" type="text" placeholder="client@email.com (comma for two)" style="font:inherit;font-size:.85rem;padding:.42rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text);min-width:230px;flex:1">
-      <label style="display:flex;flex-direction:column;gap:2px;font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Warranty start (final payment date)
+      <label style="display:flex;flex-direction:column;gap:2px;font-size:.68rem;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em">Warranty start (final inspection date)
         <input id="wwStart" type="date" style="font:inherit;font-size:.85rem;font-weight:400;text-transform:none;letter-spacing:0;padding:.34rem .55rem;border:1px solid var(--border);border-radius:8px;background:var(--bg);color:var(--text)">
       </label>
       <button type="button" class="btn btn-primary btn-sm" id="wwSendBtn" onclick="wwSendForm()">📝 Draft email for review</button>
@@ -104,7 +104,7 @@
     const email = document.getElementById('wwEmail').value.trim();
     if (!email) { alert("Type the client's email."); return; }
     const wstart = document.getElementById('wwStart').value;
-    if (!wstart) { alert('Pick the warranty start date (the final payment date).'); return; }
+    if (!wstart) { alert('Pick the warranty start date (the final inspection date).'); return; }
     if (!confirm('Draft the warranty email for ' + email + ' (' + WW_CUR.address + ')? You review + send it from Gmail.')) return;
     const btn = document.getElementById('wwSendBtn');
     btn.disabled = true; btn.textContent = 'Drafting…';

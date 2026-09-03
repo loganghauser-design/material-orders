@@ -9513,7 +9513,7 @@ async function buildWarrantyWelcome(p, phone) {
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
 <p>Hi ${escapeHtml(firstName)},</p>
 <p>Congrats again on the finished project! A couple quick things as we wrap up:</p>
-<p>The start of your warranty is <strong>${fmt(started)}</strong> — your one-year coverage runs through <strong>${fmt(ends)}</strong>.</p>
+<p>The start of your warranty is <strong>${fmt(started)}</strong> — the date of your final inspection. Your one-year coverage runs through <strong>${fmt(ends)}</strong>.</p>
 <p>If you are having any issues, please submit a warranty claim here — we will respond within 24–48 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
 ${phone ? `<p>If it's anything extremely urgent — an active water leak, a burst pipe, no AC or heat, no power, or a sewer backup — please call the emergency line below.</p>
 <p><strong>Emergency line: ${escapeHtml(phone)}</strong></p>` : ''}
@@ -9549,8 +9549,8 @@ app.post('/projects/:id/warranty-welcome', requireAuth, async (req, res) => {
                              client_email = COALESCE(NULLIF($2,''), client_email) WHERE id=$3`,
         [typedName, typedEmail, req.params.id]);
     }
-    // The warranty clock starts on the FINAL PAYMENT date — the typed date becomes the
-    // project's official warranty_started_at (drives this email AND the 1-year auto-
+    // The warranty clock starts on the FINAL INSPECTION date — the typed date becomes
+    // the project's official warranty_started_at (drives this email AND the 1-year auto-
     // graduation). Noon UTC so the calendar date never shifts across timezones.
     const typedStart = String((req.body || {}).warranty_start || '').trim();
     if (/^\d{4}-\d{2}-\d{2}$/.test(typedStart)) {
