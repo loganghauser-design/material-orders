@@ -9539,18 +9539,20 @@ async function buildWarrantyWelcome(p, phone) {
   const firstName = String(p.client_name || '').trim() || 'there';
   const subject = 'Buildoly Wrap Up — Warranty Information';
   // Short + human, one text color throughout, real Gmail signature appended below.
-  // No address in the body — Gmail auto-links it into a blue maps link, which reads
-  // as clutter; the client knows their own address.
+  // The attached document is the source of truth (warranty dates are printed on its
+  // cover), so the email leads with "print it and keep it."
   const sig = await getGmailSignature();
   const html =
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
 <p>Hi ${escapeHtml(firstName)},</p>
-<p>Congrats again on the finished project! A couple quick things as we wrap up:</p>
-<p>The start of your warranty is <strong>${fmt(started)}</strong> — the date of your final inspection. Your one-year coverage runs through <strong>${fmt(ends)}</strong>.</p>
-<p>If you are having any issues, please submit a warranty claim here — we will respond within 24–48 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
-${phone ? `<p>If it's anything extremely urgent — an active water leak, a burst pipe, no AC or heat, no power, or a sewer backup — please call the emergency line below.</p>
-<p><strong>Emergency line: ${escapeHtml(phone)}</strong></p>` : ''}
-<p>I've also attached your warranty document — it covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer. Please read the document carefully.</p>
+<p>Congrats again on the finished project! I've attached your warranty document — it has everything you need for the year ahead.</p>
+<div style="background:#f6f8fb;border-left:3px solid #2563eb;border-radius:4px;padding:12px 16px;margin:16px 0">
+<p style="margin:0"><strong>Please print this document out and keep it somewhere safe.</strong> Your warranty start date, coverage dates, and all of your warranty information are printed right on the cover.</p>
+</div>
+<p>Your warranty starts on <strong>${fmt(started)}</strong> — the date of your final inspection — and your one-year coverage runs through <strong>${fmt(ends)}</strong>.</p>
+<p>The document covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer. Please read it carefully.</p>
+<p>If you ever run into an issue, submit a warranty claim here and we'll respond within 24–48 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
+${phone ? `<p>If it's anything extremely urgent — an active water leak, a burst pipe, no AC or heat, no power, or a sewer backup — please call our emergency line: <strong>${escapeHtml(phone)}</strong>.</p>` : ''}
 <p>Thanks again for building with us!</p>
 </div>${sig ? '<br>' + sig : ''}`;
   // Attach the warranty document uploaded in Settings (the real, current one);
