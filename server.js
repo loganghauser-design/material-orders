@@ -9495,6 +9495,39 @@ async function sendWeeklyDigest() {
   } catch (e) { console.error('sendWeeklyDigest:', e.message); }
 }
 
+// Personalize the homeowner manual: a "Prepared for" page inserted right after the
+// cover, carrying the client's name, address, and the warranty window. Drawn on a
+// fresh page (never stamped over the designed cover) sized to match the document.
+// Any failure returns the original bytes so the email always has an attachment.
+async function personalizeWarrantyDoc(buf, info) {
+  try {
+    const { PDFDocument, StandardFonts, rgb } = require('pdf-lib');
+    const doc = await PDFDocument.load(buf, { ignoreEncryption: true });
+    const ref = doc.getPage(0).getSize();
+    const page = doc.insertPage(1, [ref.width, ref.height]);
+    const helv = await doc.embedFont(StandardFonts.Helvetica);
+    const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+    const ink = rgb(0.13, 0.14, 0.16), mut = rgb(0.45, 0.47, 0.5);
+    const center = (txt, font, size, y) => {
+      const w = font.widthOfTextAtSize(txt, size);
+      page.drawText(txt, { x: (ref.width - w) / 2, y, size, font, color: font === bold ? ink : mut });
+    };
+    const midY = ref.height * 0.62;
+    const sp = t => t.toUpperCase().split('').join(' '); // spaced caps like the cover
+    center(sp('Buildoly · Homeowner Documentation'), helv, 9, midY + 96);
+    center('This manual was prepared for', helv, 12, midY + 52);
+    center(String(info.name || 'Homeowner'), bold, 26, midY + 14);
+    if (info.address) center(String(info.address), helv, 13, midY - 16);
+    page.drawLine({ start: { x: ref.width * 0.3, y: midY - 48 }, end: { x: ref.width * 0.7, y: midY - 48 }, thickness: 0.7, color: mut });
+    center('Warranty start — date of final inspection', helv, 10.5, midY - 78);
+    center(String(info.start || ''), bold, 15, midY - 100);
+    center('One-year coverage runs through', helv, 10.5, midY - 132);
+    center(String(info.end || ''), bold, 15, midY - 154);
+    center(sp('1-Year Limited Warranty · CSLB License #1134744'), helv, 8, 46);
+    return Buffer.from(await doc.save());
+  } catch (e) { console.error('personalizeWarrantyDoc:', e.message); return buf; }
+}
+
 // A year after a project enters Under Warranty it graduates to Complete on its own.
 // Client warranty-welcome email — built per project, sent ONLY when Logan clicks
 // Send in the Warranty tab's welcome section. warranty_welcomed_at records exactly
@@ -9522,14 +9555,28 @@ ${phone ? `<p>If it's anything extremely urgent — an active water leak, a burs
 </div>${sig ? '<br>' + sig : ''}`;
   // Attach the warranty document uploaded in Settings (the real, current one);
   // the bundled appliance-transfer PDF is only a fallback if none is uploaded.
+  // Either way it goes out personalized: client name + warranty window drawn onto
+  // a "Prepared for" page after the cover, dated from the final inspection.
   const attachments = [];
+  const persInfo = {
+    name: String(p.client_name || '').trim() || 'Homeowner',
+    address: String(p.full_address || p.address || '').trim(),
+    start: fmt(started), end: fmt(ends),
+  };
+  const safeName = persInfo.name.replace(/[^\w .'-]/g, '').trim();
   try {
     const { rows: [doc] } = await pool.query('SELECT warranty_doc_name, warranty_doc_mime, warranty_doc_data FROM app_settings WHERE id=1');
     if (doc && doc.warranty_doc_data) {
-      attachments.push({ filename: doc.warranty_doc_name || 'Buildoly Warranty.pdf', mimeType: doc.warranty_doc_mime || 'application/pdf', content: doc.warranty_doc_data });
+      const isPdf = !doc.warranty_doc_mime || /pdf/i.test(doc.warranty_doc_mime);
+      const content = isPdf ? await personalizeWarrantyDoc(doc.warranty_doc_data, persInfo) : doc.warranty_doc_data;
+      const base = String(doc.warranty_doc_name || 'Buildoly Warranty.pdf').replace(/\.pdf$/i, '');
+      attachments.push({ filename: (isPdf && safeName !== 'Homeowner' ? base + ' — ' + safeName + '.pdf' : base + '.pdf'), mimeType: doc.warranty_doc_mime || 'application/pdf', content });
     } else {
       const wp = path.join(__dirname, 'assets', 'appliance-warranty-transfer.pdf');
-      if (fs.existsSync(wp)) attachments.push({ filename: 'Buildoly Warranty & Appliance Transfer.pdf', mimeType: 'application/pdf', content: fs.readFileSync(wp) });
+      if (fs.existsSync(wp)) {
+        const content = await personalizeWarrantyDoc(fs.readFileSync(wp), persInfo);
+        attachments.push({ filename: 'Buildoly Warranty & Appliance Transfer.pdf', mimeType: 'application/pdf', content });
+      }
     }
   } catch (e) { console.error('warranty doc attach:', e.message); }
   return { subject, html, attachments };
