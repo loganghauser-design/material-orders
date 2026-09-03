@@ -9545,10 +9545,10 @@ async function buildWarrantyWelcome(p, phone) {
   const html =
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
 <p>Dear ${escapeHtml(firstName)},</p>
-<p>Congratulations on the completion of your project. Attached is your homeowner warranty document, which contains the full details of your coverage and the information you will need over the coming year.</p>
-<p>Please print this document and keep it in a safe place for your records. Your warranty start date, coverage period, and all related warranty information are printed on the cover page.</p>
+<p>Congratulations on the completion of your project. Attached is your Buildoly Homeowner Manual — the complete guide to your unit. It covers how to operate and maintain your home's systems, the location of your emergency shutoffs, your routine maintenance schedule, and the full details of your one-year warranty.</p>
+<p>Please print this document and keep it in a safe place for your records. Your warranty start date and coverage period are printed on the cover page.</p>
 <p>Your warranty begins on ${fmt(started)}, the date of your final inspection, and your one-year coverage extends through ${fmt(ends)}.</p>
-<p>The document covers the entire unit and includes the appliance transfer forms required to register your appliances with each manufacturer. We ask that you review it carefully.</p>
+<p>The manual also includes the appliance transfer forms required to register your appliances with each manufacturer. We ask that you review it carefully and keep it on hand throughout the year.</p>
 <p>Should you experience any issue during your warranty period, please submit a claim using the link below, and our team will respond within 24 to 48 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
 ${phone ? `<p>For urgent emergencies — such as an active water leak, a burst pipe, loss of heating or air conditioning, loss of power, or a sewer backup — please call our emergency line at <strong>${escapeHtml(phone)}</strong>.</p>` : ''}
 <p>Thank you for choosing Buildoly. It has been our pleasure to build for you.</p>
