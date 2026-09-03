@@ -9544,16 +9544,14 @@ async function buildWarrantyWelcome(p, phone) {
   const sig = await getGmailSignature();
   const html =
 `<div style="font-family:Arial,sans-serif;font-size:14px;color:#222;line-height:1.6">
-<p>Hi ${escapeHtml(firstName)},</p>
-<p>Congrats again on the finished project! I've attached your warranty document — it has everything you need for the year ahead.</p>
-<div style="background:#f6f8fb;border-left:3px solid #2563eb;border-radius:4px;padding:12px 16px;margin:16px 0">
-<p style="margin:0"><strong>Please print this document out and keep it somewhere safe.</strong> Your warranty start date, coverage dates, and all of your warranty information are printed right on the cover.</p>
-</div>
-<p>Your warranty starts on <strong>${fmt(started)}</strong> — the date of your final inspection — and your one-year coverage runs through <strong>${fmt(ends)}</strong>.</p>
-<p>The document covers the whole unit and includes the appliance transfer forms, so you can register your appliances with each manufacturer. Please read it carefully.</p>
-<p>If you ever run into an issue, submit a warranty claim here and we'll respond within 24–48 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
-${phone ? `<p>If it's anything extremely urgent — an active water leak, a burst pipe, no AC or heat, no power, or a sewer backup — please call our emergency line: <strong>${escapeHtml(phone)}</strong>.</p>` : ''}
-<p>Thanks again for building with us!</p>
+<p>Dear ${escapeHtml(firstName)},</p>
+<p>Congratulations on the completion of your project. Attached is your homeowner warranty document, which contains the full details of your coverage and the information you will need over the coming year.</p>
+<p>Please print this document and keep it in a safe place for your records. Your warranty start date, coverage period, and all related warranty information are printed on the cover page.</p>
+<p>Your warranty begins on ${fmt(started)}, the date of your final inspection, and your one-year coverage extends through ${fmt(ends)}.</p>
+<p>The document covers the entire unit and includes the appliance transfer forms required to register your appliances with each manufacturer. We ask that you review it carefully.</p>
+<p>Should you experience any issue during your warranty period, please submit a claim using the link below, and our team will respond within 24 to 48 hours:<br><a href="https://buildoly.up.railway.app/warranty" style="color:#2563eb">buildoly.up.railway.app/warranty</a></p>
+${phone ? `<p>For urgent emergencies — such as an active water leak, a burst pipe, loss of heating or air conditioning, loss of power, or a sewer backup — please call our emergency line at <strong>${escapeHtml(phone)}</strong>.</p>` : ''}
+<p>Thank you for choosing Buildoly. It has been our pleasure to build for you.</p>
 </div>${sig ? '<br>' + sig : ''}`;
   // Attach the warranty document uploaded in Settings (the real, current one);
   // the bundled appliance-transfer PDF is only a fallback if none is uploaded.
