@@ -9509,17 +9509,21 @@ async function personalizeWarrantyDoc(buf, info) {
     const bold = await doc.embedFont(StandardFonts.HelveticaBold);
     const ink = rgb(0.13, 0.14, 0.16);           // near-black like the cover title
     const slate = rgb(0.53, 0.58, 0.63);         // muted labels like "HOMEOWNER DOCUMENTATION"
+    const gray = rgb(0.32, 0.34, 0.37);
     const x0 = 72;                               // matches the cover's body-text left margin
+    const colR = x0 + 232;                       // right column for the coverage-through date
     const sp = t => t.toUpperCase().split('').join(' ');
-    const at = (txt, font, size, y, color) => page.drawText(String(txt), { x: x0, y, size, font, color });
-    // The cover's open band runs y≈80..222 (below the intro, above the footer).
-    at(sp('Prepared for'), helv, 8, 196, slate);
-    at(info.name || 'Homeowner', bold, 18, 172, ink);
-    if (info.address) at(info.address, helv, 10.5, 153, rgb(0.32, 0.34, 0.37));
-    page.drawLine({ start: { x: x0, y: 139 }, end: { x: x0 + 150, y: 139 }, thickness: 0.6, color: slate });
-    at(sp('Warranty start · final inspection'), helv, 8, 121, slate);
-    at(info.start || '', bold, 12, 103, ink);
-    at('One-year coverage through ' + (info.end || ''), helv, 9, 84, slate);
+    const at = (txt, font, size, y, color, x) => page.drawText(String(txt), { x: x == null ? x0 : x, y, size, font, color });
+    // The cover's open band runs y≈95..222 (below the intro paragraph, above the
+    // footer's hairline rule). Warranty dates sit side by side so nothing crowds it.
+    at(sp('Prepared for'), helv, 8, 198, slate);
+    at(info.name || 'Homeowner', bold, 18, 174, ink);
+    if (info.address) at(info.address, helv, 10.5, 155, gray);
+    page.drawLine({ start: { x: x0, y: 140 }, end: { x: x0 + 170, y: 140 }, thickness: 0.6, color: slate });
+    at(sp('Warranty start · final inspection'), helv, 7, 122, slate);
+    at(info.start || '', bold, 11.5, 105, ink);
+    at(sp('One-year coverage through'), helv, 7, 122, slate, colR);
+    at(info.end || '', bold, 11.5, 105, ink, colR);
     return Buffer.from(await doc.save());
   } catch (e) { console.error('personalizeWarrantyDoc:', e.message); return buf; }
 }
